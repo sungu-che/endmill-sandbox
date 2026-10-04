@@ -5,1197 +5,1947 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 	<title>End Mill Sandbox</title>
 	<style>
-		* {
-			margin: 0;
-			padding: 0;
-			box-sizing: border-box;
+		:root {
+		  --bg-darkest: #0a0a12;
+		  --bg-dark: #0f0f1a;
+		  --bg-panel: #141420;
+		  --bg-card: #1a1a2e;
+		  --bg-input: #12121f;
+		  --border: #2a2a3e;
+		  --border-light: #3a3a52;
+		  --accent: #00d4ff;
+		  --accent-dim: #00d4ff44;
+		  --accent-glow: #00d4ff22;
+		  --text: #e0e0e0;
+		  --text-dim: #888;
+		  --text-muted: #556;
+		  --danger: #ff6b6b;
+		  --warning: #ffd93d;
+		  --success: #6bcb77;
+			--panel-header-h: 32px;
+		  --topbar-h: 48px;
+		  --statusbar-h: 28px;
+		  --left-w: 260px;
+		  --right-w: 300px;
+		  --bottom-h: 200px;
+		  --min-panel-w: 180px;
+		  --min-center-w: 360px;
+		  --min-bottom-h: 100px;
 		}
+		* { margin: 0; padding: 0; box-sizing: border-box; }
+		html, body { height: 100%; overflow: hidden; }
 		body {
-			font-family: 'Segoe UI', 'Malgun Gothic', sans-serif;
-			background: #1a1a2e;
-			color: #e0e0e0;
-			padding: 24px;
+		  font-family: 'Segoe UI', 'Malgun Gothic', 'Noto Sans KR', sans-serif;
+		  background: var(--bg-darkest);
+		  color: var(--text);
+		  display: grid;
+		  grid-template-rows: 1fr var(--statusbar-h);
+		  grid-template-columns: 1fr;
 		}
-		h1 {
-			color: #00d4ff;
-			margin-bottom: 8px;
-			font-size: 1.6rem;
+
+		:root {
+		  --left-min: 220px;
+		  --left-w: 280px;
+		  --right-min: 260px;
+		  --right-w: 320px;
+		  --bottom-min: 140px;
+		  --bottom-h: 220px;
+		  --header-h: 48px;
+		  --resizer-size: 6px;
+		  --panel-transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 		}
-		h2 {
-			color: #00d4ff;
-			margin: 24px 0 12px;
-			font-size: 1.2rem;
-			border-bottom: 1px solid #333;
-			padding-bottom: 6px;
+
+		.logo { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+		.logo svg { width: 24px; flex-shrink: 0; }
+
+		.top-bar {
+		  display: flex;
+		  align-items: center;
+		  width: 100%;
+		  height: 100%;
+		  gap: 16px;
+		  padding: 0 12px;
+		  overflow-x: auto;
+		  white-space: nowrap;
 		}
-		.subtitle {
-			color: #888;
-			margin-bottom: 24px;
-			font-size: 0.9rem;
+		.top-bar::-webkit-scrollbar {
+		  display: none; /* 가로 스크롤바 숨김 처리 */
 		}
-		table {
-			width: 100%;
-			border-collapse: collapse;
-			margin-bottom: 16px;
-			font-size: 0.85rem;
+
+		.menu-group { display: flex; gap: 6px; flex-shrink: 0; }
+		.menu-btn { background: transparent; border: 1px solid var(--border); color: var(--text-dim); padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 0.75rem; flex-shrink: 0; }
+		.menu-btn.active, .menu-btn:hover { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+
+		.dro-display {
+		  display: flex;
+		  align-items: center;
+		  gap: 12px;
+		  margin-left: auto;
+		  flex-shrink: 0;
+		  background: var(--bg-darkest);
+		  padding: 4px 10px;
+		  border-radius: 4px;
+		  border: 1px solid var(--border);
 		}
-		th, td {
-			padding: 8px 12px;
-			text-align: left;
-			border-bottom: 1px solid #2a2a3e;
+		.dro-item { display: flex; gap: 4px; font-family: monospace; font-size: 0.75rem; }
+		.dro-label { color: var(--text-muted); }
+		.dro-value { color: var(--accent); font-weight: bold; }
+		.status-indicators { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+		.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+		.status-dot.idle { background: var(--warning); }
+		.status-dot.error { background: var(--danger); }
+
+		.app-layout {
+		  display: grid;
+		  grid-template-columns: var(--left-w) var(--resizer-size) 1fr var(--resizer-size) var(--right-w);
+		  grid-template-rows: var(--header-h) 1fr var(--resizer-size) var(--bottom-h);
+		  width: 100%;
+		  height: 100%;
+		  overflow: hidden;
 		}
-		th {
-			background: #16213e;
-			color: #00d4ff;
-			font-weight: 600;
+
+		.app-layout > .panel-left {
+		  grid-row: 2;
+		  grid-column: 1;
+		  min-width: var(--left-min);
+		  overflow-x: hidden;
+		  overflow-y: auto;
+		  transition: width var(--panel-transition), min-width var(--panel-transition), opacity var(--panel-transition);
 		}
-		tr:hover td {
-			background: #16213e;
+
+		.app-layout > .panel-center {
+		  grid-row: 2;
+		  grid-column: 3;
+		  min-width: 200px;
+		  min-height: 0;
+		  overflow: hidden;
+		  display: flex;
+		  flex-direction: column;
+		  position: relative;
 		}
-		.tier-high { color: #ff6b6b; font-weight: bold; }
-		.tier-mid { color: #ffd93d; }
-		.tier-low { color: #6bcb77; }
-		.card {
-			background: #16213e;
-			border-radius: 12px;
-			padding: 20px;
-			margin-bottom: 20px;
-			border: 1px solid #2a2a3e;
+
+		.app-layout > .panel-right {
+		  grid-row: 2;
+		  grid-column: 5;
+		  min-width: var(--right-min);
+		  overflow-x: hidden;
+		  overflow-y: auto;
+		  transition: width var(--panel-transition), min-width var(--panel-transition), opacity var(--panel-transition);
 		}
-		.card-title {
-			font-size: 1.1rem;
-			font-weight: bold;
-			color: #00d4ff;
-			margin-bottom: 12px;
+
+		.app-layout > .panel-bottom {
+		  grid-row: 4;
+		  grid-column: 1 / -1;
+		  min-height: var(--bottom-min);
+		  overflow: hidden;
+		  display: flex;
+		  flex-direction: column;
+		  transition: height var(--panel-transition), min-height var(--panel-transition), opacity var(--panel-transition);
 		}
+
+		.app-layout > .panel-header {
+		  grid-row: 1;
+		  grid-column: 1 / -1;
+		}
+
+		.resizer {
+		  background: var(--border-color, #333);
+		  position: relative;
+		  z-index: 10;
+		  transition: background 0.15s;
+		}
+
+		.resizer:hover,
+		.resizer.active {
+		  background: var(--accent-color, #4fc3f7);
+		}
+
+		.resizer-v {
+		  grid-row: 2;
+		  cursor: col-resize;
+		  width: var(--resizer-size);
+		}
+
+		.resizer-v.left { 
+		  grid-column: 2; 
+		}
+
+		.resizer-v.right { 
+		  grid-column: 4; 
+		}
+
+		.resizer-h {
+		  grid-row: 3;
+		  grid-column: 1 / -1;
+		  cursor: row-resize;
+		  height: var(--resizer-size);
+		}
+
+		.app-layout > .panel-left,
+		.app-layout > .panel-right,
+		.app-layout > .panel-bottom {
+		  position: relative;
+		}
+
+		.panel-left.collapsed,
+		.panel-right.collapsed {
+		  width: 0 !important;
+		  min-width: 0 !important;
+		  overflow: visible !important;
+		}
+
+		.panel-bottom.collapsed {
+		  height: 0 !important;
+		  min-height: 0 !important;
+		  overflow: visible !important;
+		}
+
+		/* 접혔을 때 내용물이 억지로 줄어들며 비정상적인 세로 길이를 생성하지 않도록 아예 숨김 처리 */
+		.panel-left.collapsed > *:not(.panel-toggle-btn),
+		.panel-right.collapsed > *:not(.panel-toggle-btn),
+		.panel-bottom.collapsed > *:not(.panel-toggle-btn) {
+		  display: none !important;
+		}
+
+		.panel-toggle-btn {
+		  position: absolute;
+		  top: 6px;
+		  right: 6px;
+		  width: 24px;
+		  height: 24px;
+		  border: none;
+		  background: transparent;
+		  color: inherit;
+		  font-size: 14px;
+		  cursor: pointer;
+		  border-radius: 4px;
+		  display: flex;
+		  align-items: center;
+		  justify-content: center;
+		  z-index: 20;
+		}
+
+		/* 접혔을 때 토글 버튼이 중앙 영역 쪽으로 튀어나오도록 위치 변경 */
+		.panel-left.collapsed .panel-toggle-btn { right: -30px; background: var(--bg-card); border: 1px solid var(--border); }
+		.panel-right.collapsed .panel-toggle-btn { right: auto; left: -30px; background: var(--bg-card); border: 1px solid var(--border); }
+		.panel-bottom.collapsed .panel-toggle-btn { top: -30px; right: 6px; background: var(--bg-card); border: 1px solid var(--border); }
+
+		.panel-toggle-btn:hover {
+		  background: rgba(255,255,255,0.1);
+		}
+
+		.panel-section-header {
+		  display: flex;
+		  align-items: center;
+		  justify-content: space-between;
+		  padding: 6px 10px;
+		  cursor: pointer;
+		  user-select: none;
+		}
+
+		.panel-section-header .chevron {
+		  transition: transform var(--panel-transition);
+		  font-size: 12px;
+		}
+
+		.panel-section-header.collapsed .chevron {
+		  transform: rotate(-90deg);
+		}
+
+		.panel-section-body {
+		  overflow: hidden;
+		  transition: max-height var(--panel-transition), opacity var(--panel-transition);
+		  max-height: 2000px;
+		  opacity: 1;
+		}
+
+		.panel-section-body.collapsed {
+		  max-height: 0;
+		  opacity: 0;
+		  padding-top: 0 !important;
+		  padding-bottom: 0 !important;
+		}
+
+		#secOutput {
+		  display: flex;
+		  flex-direction: column;
+		  flex: 1;
+		  min-height: 0;
+		}
+
+		.panel-header {
+		  height: var(--panel-header-h);
+		  display: flex;
+		  align-items: center;
+		  padding: 0;
+		  background: var(--bg-card);
+		  border-bottom: 1px solid var(--border);
+		  font-size: 0.75rem;
+		  font-weight: 600;
+		  color: var(--text-dim);
+		  text-transform: uppercase;
+		  letter-spacing: 0.5px;
+		  flex-shrink: 0;
+		  gap: 6px;
+		  user-select: none;
+		  min-width: 0;
+		}
+		.panel-header .collapse-btn {
+		  margin-left: auto;
+		  background: none;
+		  border: none;
+		  color: var(--text-muted);
+		  cursor: pointer;
+		  font-size: 0.7rem;
+		}
+		.panel-header .collapse-btn:hover { color: var(--accent); }
+
+		.panel-content {
+		  flex: 1;
+		  overflow-y: auto;
+		  padding: 8px;
+		}
+		::-webkit-scrollbar { width: 5px; height: 5px; }
+		::-webkit-scrollbar-track { background: transparent; }
+		::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+		.section-title {
+		  font-size: 0.72rem;
+		  font-weight: 700;
+		  color: var(--accent);
+		  text-transform: uppercase;
+		  letter-spacing: 0.8px;
+		  margin: 12px 0 6px;
+		  padding-bottom: 4px;
+		  border-bottom: 1px solid var(--border);
+		}
+		.section-title:first-child { margin-top: 0; }
+
+		.viewport-toolbar {
+		  display: flex;
+		  align-items: center;
+		  gap: 6px;
+		  padding: 6px 10px;
+		  background: var(--bg-dark);
+		  border-bottom: 1px solid var(--border);
+		  flex-shrink: 0;
+		}
+		.viewport-toolbar .vt-btn {
+		  background: var(--bg-card);
+		  border: 1px solid var(--border);
+		  color: var(--text-dim);
+		  font-size: 0.72rem;
+		  padding: 4px 10px;
+		  border-radius: 4px;
+		  cursor: pointer;
+		  transition: all 0.15s;
+		}
+		.viewport-toolbar .vt-btn:hover { border-color: var(--accent); color: var(--accent); }
+		.viewport-toolbar .vt-btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+		.viewport-toolbar .vt-sep { width: 1px; height: 18px; background: var(--border); }
+		.viewport-toolbar .vt-info {
+		  margin-left: auto;
+		  font-size: 0.68rem;
+		  color: var(--text-muted);
+		  font-family: monospace;
+		}
+
+		.viewport-canvas-wrap {
+		  flex: 1;
+		  position: relative;
+		  overflow: hidden;
+		}
+		.viewport-canvas-wrap canvas {
+		  width: 100%;
+		  height: 100%;
+		  display: block;
+		}
+		.viewport-overlay {
+		  position: absolute;
+		  top: 8px;
+		  right: 8px;
+		  background: rgba(0,0,0,0.75);
+		  padding: 6px 10px;
+		  border-radius: 5px;
+		  font-size: 0.7rem;
+		  color: var(--text-dim);
+		  pointer-events: none;
+		}
+		.viewport-hint {
+		  position: absolute;
+		  bottom: 8px;
+		  left: 8px;
+		  font-size: 0.65rem;
+		  color: var(--text-muted);
+		  pointer-events: none;
+		}
+
+		.tree-item {
+		  display: flex;
+		  align-items: center;
+		  gap: 6px;
+		  padding: 5px 8px;
+		  border-radius: 4px;
+		  font-size: 0.78rem;
+		  cursor: pointer;
+		  transition: background 0.15s;
+		  color: var(--text-dim);
+		}
+		.tree-item:hover { background: var(--bg-card); color: var(--text); }
+		.tree-item.active { background: var(--accent-dim); color: var(--accent); }
+		.tree-item .tree-icon { font-size: 0.7rem; width: 16px; text-align: center; }
+		.tree-item .tree-badge {
+		  margin-left: auto;
+		  font-size: 0.6rem;
+		  background: var(--accent-dim);
+		  color: var(--accent);
+		  padding: 1px 5px;
+		  border-radius: 3px;
+		}
+
+		.form-group { margin-bottom: 8px; }
+		.form-group label {
+		  display: block;
+		  font-size: 0.7rem;
+		  color: var(--text-dim);
+		  margin-bottom: 3px;
+		}
+		.form-group select,
+		.form-group input {
+		  width: 100%;
+		  padding: 5px 8px;
+		  background: var(--bg-input);
+		  border: 1px solid var(--border);
+		  color: var(--text);
+		  border-radius: 4px;
+		  font-size: 0.78rem;
+		  outline: none;
+		  transition: border-color 0.2s;
+		}
+		.form-group select:focus,
+		.form-group input:focus { border-color: var(--accent); }
+
+		.btn {
+		  background: var(--accent);
+		  color: var(--bg-darkest);
+		  border: none;
+		  padding: 6px 14px;
+		  border-radius: 4px;
+		  font-weight: 600;
+		  font-size: 0.75rem;
+		  cursor: pointer;
+		  transition: all 0.15s;
+		}
+		.btn:hover { background: #00b8d4; transform: translateY(-1px); }
+		.btn:active { transform: translateY(0); }
+		.btn-outline {
+		  background: transparent;
+		  border: 1px solid var(--border);
+		  color: var(--text-dim);
+		}
+		.btn-outline:hover { border-color: var(--accent); color: var(--accent); background: transparent; }
+		.btn-sm { padding: 4px 10px; font-size: 0.7rem; }
+		.btn-danger { background: var(--danger); }
+		.btn-danger:hover { background: #e55; }
+
 		.spec-grid {
-			display: grid;
-			grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-			gap: 12px;
+		  display: grid;
+		  grid-template-columns: 1fr 1fr;
+		  gap: 4px;
 		}
 		.spec-item {
-			background: #1a1a2e;
-			padding: 10px 14px;
-			border-radius: 8px;
+		  background: var(--bg-input);
+		  padding: 5px 8px;
+		  border-radius: 4px;
 		}
-		.spec-item .label {
-			font-size: 0.75rem;
-			color: #888;
-			margin-bottom: 2px;
+		.spec-item .label { font-size: 0.62rem; color: var(--text-muted); }
+		.spec-item .value { font-size: 0.78rem; font-weight: 600; }
+
+		.gcode-console {
+		  flex: 1;
+		  overflow-y: auto;
+		  padding: 8px 10px;
+		  font-family: 'Consolas', 'Courier New', monospace;
+		  font-size: 0.72rem;
+		  line-height: 1.5;
+		  color: #8f8;
+		  background: var(--bg-darkest);
 		}
-		.spec-item .value {
-			font-size: 1rem;
-			font-weight: 600;
+		.gcode-console .gc-line { white-space: pre; }
+		.gcode-console .gc-comment { color: var(--text-muted); }
+		.gcode-console .gc-warning { color: var(--warning); }
+
+		.bottom-tabs {
+		  display: flex;
+		  border-bottom: 1px solid var(--border);
+		  background: var(--bg-panel);
+		  flex-shrink: 0;
 		}
-		.calc-section {
-			background: #16213e;
-			border-radius: 12px;
-			padding: 20px;
-			margin-bottom: 20px;
-			border: 1px solid #2a2a3e;
+		.bottom-tab {
+		  padding: 5px 14px;
+		  font-size: 0.72rem;
+		  color: var(--text-muted);
+		  cursor: pointer;
+		  border-bottom: 2px solid transparent;
+		  transition: all 0.15s;
 		}
-		.calc-section label {
-			display: block;
-			margin-bottom: 4px;
-			font-size: 0.8rem;
-			color: #aaa;
+		.bottom-tab:hover { color: var(--text); }
+		.bottom-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+		.status-bar {
+		  background: var(--bg-dark);
+		  border-top: 1px solid var(--border);
+		  display: flex;
+		  align-items: center;
+		  padding: 0 12px;
+		  font-size: 0.68rem;
+		  color: var(--text-muted);
+		  gap: 16px;
 		}
-		.calc-section select,
-		.calc-section input {
-			width: 100%;
-			padding: 8px 12px;
-			background: #1a1a2e;
-			border: 1px solid #333;
-			color: #e0e0e0;
-			border-radius: 6px;
-			margin-bottom: 12px;
+		.status-bar .sb-item { display: flex; align-items: center; gap: 4px; }
+		.status-bar .sb-sep { width: 1px; height: 14px; background: var(--border); }
+
+		.coolant-viz-wrap {
+		  position: relative;
+		  background: var(--bg-darkest);
+		  border-radius: 6px;
+		  overflow: hidden;
+		  border: 1px solid var(--border);
+		  margin-top: 8px;
+		  height: 200px;
 		}
-		.calc-section button {
-			background: #00d4ff;
-			color: #1a1a2e;
-			border: none;
-			padding: 10px 24px;
-			border-radius: 8px;
-			font-weight: bold;
-			cursor: pointer;
-			font-size: 0.9rem;
-		}
-		.calc-section button:hover {
-			background: #00b8d4;
-		}
-		.result-box {
-			margin-top: 16px;
-			padding: 16px;
-			background: #1a1a2e;
-			border-radius: 8px;
-			display: none;
-		}
-		.result-box.visible {
-			display: block;
-		}
+		.coolant-viz-wrap canvas { width: 100%; height: 100%; display: block; }
+
 		.result-row {
-			display: flex;
-			justify-content: space-between;
-			padding: 4px 0;
-			border-bottom: 1px solid #2a2a3e;
+		  display: flex;
+		  justify-content: space-between;
+		  padding: 3px 0;
+		  border-bottom: 1px solid var(--border);
+		  font-size: 0.75rem;
 		}
-		.result-row:last-child {
-			border-bottom: none;
-		}
-		.result-row .rlabel { color: #888; }
+		.result-row:last-child { border-bottom: none; }
+		.result-row .rlabel { color: var(--text-dim); }
 		.result-row .rvalue { font-weight: 600; }
+
 		.badge {
-			display: inline-block;
-			padding: 2px 8px;
-			border-radius: 4px;
-			font-size: 0.75rem;
-			font-weight: bold;
+		  display: inline-block;
+		  padding: 1px 6px;
+		  border-radius: 3px;
+		  font-size: 0.65rem;
+		  font-weight: 700;
 		}
-		.badge-high { background: #ff6b6b33; color: #ff6b6b; }
-		.badge-mid { background: #ffd93d33; color: #ffd93d; }
-		.badge-low { background: #6bcb7733; color: #6bcb77; }
-	</style>
+		.badge-high { background: #ff6b6b33; color: var(--danger); }
+		.badge-mid { background: #ffd93d33; color: var(--warning); }
+		.badge-low { background: #6bcb7733; color: var(--success); }
+
+		.warning-box {
+		  background: #4a1515;
+		  border-left: 3px solid var(--danger);
+		  padding: 8px 10px;
+		  border-radius: 4px;
+		  font-size: 0.75rem;
+		  margin-bottom: 8px;
+		}
+		.warning-box strong { color: var(--danger); }
+		.warning-box ul { margin: 4px 0 0 16px; color: #ffaaaa; }
+
+		.hidden { display: none !important; }
+
+    .reference-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: var(--bg-panel);
+      overflow-y: auto;
+      padding: 16px;
+      z-index: 50;
+      display: none;
+    }
+    .reference-overlay.visible { display: block; }
+    .reference-overlay table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.75rem;
+      margin-bottom: 14px;
+    }
+    .reference-overlay th,
+    .reference-overlay td {
+      padding: 6px 8px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    .reference-overlay th {
+      background: var(--bg-card);
+      color: var(--accent);
+      font-weight: 600;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+    }
+    .reference-overlay tr:hover td { background: var(--bg-card); }
+
+    .tier-high { color: var(--danger); font-weight: 700; }
+    .tier-mid { color: var(--warning); }
+    .tier-low { color: var(--success); }
+
+    @media (max-width: 1100px) {
+      :root { --left-w: 200px; --right-w: 240px; }
+    }
+  </style>
 </head>
 <body>
-	<h1>🔧 End Mill Sandbox</h1>
-	<p class="subtitle">앤드밀 사양 · 코팅 · 절삭 조건 데이터 모델 시각화</p>
+	<div class="app-layout" id="appLayout">
+	  <header class="panel-header">
+	    <div class="top-bar">
+	      <div class="logo">
+	        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+	          <circle cx="12" cy="12" r="3"/>
+	          <path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>
+	          <path d="M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/>
+	        </svg>
+	        End Mill Sandbox
+	      </div>
+	      <div class="menu-group">
+	        <button class="menu-btn active" onclick="switchView('machining', this)">가공</button>
+	        <button class="menu-btn" onclick="switchView('setup', this)">설정</button>
+	        <button class="menu-btn" onclick="switchView('reference', this)">참고</button>
+	      </div>
+	      <div class="dro-display">
+	        <div class="dro-item"><span class="dro-label">X</span><span class="dro-value" id="dro-x">0.000</span></div>
+	        <div class="dro-item"><span class="dro-label">Y</span><span class="dro-value" id="dro-y">0.000</span></div>
+	        <div class="dro-item"><span class="dro-label">Z</span><span class="dro-value" id="dro-z">0.000</span></div>
+	        <div class="dro-item"><span class="dro-label">RPM</span><span class="dro-value rpm" id="dro-rpm">0</span></div>
+	        <div class="dro-item"><span class="dro-label">Feed</span><span class="dro-value feed" id="dro-feed">0</span></div>
+	      </div>
+	      <div class="status-indicators">
+	        <div class="status-dot" id="status-dot"></div>
+	        <span style="font-size:0.68rem;color:var(--text-muted);" id="status-text">READY</span>
+	      </div>
+	    </div>
+	  </header>
 
-	<h2>■ 주요 브랜드 & 가격 등급</h2>
-	<table id="brand-table">
-		<thead>
-			<tr>
-				<th>브랜드</th>
-				<th>국가</th>
-				<th>등급</th>
-				<th>대표 코팅</th>
-				<th>전문 분야</th>
-			</tr>
-		</thead>
-		<tbody id="brand-body"></tbody>
-	</table>
+	  <aside class="panel-left" id="panelLeft">
+	    <button class="panel-toggle-btn" data-toggle="panelLeft" title="좌측 패널 접기">◀</button>
 
-	<h2>■ 절삭 조건 계산기</h2>
-	<div class="calc-section">
-		<label>피삭재</label>
-		<select id="calc-workpiece">
-			<option value="aluminum">알루미늄 합금</option>
-			<option value="carbon_steel">탄소강</option>
-			<option value="stainless">스테인리스강</option>
-			<option value="titanium" selected>티타늄 합금</option>
-			<option value="inconel">인코넬</option>
-			<option value="superalloy">수퍼알로이</option>
-			<option value="cfrp">CFRP</option>
-		</select>
+	    <div class="panel-section-header" data-section="secProject">
+	      <span>📁 프로젝트</span><span class="chevron">▼</span>
+	    </div>
+	    <div class="panel-section-body" id="secProject">
+	    </div>
 
-		<label>공구 직경 (mm)</label>
-		<input type="number" id="calc-diameter" value="10" min="0.1" step="0.5" />
+	    <div class="panel-section-header" data-section="secPreset">
+	      <span>◀ 프리셋</span><span class="chevron">▼</span>
+	    </div>
+	    <div class="panel-section-body" id="secPreset">
+	      <div id="preset-tree"></div>
+	    </div>
 
-		<label>날 수</label>
-		<input type="number" id="calc-flutes" value="4" min="1" max="12" />
+	    <div class="panel-section-header" data-section="secToolList">
+	      <span>공구 목록</span><span class="chevron">▼</span>
+	    </div>
+	    <div class="panel-section-body" id="secToolList">
+	      <div id="tool-tree"></div>
+	    </div>
 
-		<label>공구 등급</label>
-		<select id="calc-tier">
-			<option value="high" selected>고급형 (하이엔드)</option>
-			<option value="low">저가형 (감속 적용)</option>
-		</select>
+	    <div class="panel-section-header" data-section="secMaterial">
+	      <span>원소재</span><span class="chevron">▼</span>
+	    </div>
+	    <div class="panel-section-body" id="secMaterial">
+	      <div id="workpiece-tree"></div>
+	    </div>
 
-		<button onclick="calculateConditions()">계산하기</button>
+	    <div class="panel-section-header" data-section="secCoolant">
+	      <span>냉각 방식</span><span class="chevron">▼</span>
+	    </div>
+	    <div class="panel-section-body" id="secCoolant">
+	      <div id="coolant-tree"></div>
+	    </div>
 
-		<div class="result-box" id="calc-result"></div>
+	    <div class="panel-section-header" data-section="secAnim">
+	      <span>⏵ 애니메이션</span><span class="chevron">▼</span>
+	    </div>
+	    <div class="panel-section-body" id="secAnim">
+	      <button class="vt-btn" id="vt-btn-anim" onclick="animateToolpath()">⏵ 애니메이션</button>
+	    </div>
+
+	    <div class="panel-section-header" data-section="secReset">
+	      <span>⟲ 리셋</span><span class="chevron">▼</span>
+	    </div>
+	    <div class="panel-section-body" id="secReset">
+	      <button class="vt-btn" onclick="resetViewport()">⟲ 리셋</button>
+	    </div>
+	  </aside>
+
+	  <div class="resizer resizer-v left" id="resizerLeft"></div>
+
+	  <main class="panel-center" id="panelCenter">
+	    <div class="viewport-toolbar">
+	      <button class="vt-btn" onclick="fitViewport()">⊞ 피트</button>
+	      <div class="vt-sep"></div>
+	      <select id="tp-pattern" onchange="renderToolpath2D()" style="background:var(--bg-input);border:1px solid var(--border);color:var(--text);padding:3px 8px;border-radius:4px;font-size:0.72rem;">
+	        <option value="pocket_zigzag">포켓 지그재그</option>
+	        <option value="rect_profile">사각형 프로파일</option>
+	        <option value="circular">원형 프로파일</option>
+	        <option value="helical_pocket">헬리컬 포켓</option>
+	        <option value="contour_multi">등고선 다중 패스</option>
+	        <option value="slot">슬롯 가공</option>
+	      </select>
+	      <span class="vt-info" id="vp-info">세그먼트: 0 | 거리: 0mm</span>
+	    </div>
+	    <div class="viewport-canvas-wrap">
+	      <canvas id="tp-canvas"></canvas>
+	      <div class="viewport-overlay" id="vp-overlay" style="display:none;">
+	        <span id="tp-coolant-label"></span>
+	      </div>
+	      <div class="viewport-hint">드래그: 회전 | 스크롤: 기울기 | 더블클릭: 리셋</div>
+	    </div>
+	    
+	    <div class="reference-overlay" id="reference-view">
+	      <div class="section-title">용도별 권장 등급 매칭</div>
+	      <table>
+	        <thead>
+	          <tr><th>산업</th><th>목적</th><th>권장 등급</th><th>피삭재</th><th>비고</th></tr>
+	        </thead>
+	        <tbody id="ref-app-body"></tbody>
+	      </table>
+
+	      <div class="section-title">주요 브랜드 & 가격 등급</div>
+	      <table>
+	        <thead>
+	          <tr><th>브랜드</th><th>국가</th><th>등급</th><th>대표 코팅</th><th>전문 분야</th></tr>
+	        </thead>
+	        <tbody id="ref-brand-body"></tbody>
+	      </table>
+
+	      <div class="section-title">샘플 하이엔드 공구 사양</div>
+	      <div id="ref-sample-spec">
+	        <div style="font-size:0.72rem; color:var(--text-muted);">로딩 중...</div>
+	      </div>
+	    </div>
+	  </main>
+
+	  <div class="resizer resizer-v right" id="resizerRight"></div>
+
+	  <aside class="panel-right" id="panelRight">
+	    <button class="panel-toggle-btn" data-toggle="panelRight" title="우측 패널 접기">▶</button>
+
+	    <div class="panel-section-header" data-section="secParam">
+	      <span>⚙ 파라미터</span><span class="chevron">▼</span>
+	    </div>
+	    <div class="panel-section-body" id="secParam">
+	    </div>
+
+	    <div class="panel-section-header" data-section="secCutCalc">
+	      <span>▶ 절삭 조건 계산</span><span class="chevron">▼</span>
+	    </div>
+	    <div class="panel-section-body" id="secCutCalc">
+	      <div class="form-group">
+	        <label>피삭재</label>
+	        <select id="calc-workpiece">
+	          <option value="aluminum">알루미늄 합금</option>
+	          <option value="carbon_steel">탄소강</option>
+	          <option value="stainless">스테인리스강</option>
+	          <option value="titanium" selected>티타늄 합금</option>
+	          <option value="inconel">인코넬</option>
+	          <option value="superalloy">수퍼알로이</option>
+	          <option value="cfrp">CFRP</option>
+	        </select>
+	      </div>
+	      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+	        <div class="form-group">
+	          <label>직경 (mm)</label>
+	          <input type="number" id="calc-diameter" value="10" min="0.1" step="0.5" />
+	        </div>
+	        <div class="form-group">
+	          <label>날 수</label>
+	          <input type="number" id="calc-flutes" value="4" min="1" max="12" />
+	        </div>
+	      </div>
+	      <div class="form-group">
+	        <label>공구 등급</label>
+	        <select id="calc-tier">
+	          <option value="high" selected>고급형</option>
+	          <option value="low">저가형</option>
+	        </select>
+	      </div>
+	      <button class="btn" onclick="calculateConditions()" style="width:100%;margin-bottom:10px;">계산 실행</button>
+	      <div id="calc-result" class="hidden"></div>
+	    </div>
+
+	    <div class="panel-section-header" data-section="secCoolSet">
+	      <span>냉각 설정</span><span class="chevron">▼</span>
+	    </div>
+	    <div class="panel-section-body" id="secCoolSet">
+	      <div class="form-group">
+	        <label>냉각 방식</label>
+	        <select id="coolant-select">
+	          <option value="flood">플러드 (M08)</option>
+	          <option value="air_blast">에어 블로우 (M83)</option>
+	          <option value="mist">미스트 (M07)</option>
+	          <option value="through_tool">내부 급유 (M88)</option>
+	          <option value="dry">건식 (M09)</option>
+	        </select>
+	      </div>
+	      <button class="btn btn-outline btn-sm" onclick="renderCoolant2D()" style="margin-bottom:8px;">분사 시각화</button>
+	      <div id="coolant-info-panel" class="hidden">
+	        <div class="spec-grid">
+	          <div class="spec-item"><div class="label">방식</div><div class="value" id="ci-label">-</div></div>
+	          <div class="spec-item"><div class="label">M-code</div><div class="value" id="ci-mcode">-</div></div>
+	          <div class="spec-item"><div class="label">압력</div><div class="value" id="ci-pressure">-</div></div>
+	          <div class="spec-item"><div class="label">유량</div><div class="value" id="ci-flow">-</div></div>
+	          <div class="spec-item"><div class="label">노즐 수</div><div class="value" id="ci-nozzle">-</div></div>
+	          <div class="spec-item"><div class="label">분사 타입</div><div class="value" id="ci-spray">-</div></div>
+	        </div>
+	      </div>
+	      <div class="coolant-viz-wrap">
+	        <canvas id="coolant-canvas" width="280" height="200"></canvas>
+	        <div id="cool-dry-overlay" style="display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:0.8rem;color:#666;">건식 (냉각 없음)</div>
+	      </div>
+	    </div>
+
+	    <div class="panel-section-header" data-section="secCustomTool">
+	      <span>커스텀 공구</span><span class="chevron">▼</span>
+	    </div>
+	    <div class="panel-section-body" id="secCustomTool">
+	      <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px;">
+	        <div class="form-group"><label>이름</label><input type="text" id="cm-name" value="커스텀 Ø8 4날" /></div>
+	        <div class="form-group"><label>모델</label><input type="text" id="cm-model" value="CUSTOM-8F4" /></div>
+	        <div class="form-group"><label>직경</label><input type="number" id="cm-dia" value="8" step="0.5" /></div>
+	        <div class="form-group"><label>날 수</label><input type="number" id="cm-flutes" value="4" /></div>
+	        <div class="form-group"><label>LOC</label><input type="number" id="cm-loc" value="20" /></div>
+	        <div class="form-group"><label>OAL</label><input type="number" id="cm-oal" value="60" /></div>
+	        <div class="form-group"><label>샹크</label><input type="number" id="cm-shank" value="8" /></div>
+	        <div class="form-group"><label>헬릭스°</label><input type="number" id="cm-helix" value="35" /></div>
+	      </div>
+	      <div class="form-group"><label>코팅</label><input type="text" id="cm-coating" value="AlTiN" /></div>
+	      <button class="btn btn-sm" onclick="createCustomEndmill()" style="width:100%;">공구 생성</button>
+	      <div id="cm-result" class="hidden" style="margin-top:6px;"></div>
+	    </div>
+
+	    <div class="panel-section-header" data-section="secCustomMat">
+	      <span>커스텀 원소재</span><span class="chevron">▼</span>
+	    </div>
+	    <div class="panel-section-body" id="secCustomMat">
+	      <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px;">
+	        <div class="form-group"><label>이름</label><input type="text" id="cw-name" value="커스텀 판재" /></div>
+	        <div class="form-group">
+	          <label>소재</label>
+	          <select id="cw-material">
+	            <option value="aluminum">알루미늄</option>
+	            <option value="carbon_steel">탄소강</option>
+	            <option value="stainless">스테인리스</option>
+	            <option value="titanium">티타늄</option>
+	            <option value="inconel">인코넬</option>
+	          </select>
+	        </div>
+	        <div class="form-group">
+	          <label>형상</label>
+	          <select id="cw-shape">
+	            <option value="rectangular">직사각형</option>
+	            <option value="cylindrical">원형</option>
+	            <option value="custom">커스텀</option>
+	          </select>
+	        </div>
+	        <div class="form-group">
+	          <label>클램핑</label>
+	          <select id="cw-clamping">
+	            <option value="vise">바이스</option>
+	            <option value="vacuum">진공척</option>
+	            <option value="magnetic">마그네틱척</option>
+	            <option value="fixture">픽스처 플레이트</option>
+	            <option value="soft_jaw">소프트 죠</option>
+	          </select>
+	        </div>
+	        <div class="form-group"><label>폭 (mm)</label><input type="number" id="cw-width" value="120" /></div>
+	        <div class="form-group"><label>높이 (mm)</label><input type="number" id="cw-height" value="80" /></div>
+	        <div class="form-group"><label>두께 (mm)</label><input type="number" id="cw-thickness" value="25" /></div>
+	        <div class="form-group"><label>여유량 (mm)</label><input type="number" id="cw-allowance" value="0.5" step="0.1" /></div>
+	      </div>
+	      <button class="btn btn-sm" onclick="createCustomWorkpiece()" style="width:100%;">원소재 생성</button>
+	      <div id="cw-result" class="hidden" style="margin-top:6px;"></div>
+	    </div>
+	  </aside>
+
+	  <div class="resizer resizer-h" id="resizerBottom"></div>
+
+	  <section class="panel-bottom" id="panelBottom">
+	    <button class="panel-toggle-btn" data-toggle="panelBottom" title="하단 패널 접기">▼</button>
+
+	    <div class="panel-section-header" data-section="secOutput">
+	      <span>📋 출력 패널</span><span class="chevron">▼</span>
+	    </div>
+	    <div class="panel-section-body" id="secOutput">
+	      <div class="bottom-tabs">
+	        <div class="bottom-tab active" data-btab="gcode">G-code</div>
+	        <div class="bottom-tab" data-btab="warnings">경고</div>
+	        <div class="bottom-tab" data-btab="log">로그</div>
+	        <div class="bottom-tab" data-btab="profile">프로필</div>
+	        <div style="margin-left:auto; display:flex; gap:4px; padding-right:8px;">
+	          <button class="vt-btn btn-sm" onclick="previewGcode()">▶ G-code 미리보기</button>
+	          <button class="vt-btn btn-sm" onclick="saveGcode()">💾 파일 저장</button>
+	        </div>
+	      </div>
+	      <div class="gcode-console" id="gcode-output">
+	        <div class="gc-comment">; G-code 미리보기를 실행하세요</div>
+	      </div>
+	      <div class="gcode-console hidden" id="warnings-output"></div>
+	      <div class="gcode-console hidden" id="log-output"></div>
+	      <div class="gcode-console hidden" id="profile-output">
+	        <div style="display:flex; gap:6px; margin-bottom:8px;">
+	          <button class="vt-btn btn-sm" onclick="loadProfiles()">프로필 조회</button>
+	          <button class="vt-btn btn-sm" onclick="saveProfile()">JSON 저장</button>
+	        </div>
+	        <div id="profile-result-list"></div>
+	      </div>
+	    </div>
+	  </section>
+
 	</div>
 
-	<h2>■ 샘플 하이엔드 공구 사양</h2>
-	<div class="card" id="sample-spec">
-		<div class="card-title">로딩 중...</div>
-	</div>
-
-	<h2>■ 용도별 권장 등급 매칭</h2>
-	<table id="app-table">
-		<thead>
-			<tr>
-				<th>산업</th>
-				<th>목적</th>
-				<th>권장 등급</th>
-				<th>피삭재</th>
-				<th>비고</th>
-			</tr>
-		</thead>
-		<tbody id="app-body"></tbody>
-	</table>
-
-	<h2>■ 툴패스 2D 시각화</h2>
-	<div class="calc-section">
-		<label>프로필 선택</label>
-		<select id="tp-profile">
-			<option value="알루미늄 황삭 프리셋">알루미늄 황삭 프리셋</option>
-			<option value="티타늄 정삭 프리셋">티타늄 정삭 프리셋</option>
-			<option value="탄소강 범용 프리셋">탄소강 범용 프리셋</option>
-		</select>
-
-		<label>툴패스 패턴</label>
-		<select id="tp-pattern">
-			<option value="pocket_zigzag">포켓 지그재그</option>
-			<option value="rect_profile">사각형 프로파일</option>
-			<option value="circular">원형 프로파일</option>
-			<option value="helical_pocket">헬리컬 포켓</option>
-			<option value="contour_multi">등고선 다중 패스</option>
-			<option value="slot">슬롯 가공</option>
-		</select>
-
-		<label>냉각 방식 (2D 시각화)</label>
-		<select id="tp-coolant">
-			<option value="flood">플러드 (물)</option>
-			<option value="air_blast">에어 블로우 (바람)</option>
-			<option value="mist">미스트</option>
-			<option value="through_tool">내부 급유</option>
-			<option value="dry">건식</option>
-		</select>
-
-		<button onclick="renderToolpath2D()">2D 렌더링</button>
-		<button onclick="animateToolpath()">애니메이션 재생</button>
-
-		<div id="tp-container" style="margin-top:16px;position:relative;background:#0f0f1e;border-radius:8px;overflow:hidden;">
-			<canvas id="tp-canvas" width="600" height="450" style="width:100%;height:auto;"></canvas>
-			<div id="tp-coolant-overlay" style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.7);padding:8px 12px;border-radius:6px;font-size:0.75rem;display:none;">
-				<span id="tp-coolant-label"></span>
-			</div>
-		</div>
-		<div id="tp-info" style="margin-top:8px;font-size:0.8rem;color:#888;"></div>
-	</div>
-
-	<h2>■ G-code 생성 & 저장</h2>
-	<div class="calc-section">
-			<label>프로필 선택</label>
-			<select id="gc-profile">
-					<option value="알루미늄 황삭 프리셋">알루미늄 황삭 프리셋</option>
-					<option value="티타늄 정삭 프리셋">티타늄 정삭 프리셋</option>
-					<option value="탄소강 범용 프리셋">탄소강 범용 프리셋</option>
-			</select>
-			<button onclick="previewGcode()">G-code 미리보기</button>
-			<button onclick="saveGcode()">파일로 저장</button>
-			<div class="result-box" id="gc-result"></div>
-			<div class="result-box" id="gc-save-result"></div>
-	</div>
-
-	<h2>■ 앤드밀 목업 세팅</h2>
-	<div class="card" id="mockup-container">
-		<div class="card-title">로딩 중...</div>
-	</div>
-
-	<div class="calc-section">
-		<div class="card-title" style="color:#00d4ff;margin-bottom:12px;">커스텀 앤드밀 생성</div>
-		<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-			<div><label>이름</label><input type="text" id="cm-name" value="커스텀 Ø8 4날" /></div>
-			<div><label>모델명</label><input type="text" id="cm-model" value="CUSTOM-8F4" /></div>
-			<div><label>직경 (mm)</label><input type="number" id="cm-dia" value="8" min="0.1" step="0.5" /></div>
-			<div><label>날 수</label><input type="number" id="cm-flutes" value="4" min="1" max="12" /></div>
-			<div><label>유효 절삭 길이 (mm)</label><input type="number" id="cm-loc" value="20" min="1" /></div>
-			<div><label>전체 길이 (mm)</label><input type="number" id="cm-oal" value="60" min="1" /></div>
-			<div><label>샹크 직경 (mm)</label><input type="number" id="cm-shank" value="8" min="0.1" /></div>
-			<div><label>헬릭스 각도 (°)</label><input type="number" id="cm-helix" value="35" min="0" max="60" /></div>
-			<div><label>코팅명</label><input type="text" id="cm-coating" value="AlTiN" /></div>
-			<div><label>등급</label><select id="cm-tier"><option value="high">고급형</option><option value="mid">중가형</option></select></div>
-		</div>
-		<button onclick="createCustomEndmill()" style="margin-top:12px;">커스텀 공구 생성</button>
-		<div class="result-box" id="cm-result"></div>
-	</div>
-
-	<h2>■ 프리셋 목록</h2>
-	<div class="card" id="preset-container">
-			<div class="card-title">로딩 중...</div>
-	</div>
-
-	<h2>■ 프로필 목록</h2>
-	<div class="calc-section">
-			<button onclick="loadProfiles()">프로필 조회</button>
-			<button onclick="saveProfile()">현재 프로필 JSON 저장</button>
-			<div class="result-box" id="profile-result"></div>
-	</div>
-
-	<h2>■ 원소재 설정</h2>
-	<div class="card" id="workpiece-container">
-		<div class="card-title">로딩 중...</div>
-	</div>
-
-	<div class="calc-section">
-		<div class="card-title" style="color:#00d4ff;margin-bottom:12px;">커스텀 원소재 설정</div>
-		<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-			<div><label>이름</label><input type="text" id="cw-name" value="커스텀 판재" /></div>
-			<div><label>소재</label>
-				<select id="cw-material">
-					<option value="aluminum">알루미늄</option>
-					<option value="carbon_steel">탄소강</option>
-					<option value="stainless">스테인리스</option>
-					<option value="titanium">티타늄</option>
-					<option value="inconel">인코넬</option>
-				</select>
-			</div>
-			<div><label>형상</label>
-				<select id="cw-shape">
-					<option value="rectangular">직사각형</option>
-					<option value="cylindrical">원형</option>
-					<option value="custom">커스텀</option>
-				</select>
-			</div>
-			<div><label>클램핑</label>
-				<select id="cw-clamping">
-					<option value="vise">바이스</option>
-					<option value="vacuum">진공척</option>
-					<option value="magnetic">마그네틱척</option>
-					<option value="fixture">픽스처 플레이트</option>
-					<option value="soft_jaw">소프트 죠</option>
-				</select>
-			</div>
-			<div><label>폭 (mm)</label><input type="number" id="cw-width" value="120" /></div>
-			<div><label>높이 (mm)</label><input type="number" id="cw-height" value="80" /></div>
-			<div><label>두께 (mm)</label><input type="number" id="cw-thickness" value="25" /></div>
-			<div><label>여유량 (mm)</label><input type="number" id="cw-allowance" value="0.5" step="0.1" /></div>
-		</div>
-		<button onclick="createCustomWorkpiece()" style="margin-top:12px;">원소재 설정 생성</button>
-		<div class="result-box" id="cw-result"></div>
-	</div>
-
-	<h2>■ 냉각 옵션 (3D 분사 시각화)</h2>
-	<div class="calc-section">
-		<label>냉각 방식 선택</label>
-		<select id="coolant-select">
-			<option value="air_blast">에어 블로우 (바람, M83)</option>
-			<option value="flood">플러드 (물, M08)</option>
-			<option value="mist">미스트 (M07)</option>
-			<option value="through_tool">내부 급유 (M88)</option>
-			<option value="dry">건식 (M09)</option>
-		</select>
-		<button onclick="renderCoolant2D()">분사 시각화</button>
-		<div id="coolant-info-panel" style="display:none;margin-top:12px;">
-			<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;">
-			  <div class="spec-item"><div class="label">방식</div><div class="value" id="ci-label">-</div></div>
-			  <div class="spec-item"><div class="label">M-code</div><div class="value" id="ci-mcode">-</div></div>
-			  <div class="spec-item"><div class="label">압력</div><div class="value" id="ci-pressure">-</div></div>
-			  <div class="spec-item"><div class="label">유량</div><div class="value" id="ci-flow">-</div></div>
-			  <div class="spec-item"><div class="label">노즐 수</div><div class="value" id="ci-nozzle">-</div></div>
-			  <div class="spec-item"><div class="label">분사 타입</div><div class="value" id="ci-spray">-</div></div>
-			</div>
-		</div>
-		<div style="margin-top:12px;background:#0f0f1e;border-radius:8px;overflow:hidden;position:relative;">
-			<canvas id="coolant-canvas" width="600" height="400" style="width:100%;height:auto;cursor:grab;"></canvas>
-			<div style="position:absolute;bottom:6px;left:10px;font-size:0.7rem;color:#556;">스크롤/드래그로 회전</div>
-		</div>
+	<div class="status-bar">
+	  <div class="sb-item">프로파일: <strong id="sb-profile">-</strong></div>
+	  <div class="sb-sep"></div>
+	  <div class="sb-item">예상 시간: <strong id="sb-time">-</strong></div>
+	  <div class="sb-sep"></div>
+	  <div class="sb-item">총 거리: <strong id="sb-dist">-</strong></div>
+	  <div class="sb-sep"></div>
+	  <div class="sb-item">라인: <strong id="sb-lines">-</strong></div>
+	  <div style="margin-left:auto;" class="sb-item">v0.1.0 | Tauri + Rust</div>
 	</div>
 
 	<script>
-		const { invoke } = window.__TAURI__?.invoke
-			? window.__TAURI__
-			: { invoke: async () => null };
+	const { invoke } = window.__TAURI__?.invoke
+	  ? window.__TAURI__
+	  : { invoke: async () => null };
 
-		function tierClass(tier) {
-			if (tier.includes("고급")) return "tier-high";
-			if (tier.includes("중가")) return "tier-mid";
-			return "tier-low";
-		}
+	let tpData = [];
+	let tpScale = 1;
+	let tpPad = 20;
+	let tpMaxX = 0, tpMaxY = 0, tpMinZ = 0, tpMaxZ = 0;
+	let currentAnimFrame = 0;
+	let animReq = null;
+	let tpRotX = -0.55;
+	let tpRotY = 0.35;
+	let tpDragging = false;
+	let tpLastMX = 0, tpLastMY = 0;
 
-		function tierBadge(tier) {
-			if (tier.includes("고급")) return "badge-high";
-			if (tier.includes("중가")) return "badge-mid";
-			return "badge-low";
-		}
+	let coolRotX = -0.45;
+	let coolRotY = 0.3;
+	let coolDragging = false;
+	let coolLastX = 0, coolLastY = 0;
+	let coolParticles = [];
+	let coolAnimReq = null;
+	let coolInfo = null;
 
-		async function loadBrands() {
-			const brands = await invoke("get_brands");
-			if (!brands) return;
-			const tbody = document.getElementById("brand-body");
-			tbody.innerHTML = brands
-				.map(
-					(b) => `<tr>
-						<td>${b.name}</td>
-						<td>${b.country}</td>
-						<td class="${tierClass(b.primary_tier)}">${b.primary_tier}</td>
-						<td>${b.signature_coating || "-"}</td>
-						<td>${b.specialties.join(", ")}</td>
-					</tr>`
-				)
-				.join("");
-		}
+	function setSectionState(sectionId, isOpen) {
+	  const body = document.getElementById(sectionId);
+	  const header = document.querySelector(`.panel-section-header[data-section="${sectionId}"]`);
+	  if (body) body.classList.toggle('collapsed', !isOpen);
+	  if (header) header.classList.toggle('collapsed', !isOpen);
+	}
 
-		async function loadSampleSpec() {
-			const spec = await invoke("get_sample_endmill");
-			if (!spec) return;
-			const container = document.getElementById("sample-spec");
-			container.innerHTML = `
-				<div class="card-title">${spec.model} <span class="badge ${tierBadge(spec.tier)}">${spec.tier}</span></div>
-				<div class="spec-grid">
-					<div class="spec-item"><div class="label">브랜드</div><div class="value">${spec.brand}</div></div>
-					<div class="spec-item"><div class="label">직경</div><div class="value">${spec.diameter_mm} mm</div></div>
-					<div class="spec-item"><div class="label">유효 절삭 길이</div><div class="value">${spec.length_of_cut_mm} mm</div></div>
-					<div class="spec-item"><div class="label">전체 길이</div><div class="value">${spec.overall_length_mm} mm</div></div>
-					<div class="spec-item"><div class="label">샹크 직경</div><div class="value">${spec.shank_diameter_mm} mm</div></div>
-					<div class="spec-item"><div class="label">날 형상</div><div class="value">${spec.flute_geometry}</div></div>
-					<div class="spec-item"><div class="label">헬릭스 각도</div><div class="value">${spec.helix_angle_deg}°</div></div>
-					<div class="spec-item"><div class="label">부등 분할</div><div class="value">${spec.variable_pitch ? "✓ 적용" : "미적용"}</div></div>
-					<div class="spec-item"><div class="label">코팅</div><div class="value">${spec.coating_name || "없음"}</div></div>
-					<div class="spec-item"><div class="label">난삭재 가공</div><div class="value">${spec.can_machine_hard_materials ? "✓ 가능" : "불가"}</div></div>
-					<div class="spec-item"><div class="label">무인 가공 적합</div><div class="value">${spec.suitable_for_unmanned_op ? "✓ 적합" : "부적합"}</div></div>
-					<div class="spec-item"><div class="label">저가 대비 수명</div><div class="value">${spec.life_multiplier}배</div></div>
-				</div>
-			`;
-		}
+	function switchView(view, btnElement) {
+	  document.querySelectorAll('.menu-btn').forEach(b => b.classList.remove('active'));
+	  if (btnElement) btnElement.classList.add('active');
+	  
+	  const refView = document.getElementById('reference-view');
+	  if (view === 'reference') {
+	    refView.classList.add('visible');
+	    loadReferenceData();
+	  } else {
+	    refView.classList.remove('visible');
+	  }
 
-		async function loadApplicationProfiles() {
-			const profiles = await invoke("get_application_profiles");
-			if (!profiles) return;
-			const tbody = document.getElementById("app-body");
-			tbody.innerHTML = profiles
-				.map(
-					(p) => `<tr>
-						<td>${p.industry}</td>
-						<td>${p.purpose}</td>
-						<td class="${tierClass(p.recommended_tier)}">${p.recommended_tier}</td>
-						<td>${p.workpiece}</td>
-						<td>${p.note}</td>
-					</tr>`
-				)
-				.join("");
-		}
+	  // 뷰 모드에 따른 좌우 패널 섹션 자동 전개/접기 로직
+	  if (view === 'machining') {
+	    setSectionState('secPreset', true);
+	    setSectionState('secAnim', true);
+	    setSectionState('secToolList', false);
+	    setSectionState('secMaterial', false);
+	    setSectionState('secCoolant', false);
+	    
+	    setSectionState('secParam', true);
+	    setSectionState('secCutCalc', true);
+	    setSectionState('secCoolSet', false);
+	    setSectionState('secCustomTool', false);
+	    setSectionState('secCustomMat', false);
+	  } else if (view === 'setup') {
+	    setSectionState('secPreset', false);
+	    setSectionState('secAnim', false);
+	    setSectionState('secToolList', true);
+	    setSectionState('secMaterial', true);
+	    setSectionState('secCoolant', true);
+	    
+	    setSectionState('secParam', false);
+	    setSectionState('secCutCalc', false);
+	    setSectionState('secCoolSet', true);
+	    setSectionState('secCustomTool', true);
+	    setSectionState('secCustomMat', true);
+	  }
+	}
 
-		async function calculateConditions() {
-			const workpiece = document.getElementById("calc-workpiece").value;
-			const diameter = parseFloat(document.getElementById("calc-diameter").value);
-			const flutes = parseInt(document.getElementById("calc-flutes").value);
-			const isHighEnd = document.getElementById("calc-tier").value === "high";
+  async function loadReferenceData() {
+    const appBody = document.getElementById('ref-app-body');
+    const brandBody = document.getElementById('ref-brand-body');
+    const sampleBox = document.getElementById('ref-sample-spec');
+    
+    if (appBody.innerHTML.trim()) return;
 
-			const result = await invoke("calculate_cutting_conditions", {
-				workpiece,
-				diameterMm: diameter,
-				fluteCount: flutes,
-				isHighEnd,
-			});
+    const profiles = await invoke("get_application_profiles");
+    if (profiles) {
+      appBody.innerHTML = profiles.map(p => `
+        <tr>
+          <td>${p.industry}</td>
+          <td>${p.purpose}</td>
+          <td class="${p.recommended_tier.includes('고급') ? 'tier-high' : p.recommended_tier.includes('중가') ? 'tier-mid' : 'tier-low'}">${p.recommended_tier}</td>
+          <td>${p.workpiece}</td>
+          <td>${p.note}</td>
+        </tr>
+      `).join('');
+    }
 
-			if (!result) return;
+    const brands = await invoke("get_brands");
+    if (brands) {
+      brandBody.innerHTML = brands.map(b => `
+        <tr>
+          <td>${b.name}</td>
+          <td>${b.country}</td>
+          <td>${b.primary_tier}</td>
+          <td>${b.signature_coating || '-'}</td>
+          <td>${b.specialties.join(', ')}</td>
+        </tr>
+      `).join('');
+    }
 
-			const box = document.getElementById("calc-result");
-			box.classList.add("visible");
-			box.innerHTML = `
-				<div class="result-row"><span class="rlabel">절삭 속도</span><span class="rvalue">${result.cutting_speed_m_min.toFixed(1)} m/min</span></div>
-				<div class="result-row"><span class="rlabel">스핀들 회전수</span><span class="rvalue">${result.spindle_rpm} RPM</span></div>
-				<div class="result-row"><span class="rlabel">이송 속도</span><span class="rvalue">${result.feed_rate_mm_min.toFixed(0)} mm/min</span></div>
-				<div class="result-row"><span class="rlabel">칩당 이송량</span><span class="rvalue">${result.feed_per_tooth_mm.toFixed(3)} mm/tooth</span></div>
-				<div class="result-row"><span class="rlabel">절입 깊이 (축)</span><span class="rvalue">${result.axial_doc_mm.toFixed(1)} mm</span></div>
-				<div class="result-row"><span class="rlabel">절입 깊이 (반경)</span><span class="rvalue">${result.radial_doc_mm.toFixed(1)} mm</span></div>
-				<div class="result-row"><span class="rlabel">냉각 방식</span><span class="rvalue">${result.coolant}</span></div>
-				<div class="result-row"><span class="rlabel">소재 제거율 (MRR)</span><span class="rvalue" style="color:#ff6b6b;">${result.mrr_cm3_min.toFixed(2)} cm³/min</span></div>
-				<div class="result-row"><span class="rlabel">주절삭력</span><span class="rvalue" style="color:#ffd93d;">${result.cutting_force_n.toFixed(1)} N</span></div>
-				<div class="result-row"><span class="rlabel">소요 동력</span><span class="rvalue" style="color:#ffd93d;">${result.spindle_power_kw.toFixed(2)} kW</span></div>
-				<div class="result-row"><span class="rlabel">공구 휨량</span><span class="rvalue" style="color:#ff6b6b;">${result.tool_deflection_mm.toFixed(4)} mm</span></div>
-			`;
-		}
+    const spec = await invoke("get_sample_endmill");
+    if (spec) {
+      sampleBox.innerHTML = `
+        <div style="font-size:0.82rem; font-weight:700; color:var(--accent); margin-bottom:8px;">
+          ${spec.model} <span class="badge badge-high">${spec.tier}</span>
+        </div>
+        <div class="spec-grid">
+          <div class="spec-item"><div class="label">브랜드</div><div class="value">${spec.brand}</div></div>
+          <div class="spec-item"><div class="label">직경</div><div class="value">${spec.diameter_mm} mm</div></div>
+          <div class="spec-item"><div class="label">유효 절삭 길이</div><div class="value">${spec.length_of_cut_mm} mm</div></div>
+          <div class="spec-item"><div class="label">전체 길이</div><div class="value">${spec.overall_length_mm} mm</div></div>
+          <div class="spec-item"><div class="label">샹크 직경</div><div class="value">${spec.shank_diameter_mm} mm</div></div>
+          <div class="spec-item"><div class="label">날 형상</div><div class="value">${spec.flute_geometry}</div></div>
+          <div class="spec-item"><div class="label">헬릭스 각도</div><div class="value">${spec.helix_angle_deg}°</div></div>
+          <div class="spec-item"><div class="label">부등 분할</div><div class="value">${spec.variable_pitch ? '✓ 적용' : '미적용'}</div></div>
+          <div class="spec-item"><div class="label">코팅</div><div class="value">${spec.coating_name || '없음'}</div></div>
+          <div class="spec-item"><div class="label">난삭재 가공</div><div class="value">${spec.can_machine_hard_materials ? '✓ 가능' : '불가'}</div></div>
+          <div class="spec-item"><div class="label">무인 가공 적합</div><div class="value">${spec.suitable_for_unmanned_op ? '✓ 적합' : '부적합'}</div></div>
+          <div class="spec-item"><div class="label">저가 대비 수명</div><div class="value">${spec.life_multiplier}배</div></div>
+        </div>
+      `;
+    }
+  }
 
-		let tpData = [];
-		let tpScale = 1;
-		let tpPad = 20;
-		let tpMaxX = 0, tpMaxY = 0, tpMinZ = 0, tpMaxZ = 0;
-		let currentAnimFrame = 0;
-		let animReq = null;
-		let tpRotX = -0.55;
-		let tpRotY = 0.35;
-		let tpDragging = false;
-		let tpLastMX = 0, tpLastMY = 0;
+	(function () {
+	  const layout   = document.getElementById('appLayout');
+	  const root     = document.documentElement;
 
-		function tpProject(x, y, z) {
-			const canvas = document.getElementById("tp-canvas");
-			const cx = tpMaxX / 2, cy = tpMaxY / 2, cz = (tpMinZ + tpMaxZ) / 2;
-			let dx = (x - cx) * tpScale;
-			let dy = (y - cy) * tpScale;
-			let dz = (z - cz) * tpScale;
-			let x1 = dx * Math.cos(tpRotY) + dz * Math.sin(tpRotY);
-			let z1 = -dx * Math.sin(tpRotY) + dz * Math.cos(tpRotY);
-			let y1 = dy * Math.cos(tpRotX) - z1 * Math.sin(tpRotX);
-			let z2 = dy * Math.sin(tpRotX) + z1 * Math.cos(tpRotX);
-			const fov = 600;
-			const perspScale = fov / (fov + z2 + 80);
-			return {
-				px: canvas.width / 2 + x1 * perspScale,
-				py: canvas.height / 2 - y1 * perspScale,
-				depth: z2
-			};
-		}
+	  function initResizer(resizerEl, direction, targetPanel, cssVar, minVal) {
+	    let startPos = 0;
+	    let startSize = 0;
 
-		async function fetchToolpathData() {
-			const profileName = document.getElementById("tp-profile").value;
-			const pattern = document.getElementById("tp-pattern").value;
-			tpData = await invoke("get_toolpath_with_pattern", { profileName, patternKey: pattern });
-			if (!tpData) return false;
-			tpMaxX = 0; tpMaxY = 0; tpMinZ = 0; tpMaxZ = 0;
-			for (const s of tpData) {
-				tpMaxX = Math.max(tpMaxX, s.x || 0);
-				tpMaxY = Math.max(tpMaxY, s.y || 0);
-				const zv = s.z !== undefined ? s.z : 0;
-				tpMinZ = Math.min(tpMinZ, zv);
-				tpMaxZ = Math.max(tpMaxZ, zv);
-			}
-			const canvas = document.getElementById("tp-canvas");
-			const scaleX = (canvas.width - tpPad * 4) / Math.max(tpMaxX, 1);
-			const scaleY = (canvas.height - tpPad * 4) / Math.max(tpMaxY, 1);
-			tpScale = Math.min(scaleX, scaleY) * 0.85;
-			return true;
-		}
+	    function onMouseDown(e) {
+	      e.preventDefault();
+	      startPos  = direction === 'x' ? e.clientX : e.clientY;
+	      startSize = direction === 'x'
+	        ? targetPanel.getBoundingClientRect().width
+	        : targetPanel.getBoundingClientRect().height;
+	      resizerEl.classList.add('active');
+	      document.body.style.cursor = direction === 'x' ? 'col-resize' : 'row-resize';
+	      document.body.style.userSelect = 'none';
 
-		function drawToolpathSegment(ctx, s, prev, toolRadiusPx) {
-			const proj = tpProject(s.x || 0, s.y || 0, s.z || 0);
-			if (prev) {
-				ctx.beginPath();
-				ctx.moveTo(prev.px, prev.py);
-				if (s.kind === "Rapid") {
-					ctx.strokeStyle = "#444";
-					ctx.lineWidth = 1;
-					ctx.setLineDash([4, 4]);
-					ctx.lineTo(proj.px, proj.py);
-					ctx.stroke();
-				} else {
-					const depthRatio = Math.min(Math.max(Math.abs(s.z || 0) / 10, 0.2), 1.0);
-					ctx.strokeStyle = `rgba(0, 212, 255, ${depthRatio})`;
-					ctx.lineWidth = toolRadiusPx * 2;
-					ctx.setLineDash([]);
-					ctx.lineTo(proj.px, proj.py);
-					ctx.stroke();
-				}
-			}
-			return { px: proj.px, py: proj.py };
-		}
+	      document.addEventListener('mousemove', onMouseMove);
+	      document.addEventListener('mouseup', onMouseUp);
+	    }
 
-		function renderToolpath3D() {
-			const canvas = document.getElementById("tp-canvas");
-			const ctx = canvas.getContext("2d");
-			ctx.fillStyle = "#0f0f1e";
-			ctx.fillRect(0, 0, canvas.width, canvas.height);
-			ctx.lineCap = "round";
-			ctx.lineJoin = "round";
-			const gridStep = 20 * tpScale;
-			ctx.strokeStyle = "#1a2a4a";
-			ctx.lineWidth = 0.5;
-			for (let gx = 0; gx <= tpMaxX + 20; gx += 20) {
-				const p1 = tpProject(gx, 0, 0);
-				const p2 = tpProject(gx, tpMaxY, 0);
-				ctx.beginPath(); ctx.moveTo(p1.px, p1.py); ctx.lineTo(p2.px, p2.py); ctx.stroke();
-			}
-			for (let gy = 0; gy <= tpMaxY + 20; gy += 20) {
-				const p1 = tpProject(0, gy, 0);
-				const p2 = tpProject(tpMaxX, gy, 0);
-				ctx.beginPath(); ctx.moveTo(p1.px, p1.py); ctx.lineTo(p2.px, p2.py); ctx.stroke();
-			}
-			let prev = null;
-			const toolRadiusPx = Math.max(2, 3 * tpScale);
-			for (const s of tpData) {
-				prev = drawToolpathSegment(ctx, s, prev, toolRadiusPx);
-			}
-			ctx.fillStyle = "#667";
-			ctx.font = "10px sans-serif";
-			ctx.fillText(`rotX: ${(tpRotX * 180 / Math.PI).toFixed(1)}°  rotY: ${(tpRotY * 180 / Math.PI).toFixed(1)}°  [스크롤/드래그로 회전]`, 8, canvas.height - 8);
-		}
+	    function onMouseMove(e) {
+	      const delta = direction === 'x'
+	        ? e.clientX - startPos
+	        : startPos - e.clientY;
 
-		async function renderToolpath2D() {
-			if (animReq) cancelAnimationFrame(animReq);
-			if (!(await fetchToolpathData())) return;
-			renderToolpath3D();
-		}
+	      let newSize = startSize + delta;
+	      if (newSize < minVal) newSize = minVal;
 
-		async function animateToolpath() {
-			if (animReq) cancelAnimationFrame(animReq);
-			if (!tpData.length && !(await fetchToolpathData())) return;
-			const canvas = document.getElementById("tp-canvas");
-			const ctx = canvas.getContext("2d");
-			ctx.lineCap = "round";
-			ctx.lineJoin = "round";
-			currentAnimFrame = 0;
-			let prev = null;
-			const toolRadiusPx = Math.max(2, 3 * tpScale);
-			ctx.fillStyle = "#0f0f1e";
-			ctx.fillRect(0, 0, canvas.width, canvas.height);
-			function step() {
-				if (currentAnimFrame < tpData.length) {
-					const s = tpData[currentAnimFrame];
-					prev = drawToolpathSegment(ctx, s, prev, toolRadiusPx);
-					ctx.beginPath();
-					ctx.arc(prev.px, prev.py, toolRadiusPx, 0, Math.PI * 2);
-					ctx.fillStyle = "#ff6b6b";
-					ctx.fill();
-					currentAnimFrame++;
-					animReq = requestAnimationFrame(step);
-				}
-			}
-			animReq = requestAnimationFrame(step);
-		}
+	      if (cssVar === '--left-w') {
+	        root.style.setProperty('--left-w', newSize + 'px');
+	      } else if (cssVar === '--right-w') {
+	        root.style.setProperty('--right-w', newSize + 'px');
+	      } else if (cssVar === '--bottom-h') {
+	        root.style.setProperty('--bottom-h', newSize + 'px');
+	      }
+	    }
 
-		async function previewGcode() {
-			const profileName = document.getElementById("gc-profile").value;
-			// 기존 generate_gcode_preview 대비 패턴까지 함께 적용된 결과를 미리보기 위해 함수 교체
-			const pattern = document.getElementById("tp-pattern").value; 
-			const data = await invoke("generate_gcode_with_pattern", { profileName, patternKey: pattern });
-			if (!data) return;
+	    function onMouseUp() {
+	      resizerEl.classList.remove('active');
+	      document.body.style.cursor = '';
+	      document.body.style.userSelect = '';
+	      document.removeEventListener('mousemove', onMouseMove);
+	      document.removeEventListener('mouseup', onMouseUp);
+	    }
 
-			let warningHtml = "";
-			if (data.warnings && data.warnings.length > 0) {
-				warningHtml = `<div style="background:#4a1515; border-left:4px solid #ff4757; padding:10px; margin-bottom:12px; border-radius:4px; font-size:0.85rem;">
-					<strong style="color:#ff4757;">⚠️ 충돌 및 간섭 경고</strong>
-					<ul style="margin-top:6px; margin-left:20px; color:#ffaaaa;">
-						${data.warnings.map(w => `<li>${w}</li>`).join("")}
-					</ul>
-				</div>`;
-			}
+	    resizerEl.addEventListener('mousedown', onMouseDown);
 
-			const box = document.getElementById("gc-result");
-			box.classList.add("visible");
-			box.innerHTML = `
-				${warningHtml}
-				<div class="result-row"><span class="rlabel">프로그램</span><span class="rvalue">${data.program_name}</span></div>
-				<div class="result-row"><span class="rlabel">라인 수</span><span class="rvalue">${data.line_count}</span></div>
-				<div class="result-row"><span class="rlabel">소재</span><span class="rvalue">${data.workpiece_material}</span></div>
-				<div class="result-row"><span class="rlabel">공구</span><span class="rvalue">${data.tool_model}</span></div>
-				<div class="result-row"><span class="rlabel">냉각</span><span class="rvalue">${data.coolant_method}</span></div>
-				<div class="result-row"><span class="rlabel">예상 시간</span><span class="rvalue">${data.estimated_time_min.toFixed(2)} min</span></div>
-				<div class="result-row"><span class="rlabel">총 이동 거리</span><span class="rvalue">${data.total_distance_mm.toFixed(1)} mm</span></div>
-				<pre style="margin-top:12px;font-size:0.75rem;color:#aaa;max-height:300px;overflow:auto;white-space:pre-wrap;">${data.text}</pre>
-			`;
-		}
+	    resizerEl.addEventListener('touchstart', function (e) {
+	      const touch = e.touches[0];
+	      onMouseDown({
+	        clientX: touch.clientX,
+	        clientY: touch.clientY,
+	        preventDefault: () => e.preventDefault()
+	      });
+	      function onTouchMove(te) {
+	        const t = te.touches[0];
+	        onMouseMove({ clientX: t.clientX, clientY: t.clientY });
+	      }
+	      function onTouchEnd() {
+	        onMouseUp();
+	        document.removeEventListener('touchmove', onTouchMove);
+	        document.removeEventListener('touchend', onTouchEnd);
+	      }
+	      document.addEventListener('touchmove', onTouchMove);
+	      document.addEventListener('touchend', onTouchEnd);
+	    }, { passive: false });
+	  }
 
-		async function saveGcode() {
-			const profileName = document.getElementById("gc-profile").value;
-			const outputPath = profileName.replace(/\s/g, "_") + ".nc";
-			const result = await invoke("save_gcode_to_file", { profileName, outputPath });
-			const box = document.getElementById("gc-save-result");
-			box.classList.add("visible");
-			box.innerHTML = `<div class="result-row"><span class="rvalue">${result}</span></div>`;
-		}
+	  initResizer(
+	    document.getElementById('resizerLeft'),
+	    'x',
+	    document.getElementById('panelLeft'),
+	    '--left-w',
+	    220
+	  );
 
-		async function loadMockupSettings() {
-			const settings = await invoke("list_mockup_settings");
-			if (!settings) return;
-			const container = document.getElementById("mockup-container");
-			container.innerHTML = settings.map(s => `
-				<div class="card-title">${s.name} <span class="badge ${s.is_high_end ? 'badge-high' : 'badge-mid'}">${s.is_high_end ? '고급형' : '중가형'}</span></div>
-				<div class="spec-grid">
-					<div class="spec-item"><div class="label">모델</div><div class="value">${s.model}</div></div>
-					<div class="spec-item"><div class="label">직경</div><div class="value">${s.diameter_mm} mm</div></div>
-					<div class="spec-item"><div class="label">날 수</div><div class="value">${s.flute_count}</div></div>
-					<div class="spec-item"><div class="label">유효 절삭 길이</div><div class="value">${s.loc_mm} mm</div></div>
-					<div class="spec-item"><div class="label">전체 길이</div><div class="value">${s.oal_mm} mm</div></div>
-					<div class="spec-item"><div class="label">헬릭스</div><div class="value">${s.helix_angle_deg}°</div></div>
-					<div class="spec-item"><div class="label">코팅</div><div class="value">${s.coating_name || '없음'}</div></div>
-				</div>
-				<hr style="border-color:#2a2a3e;margin:16px 0;">
-			`).join("");
-		}
+	  (function () {
+	    const rz    = document.getElementById('resizerRight');
+	    const panel = document.getElementById('panelRight');
+	    let startPos = 0, startSize = 0;
 
-		async function loadPresets() {
-			const presets = await invoke("list_presets");
-			if (!presets) return;
-			const container = document.getElementById("preset-container");
-			container.innerHTML = presets.map(p => `
-				<div class="card-title">${p.name}</div>
-				<div class="spec-grid">
-					<div class="spec-item"><div class="label">설명</div><div class="value">${p.description}</div></div>
-					<div class="spec-item"><div class="label">공구</div><div class="value">${p.endmill.model}</div></div>
-					<div class="spec-item"><div class="label">소재</div><div class="value">${p.workpiece}</div></div>
-					<div class="spec-item"><div class="label">냉각</div><div class="value">${p.coolant}</div></div>
-				</div>
-				<hr style="border-color:#2a2a3e;margin:16px 0;">
-			`).join("");
-		}
+	    rz.addEventListener('mousedown', function (e) {
+	      e.preventDefault();
+	      startPos  = e.clientX;
+	      startSize = panel.getBoundingClientRect().width;
+	      rz.classList.add('active');
+	      document.body.style.cursor = 'col-resize';
+	      document.body.style.userSelect = 'none';
+	      document.addEventListener('mousemove', onMove);
+	      document.addEventListener('mouseup', onUp);
+	    });
 
-		async function loadProfiles() {
-			const profiles = await invoke("list_profiles");
-			if (!profiles) return;
-			const box = document.getElementById("profile-result");
-			box.classList.add("visible");
-			box.innerHTML = profiles.map(p => `
-				<div class="result-row"><span class="rlabel">${p.name}</span><span class="rvalue">${p.endmill.model} / ${p.workpiece} / ${p.coolant}</span></div>
-			`).join("");
-		}
+	    function onMove(e) {
+	      const delta = startPos - e.clientX;
+	      let ns = startSize + delta;
+	      if (ns < 260) ns = 260;
+	      root.style.setProperty('--right-w', ns + 'px');
+	    }
+	    function onUp() {
+	      rz.classList.remove('active');
+	      document.body.style.cursor = '';
+	      document.body.style.userSelect = '';
+	      document.removeEventListener('mousemove', onMove);
+	      document.removeEventListener('mouseup', onUp);
+	    }
+	  })();
 
-		async function saveProfile() {
-			const profileName = document.getElementById("gc-profile").value;
-			const outputPath = profileName.replace(/\s/g, "_") + ".json";
-			const result = await invoke("save_profile_to_json", { profileName, outputPath });
-			const box = document.getElementById("profile-result");
-			box.classList.add("visible");
-			box.innerHTML = `<div class="result-row"><span class="rvalue">${result}</span></div>`;
-		}
+	  initResizer(
+	    document.getElementById('resizerBottom'),
+	    'y',
+	    document.getElementById('panelBottom'),
+	    '--bottom-h',
+	    140
+	  );
 
-		async function loadWorkpieces() {
-			const setups = await invoke("list_workpiece_setups");
-			if (!setups) return;
-			const container = document.getElementById("workpiece-container");
-			container.innerHTML = setups.map(w => `
-				<div class="card-title">${w.name}</div>
-				<div class="spec-grid">
-					<div class="spec-item"><div class="label">소재</div><div class="value">${w.material}</div></div>
-					<div class="spec-item"><div class="label">형상</div><div class="value">${w.shape}</div></div>
-					<div class="spec-item"><div class="label">크기</div><div class="value">${w.width_mm}×${w.height_mm}×${w.thickness_mm} mm</div></div>
-					<div class="spec-item"><div class="label">클램핑</div><div class="value">${w.clamping}</div></div>
-					<div class="spec-item"><div class="label">체적</div><div class="value">${w.volume_cm3.toFixed(1)} cm³</div></div>
-					<div class="spec-item"><div class="label">표면 조도 목표</div><div class="value">Ra ${w.surface_roughness_target_ra}</div></div>
-				</div>
-				<hr style="border-color:#2a2a3e;margin:16px 0;">
-			`).join("");
-		}
+	  // 1. 사용자가 조절한 패널의 최신 크기를 기억하기 위한 상태 객체
+	  const panelStates = {
+	    left: 280,
+	    right: 320,
+	    bottom: 220
+	  };
 
-		let coolRotX = -0.45;
-		let coolRotY = 0.3;
-		let coolDragging = false;
-		let coolLastX = 0, coolLastY = 0;
-		let coolParticles = [];
-		let coolAnimReq = null;
-		let coolInfo = null;
+	  document.querySelectorAll('.panel-toggle-btn[data-toggle]').forEach(function (btn) {
+	    btn.addEventListener('click', function () {
+	      const targetId = btn.getAttribute('data-toggle');
+	      const panel    = document.getElementById(targetId);
+	      if (!panel) return;
 
-		function coolProject(x, y, z) {
-			const canvas = document.getElementById("coolant-canvas");
-			const cx = 0, cy = 0, cz = 0;
-			let dx = x - cx, dy = y - cy, dz = z - cz;
-			let x1 = dx * Math.cos(coolRotY) + dz * Math.sin(coolRotY);
-			let z1 = -dx * Math.sin(coolRotY) + dz * Math.cos(coolRotY);
-			let y1 = dy * Math.cos(coolRotX) - z1 * Math.sin(coolRotX);
-			let z2 = dy * Math.sin(coolRotX) + z1 * Math.cos(coolRotX);
-			const fov = 400;
-			const s = fov / (fov + z2 + 120);
-			return {
-				px: canvas.width / 2 + x1 * s * 3,
-				py: canvas.height / 2 - y1 * s * 3,
-				depth: z2,
-				scale: s
-			};
-		}
+	      const isCollapsed = panel.classList.toggle('collapsed');
 
-		function initCoolParticles(info) {
-			coolParticles = [];
-			if (info.spray_type === "none") return;
-			const count = info.spray_type === "mist_particles" ? 120 : 80;
-			const nozzleCount = Math.max(info.nozzle_count, 1);
-			for (let i = 0; i < count; i++) {
-				const ni = i % nozzleCount;
-				const angleOffset = nozzleCount > 1 ? (ni - (nozzleCount - 1) / 2) * 0.6 : 0;
-				coolParticles.push({
-					x: 0, y: 0, z: 0,
-					vx: (Math.random() - 0.5) * 0.3 + Math.sin(angleOffset) * 0.2,
-					vy: -0.8 - Math.random() * 0.6,
-					vz: (Math.random() - 0.5) * 0.3 + Math.cos(angleOffset) * 0.2,
-					life: Math.random(),
-					maxLife: 0.7 + Math.random() * 0.5,
-					size: info.spray_type === "mist_particles" ? 1.0 + Math.random() : 1.5 + Math.random() * 1.5,
-					nozzleIdx: ni
-				});
-			}
-		}
+	      if (targetId === 'panelLeft') {
+	        btn.textContent = isCollapsed ? '▶' : '◀';
+	        if (isCollapsed) {
+	          const currentW = parseInt(getComputedStyle(root).getPropertyValue('--left-w'));
+	          if (currentW > 0) panelStates.left = currentW; // 닫기 직전의 최신 너비 저장
+	          root.style.setProperty('--left-w', '0px');
+	        } else {
+	          root.style.setProperty('--left-w', panelStates.left + 'px'); // 저장된 최신 너비로 복구
+	        }
+	      } else if (targetId === 'panelRight') {
+	        btn.textContent = isCollapsed ? '◀' : '▶';
+	        if (isCollapsed) {
+	          const currentW = parseInt(getComputedStyle(root).getPropertyValue('--right-w'));
+	          if (currentW > 0) panelStates.right = currentW;
+	          root.style.setProperty('--right-w', '0px');
+	        } else {
+	          root.style.setProperty('--right-w', panelStates.right + 'px');
+	        }
+	      } else if (targetId === 'panelBottom') {
+	        btn.textContent = isCollapsed ? '▲' : '▼';
+	        if (isCollapsed) {
+	          const currentH = parseInt(getComputedStyle(root).getPropertyValue('--bottom-h'));
+	          if (currentH > 0) panelStates.bottom = currentH;
+	          root.style.setProperty('--bottom-h', '0px');
+	        } else {
+	          root.style.setProperty('--bottom-h', panelStates.bottom + 'px');
+	        }
+	      }
+	    });
+	  });
 
-		function renderCoolantScene() {
-			const canvas = document.getElementById("coolant-canvas");
-			const ctx = canvas.getContext("2d");
-			const W = canvas.width, H = canvas.height;
-			ctx.fillStyle = "#0a0a14";
-			ctx.fillRect(0, 0, W, H);
+	  document.querySelectorAll('.panel-section-header').forEach(function (header) {
+	    header.addEventListener('click', function () {
+	      const sectionId = header.getAttribute('data-section');
+	      
+	      // 2. 하단 출력 패널의 아코디언을 누를 경우, 빈 공간이 남지 않도록 하단 패널 전체 접기 기능과 연동
+	      if (sectionId === 'secOutput') {
+	        const bottomBtn = document.querySelector('.panel-toggle-btn[data-toggle="panelBottom"]');
+	        if (bottomBtn) bottomBtn.click();
+	        return;
+	      }
 
-			const gridY = 25;
-			ctx.strokeStyle = "#1a1a2e";
-			ctx.lineWidth = 0.5;
-			for (let gx = -30; gx <= 30; gx += 10) {
-				const p1 = coolProject(gx, gridY, -30);
-				const p2 = coolProject(gx, gridY, 30);
-				ctx.beginPath(); ctx.moveTo(p1.px, p1.py); ctx.lineTo(p2.px, p2.py); ctx.stroke();
-			}
-			for (let gz = -30; gz <= 30; gz += 10) {
-				const p1 = coolProject(-30, gridY, gz);
-				const p2 = coolProject(30, gridY, gz);
-				ctx.beginPath(); ctx.moveTo(p1.px, p1.py); ctx.lineTo(p2.px, p2.py); ctx.stroke();
-			}
+	      const body = document.getElementById(sectionId);
+	      if (!body) return;
 
-			const toolTop = coolProject(0, -20, 0);
-			const toolBot = coolProject(0, 10, 0);
-			const toolTip = coolProject(0, 18, 0);
-			ctx.beginPath();
-			ctx.moveTo(toolTop.px, toolTop.py);
-			ctx.lineTo(toolBot.px, toolBot.py);
-			ctx.strokeStyle = "#888";
-			ctx.lineWidth = 8 * toolTop.scale;
-			ctx.lineCap = "round";
-			ctx.stroke();
-			ctx.beginPath();
-			ctx.moveTo(toolBot.px, toolBot.py);
-			ctx.lineTo(toolTip.px, toolTip.py);
-			ctx.strokeStyle = "#aaa";
-			ctx.lineWidth = 3 * toolBot.scale;
-			ctx.stroke();
+	      const isCollapsed = body.classList.toggle('collapsed');
+	      header.classList.toggle('collapsed', isCollapsed);
 
-			for (let f = 0; f < 3; f++) {
-				const fy = -15 + f * 8;
-				const fl = coolProject(-4, fy, 0);
-				const fr = coolProject(4, fy, 0);
-				ctx.beginPath();
-				ctx.moveTo(fl.px, fl.py);
-				ctx.lineTo(fr.px, fr.py);
-				ctx.strokeStyle = "#555";
-				ctx.lineWidth = 1;
-				ctx.stroke();
-			}
+	      // 3. 아코디언 애니메이션(0.3s) 종료 후 캔버스 등 내부 레이아웃 강제 최신화
+	      setTimeout(() => {
+	        if (typeof resizeCanvas === 'function') resizeCanvas();
+	        if (typeof resizeCoolantCanvas === 'function') resizeCoolantCanvas();
+	      }, 310);
+	    });
+	  });
 
-			if (!coolInfo || coolInfo.spray_type === "none") {
-				ctx.fillStyle = "#666";
-				ctx.font = "14px sans-serif";
-				ctx.textAlign = "center";
-				ctx.fillText("건식 가공 (냉각 없음)", W / 2, H / 2 - 60);
-				return;
-			}
+	  // 더블 클릭 시에는 기본값으로 초기화되도록 동기화
+	  document.getElementById('resizerLeft').addEventListener('dblclick', function () {
+	    root.style.setProperty('--left-w', '280px');
+	    panelStates.left = 280;
+	  });
+	  document.getElementById('resizerRight').addEventListener('dblclick', function () {
+	    root.style.setProperty('--right-w', '320px');
+	    panelStates.right = 320;
+	  });
+	  document.getElementById('resizerBottom').addEventListener('dblclick', function () {
+	    root.style.setProperty('--bottom-h', '220px');
+	    panelStates.bottom = 220;
+	  });
 
-			const color = coolInfo.color_hex;
-			const nozzleCount = Math.max(coolInfo.nozzle_count, 1);
-			const nozzleAngleRad = (coolInfo.nozzle_angle_deg * Math.PI) / 180;
-			const nozzleDist = coolInfo.nozzle_distance_mm * 0.4;
+	})();
 
-			for (let n = 0; n < nozzleCount; n++) {
-				const angleOff = nozzleCount > 1 ? (n - (nozzleCount - 1) / 2) * 0.7 : 0;
-				const nx = Math.sin(angleOff) * nozzleDist;
-				const ny = -10;
-				const nz = Math.cos(angleOff) * nozzleDist;
-				const np = coolProject(nx, ny, nz);
-				ctx.beginPath();
-				ctx.arc(np.px, np.py, 4 * np.scale, 0, Math.PI * 2);
-				ctx.fillStyle = color;
-				ctx.fill();
-				ctx.beginPath();
-				ctx.arc(np.px, np.py, 6 * np.scale, 0, Math.PI * 2);
-				ctx.strokeStyle = color + "66";
-				ctx.lineWidth = 1;
-				ctx.stroke();
-			}
+	function setStatus(state, text) {
+	  const dot = document.getElementById('status-dot');
+	  const txt = document.getElementById('status-text');
+	  dot.className = 'status-dot' + (state === 'idle' ? ' idle' : state === 'error' ? ' error' : '');
+	  txt.textContent = text;
+	}
 
-			if (coolInfo.spray_type === "internal_jet") {
-				const jetStart = coolProject(0, 5, 0);
-				const jetEnd = coolProject(0, 20, 0);
-				ctx.beginPath();
-				ctx.moveTo(jetStart.px, jetStart.py);
-				ctx.lineTo(jetEnd.px, jetEnd.py);
-				ctx.strokeStyle = color;
-				ctx.lineWidth = 3;
-				ctx.setLineDash([3, 3]);
-				ctx.stroke();
-				ctx.setLineDash([]);
-			}
+	function updateDRO(x, y, z, rpm, feed) {
+	  document.getElementById('dro-x').textContent = x.toFixed(3);
+	  document.getElementById('dro-y').textContent = y.toFixed(3);
+	  document.getElementById('dro-z').textContent = z.toFixed(3);
+	  document.getElementById('dro-rpm').textContent = rpm;
+	  document.getElementById('dro-feed').textContent = feed.toFixed(0);
+	}
 
-			for (const p of coolParticles) {
-				const alpha = Math.max(0, 1 - p.life / p.maxLife);
-				const pp = coolProject(p.x, p.y, p.z);
-				const sz = p.size * pp.scale;
-				ctx.beginPath();
-				ctx.arc(pp.px, pp.py, Math.max(0.5, sz), 0, Math.PI * 2);
-				ctx.fillStyle = color + Math.floor(alpha * 200).toString(16).padStart(2, "0");
-				ctx.fill();
-			}
+	function tpProject(x, y, z) {
+	  const canvas = document.getElementById("tp-canvas");
+	  const cx = tpMaxX / 2, cy = tpMaxY / 2, cz = (tpMinZ + tpMaxZ) / 2;
+	  let dx = (x - cx) * tpScale;
+	  let dy = (y - cy) * tpScale;
+	  let dz = (z - cz) * tpScale;
+	  let x1 = dx * Math.cos(tpRotY) + dz * Math.sin(tpRotY);
+	  let z1 = -dx * Math.sin(tpRotY) + dz * Math.cos(tpRotY);
+	  let y1 = dy * Math.cos(tpRotX) - z1 * Math.sin(tpRotX);
+	  let z2 = dy * Math.sin(tpRotX) + z1 * Math.cos(tpRotX);
+	  const fov = 600;
+	  const perspScale = fov / (fov + z2 + 80);
+	  return {
+	    px: canvas.width / 2 + x1 * perspScale,
+	    py: canvas.height / 2 - y1 * perspScale,
+	    depth: z2
+	  };
+	}
 
-			ctx.fillStyle = "#445";
-			ctx.font = "10px sans-serif";
-			ctx.textAlign = "left";
-			ctx.fillText(`rotX:${(coolRotX * 180 / Math.PI).toFixed(0)}° rotY:${(coolRotY * 180 / Math.PI).toFixed(0)}°`, 8, H - 8);
-		}
+	function resizeCanvas() {
+	  const wrap = document.querySelector('.viewport-canvas-wrap');
+	  const canvas = document.getElementById('tp-canvas');
+	  if (!wrap || !canvas) return;
 
-		function updateCoolParticles() {
-			if (!coolInfo || coolInfo.spray_type === "none") return;
-			const speed = coolInfo.pressure_bar * 0.02;
-			for (const p of coolParticles) {
-				p.life += 0.016;
-				if (p.life > p.maxLife) {
-					p.life = 0;
-					p.x = 0; p.y = -10; p.z = 0;
-					const nozzleCount = Math.max(coolInfo.nozzle_count, 1);
-					const angleOff = nozzleCount > 1 ? (p.nozzleIdx - (nozzleCount - 1) / 2) * 0.7 : 0;
-					p.x = Math.sin(angleOff) * coolInfo.nozzle_distance_mm * 0.4;
-					p.y = -10;
-					p.z = Math.cos(angleOff) * coolInfo.nozzle_distance_mm * 0.4;
-					p.vx = (Math.random() - 0.5) * 0.4 - p.x * 0.02;
-					p.vy = 0.6 + Math.random() * 0.5;
-					p.vz = (Math.random() - 0.5) * 0.4 - p.z * 0.02;
-				}
-				p.x += p.vx * speed;
-				p.y += p.vy * speed;
-				p.z += p.vz * speed;
-				if (p.y > 25) {
-					p.y = 25;
-					p.vy *= -0.2;
-					p.vx *= 1.5;
-					p.vz *= 1.5;
-				}
-			}
-		}
+	  canvas.width = wrap.clientWidth;
+	  canvas.height = wrap.clientHeight;
 
-		function coolAnimLoop() {
-			updateCoolParticles();
-			renderCoolantScene();
-			coolAnimReq = requestAnimationFrame(coolAnimLoop);
-		}
+	  // 1. 패널 조절로 캔버스 크기가 변할 때, 3D 객체가 새 공간에 꽉 차도록 스케일(tpScale) 즉시 재계산
+	  if (tpMaxX > 0 || tpMaxY > 0) {
+	    const scaleX = (canvas.width - tpPad * 4) / Math.max(tpMaxX, 1);
+	    const scaleY = (canvas.height - tpPad * 4) / Math.max(tpMaxY, 1);
+	    tpScale = Math.min(scaleX, scaleY) * 0.85;
+	  }
 
-		async function renderCoolant2D() {
-			const key = document.getElementById("coolant-select").value;
-			let info;
-			try {
-				info = await invoke("get_coolant_visual_info", { coolantKey: key });
-			} catch (e) {
-				alert("냉각 정보 로드 실패: " + e);
-				return;
-			}
-			if (!info) return;
-			coolInfo = info;
+	  if (tpData.length) {
+	    // 2. 애니메이션 재생 도중 레이아웃이 변하면 이전 좌표 위치가 틀어지므로, 애니메이션을 즉시 완료 상태로 처리 (에러 방지)
+	    if (animReq) {
+	      cancelAnimationFrame(animReq);
+	      animReq = null;
+	      setStatus('ready', 'COMPLETE');
+	    }
+	    renderToolpath3D(); // 새로운 스케일에 맞춰 3D 뷰포트 즉시 전체 다시 그리기
+	  }
+	}
 
-			const panel = document.getElementById("coolant-info-panel");
-			panel.style.display = "block";
-			document.getElementById("ci-label").textContent = info.label;
-			document.getElementById("ci-mcode").textContent = info.m_code;
-			document.getElementById("ci-pressure").textContent = info.pressure_bar + " bar";
-			document.getElementById("ci-flow").textContent = info.flow_rate_l_min + " L/min";
-			document.getElementById("ci-nozzle").textContent = info.nozzle_count + "개";
-			document.getElementById("ci-spray").textContent = info.spray_type;
+	function resizeCoolantCanvas() {
+	  const wrap = document.querySelector('.coolant-viz-wrap');
+	  const canvas = document.getElementById('coolant-canvas');
+	  if (wrap && canvas) {
+	    canvas.width = wrap.clientWidth;
+	    canvas.height = wrap.clientHeight;
+	    if (coolInfo) renderCoolantScene();
+	  }
+	}
 
-			initCoolParticles(info);
-			if (coolAnimReq) cancelAnimationFrame(coolAnimReq);
-			coolAnimLoop();
-		}
+	async function fetchToolpathData() {
+	  const profileName = getActiveProfile();
+	  const pattern = document.getElementById("tp-pattern").value;
+	  setStatus('busy', 'LOADING...');
+	  
+	  try {
+	    tpData = await invoke("get_toolpath_with_pattern", { profileName, patternKey: pattern });
+	  } catch (e) {
+	    setStatus('error', 'LOAD FAILED');
+	    appendLog(`툴패스 로딩 실패: ${e}`);
+	    tpData = [];
+	    return false;
+	  }
+	  
+	  if (!tpData || tpData.length === 0) { 
+	    setStatus('error', 'NO DATA'); 
+	    tpData = [];
+	    return false; 
+	  }
+	  
+	  tpMaxX = 0; tpMaxY = 0; tpMinZ = 0; tpMaxZ = 0;
+	  for (const s of tpData) {
+	    tpMaxX = Math.max(tpMaxX, s.x || 0);
+	    tpMaxY = Math.max(tpMaxY, s.y || 0);
+	    const zv = s.z !== undefined ? s.z : 0;
+	    tpMinZ = Math.min(tpMinZ, zv);
+	    tpMaxZ = Math.max(tpMaxZ, zv);
+	  }
+	  const canvas = document.getElementById("tp-canvas");
+	  const scaleX = (canvas.width - tpPad * 4) / Math.max(tpMaxX, 1);
+	  const scaleY = (canvas.height - tpPad * 4) / Math.max(tpMaxY, 1);
+	  tpScale = Math.min(scaleX, scaleY) * 0.85;
+	  document.getElementById('vp-info').textContent = `세그먼트: ${tpData.length} | X:${tpMaxX.toFixed(0)} Y:${tpMaxY.toFixed(0)} Z:${tpMinZ.toFixed(1)}~${tpMaxZ.toFixed(1)}`;
+	  setStatus('ready', 'READY');
+	  return true;
+	}
 
-		async function createCustomEndmill() {
-			const name = document.getElementById("cm-name").value;
-			const model = document.getElementById("cm-model").value;
-			const diameterMm = parseFloat(document.getElementById("cm-dia").value);
-			const fluteCount = parseInt(document.getElementById("cm-flutes").value);
-			const locMm = parseFloat(document.getElementById("cm-loc").value);
-			const oalMm = parseFloat(document.getElementById("cm-oal").value);
-			const shankDiameterMm = parseFloat(document.getElementById("cm-shank").value);
-			const helixAngleDeg = parseFloat(document.getElementById("cm-helix").value);
-			const coatingName = document.getElementById("cm-coating").value || null;
-			const isHighEnd = document.getElementById("cm-tier").value === "high";
-			try {
-				const result = await invoke("create_custom_endmill", {
-					name, model, diameterMm, fluteCount, locMm, oalMm,
-					shankDiameterMm, helixAngleDeg, coatingName, isHighEnd,
-				});
-				if (!result) return;
-				const box = document.getElementById("cm-result");
-				box.classList.add("visible");
-				box.innerHTML = `
-					<div class="result-row"><span class="rlabel">이름</span><span class="rvalue">${result.name}</span></div>
-					<div class="result-row"><span class="rlabel">모델</span><span class="rvalue">${result.model}</span></div>
-					<div class="result-row"><span class="rlabel">직경</span><span class="rvalue">${result.diameter_mm} mm</span></div>
-					<div class="result-row"><span class="rlabel">날 수</span><span class="rvalue">${result.flute_count}</span></div>
-					<div class="result-row"><span class="rlabel">LOC</span><span class="rvalue">${result.loc_mm} mm</span></div>
-					<div class="result-row"><span class="rlabel">OAL</span><span class="rvalue">${result.oal_mm} mm</span></div>
-					<div class="result-row"><span class="rlabel">샹크</span><span class="rvalue">${result.shank_diameter_mm} mm</span></div>
-					<div class="result-row"><span class="rlabel">헬릭스</span><span class="rvalue">${result.helix_angle_deg}°</span></div>
-					<div class="result-row"><span class="rlabel">코팅</span><span class="rvalue">${result.coating_name || "없음"}</span></div>
-					<div class="result-row"><span class="rlabel">등급</span><span class="rvalue">${result.is_high_end ? "고급형" : "중가형"}</span></div>
-				`;
-			} catch (e) {
-				const box = document.getElementById("cm-result");
-				box.classList.add("visible");
-				box.innerHTML = `<div style="color:#ff6b6b;padding:8px;">오류: ${e}</div>`;
-			}
-		}
+	function drawToolpathSegment(ctx, s, prev, toolRadiusPx) {
+	  const proj = tpProject(s.x || 0, s.y || 0, s.z || 0);
+	  if (prev) {
+	    ctx.beginPath();
+	    ctx.moveTo(prev.px, prev.py);
+	    if (s.kind === "Rapid") {
+	      ctx.strokeStyle = "#333";
+	      ctx.lineWidth = 1;
+	      ctx.setLineDash([4, 4]);
+	      ctx.lineTo(proj.px, proj.py);
+	      ctx.stroke();
+	    } else {
+	      const depthRatio = Math.min(Math.max(Math.abs(s.z || 0) / 10, 0.2), 1.0);
+	      ctx.strokeStyle = `rgba(0, 212, 255, ${depthRatio})`;
+	      ctx.lineWidth = toolRadiusPx * 2;
+	      ctx.setLineDash([]);
+	      ctx.lineTo(proj.px, proj.py);
+	      ctx.stroke();
+	    }
+	  }
+	  return { px: proj.px, py: proj.py };
+	}
 
-		async function createCustomWorkpiece() {
-			const name = document.getElementById("cw-name").value;
-			const materialKey = document.getElementById("cw-material").value;
-			const shapeKey = document.getElementById("cw-shape").value;
-			const widthMm = parseFloat(document.getElementById("cw-width").value);
-			const heightMm = parseFloat(document.getElementById("cw-height").value);
-			const thicknessMm = parseFloat(document.getElementById("cw-thickness").value);
-			const clampingKey = document.getElementById("cw-clamping").value;
-			const stockAllowanceMm = parseFloat(document.getElementById("cw-allowance").value);
-			try {
-				const result = await invoke("build_custom_workpiece", {
-					name, materialKey, shapeKey, widthMm, heightMm, thicknessMm,
-					clampingKey, stockAllowanceMm,
-				});
-				if (!result) return;
-				const box = document.getElementById("cw-result");
-				box.classList.add("visible");
-				box.innerHTML = `
-					<div class="result-row"><span class="rlabel">이름</span><span class="rvalue">${result.name}</span></div>
-					<div class="result-row"><span class="rlabel">소재</span><span class="rvalue">${result.material}</span></div>
-					<div class="result-row"><span class="rlabel">형상</span><span class="rvalue">${result.shape}</span></div>
-					<div class="result-row"><span class="rlabel">크기</span><span class="rvalue">${result.width_mm}×${result.height_mm}×${result.thickness_mm} mm</span></div>
-					<div class="result-row"><span class="rlabel">클램핑</span><span class="rvalue">${result.clamping}</span></div>
-					<div class="result-row"><span class="rlabel">여유량</span><span class="rvalue">${result.stock_allowance_mm} mm</span></div>
-					<div class="result-row"><span class="rlabel">체적</span><span class="rvalue">${result.volume_cm3.toFixed(2)} cm³</span></div>
-					<div class="result-row"><span class="rlabel">표면조도</span><span class="rvalue">Ra ${result.surface_roughness_target_ra}</span></div>
-				`;
-			} catch (e) {
-				const box = document.getElementById("cw-result");
-				box.classList.add("visible");
-				box.innerHTML = `<div style="color:#ff6b6b;padding:8px;">오류: ${e}</div>`;
-			}
-		}
+	function renderToolpath3D() {
+	  const canvas = document.getElementById("tp-canvas");
+	  const ctx = canvas.getContext("2d");
+	  ctx.fillStyle = "#0a0a14";
+	  ctx.fillRect(0, 0, canvas.width, canvas.height);
+	  ctx.lineCap = "round";
+	  ctx.lineJoin = "round";
 
-		async function renderCoolant2D() {
-			const key = document.getElementById("coolant-select").value;
-			let info;
-			try {
-				info = await invoke("get_coolant_visual_info", { coolantKey: key });
-			} catch (e) {
-				alert("냉각 정보 로드 실패: " + e);
-				return;
-			}
-			if (!info) return;
-			const canvas = document.getElementById("coolant-canvas");
-			const ctx = canvas.getContext("2d");
-			const W = canvas.width, H = canvas.height;
-			ctx.clearRect(0, 0, W, H);
-			ctx.fillStyle = "#0f0f1e";
-			ctx.fillRect(0, 0, W, H);
-			const cx = W / 2, cy = H / 2 + 40;
-			ctx.fillStyle = "#555";
-			ctx.fillRect(cx - 6, cy - 80, 12, 80);
-			ctx.beginPath();
-			ctx.moveTo(cx - 6, cy);
-			ctx.lineTo(cx, cy + 12);
-			ctx.lineTo(cx + 6, cy);
-			ctx.closePath();
-			ctx.fillStyle = "#888";
-			ctx.fill();
-			ctx.fillStyle = "#333";
-			ctx.fillRect(cx - 80, cy + 12, 160, 20);
-			if (info.spray_type === "none") {
-				ctx.fillStyle = "#666";
-				ctx.font = "14px sans-serif";
-				ctx.textAlign = "center";
-				ctx.fillText("건식 가공 (냉각 없음)", cx, cy - 100);
-				return;
-			}
-			const color = info.color_hex;
-			const nozzleCount = Math.max(info.nozzle_count, 1);
-			const angleRad = (info.nozzle_angle_deg * Math.PI) / 180;
-			const dist = info.nozzle_distance_mm * 1.5;
-			for (let n = 0; n < nozzleCount; n++) {
-				const offsetX = nozzleCount > 1 ? (n - (nozzleCount - 1) / 2) * 40 : 0;
-				const nx = cx + offsetX + Math.sin(angleRad) * dist;
-				const ny = cy - 40 - Math.cos(angleRad) * dist;
-				ctx.beginPath();
-				ctx.arc(nx, ny, 4, 0, Math.PI * 2);
-				ctx.fillStyle = color;
-				ctx.fill();
-				const particleCount = 20;
-				for (let i = 0; i < particleCount; i++) {
-					const t = (i + 1) / particleCount;
-					const spread = (Math.random() - 0.5) * 0.4;
-					const px = nx + (cx + offsetX - nx) * t + spread * 20 * t;
-					const py = ny + (cy - ny) * t;
-					const size = info.spray_type === "mist_particles" ? 1.5 : 2.5;
-					ctx.beginPath();
-					ctx.arc(px, py, size * (1 - t * 0.5), 0, Math.PI * 2);
-					ctx.fillStyle = color + Math.floor((1 - t * 0.6) * 255).toString(16).padStart(2, "0");
-					ctx.fill();
-				}
-				ctx.beginPath();
-				ctx.moveTo(nx, ny);
-				ctx.lineTo(cx + offsetX, cy);
-				ctx.strokeStyle = color + "44";
-				ctx.lineWidth = info.spray_type === "liquid_stream" ? 3 : 1;
-				ctx.stroke();
-			}
-			ctx.fillStyle = "#aaa";
-			ctx.font = "11px sans-serif";
-			ctx.textAlign = "left";
-			ctx.fillText(`${info.label} | ${info.pressure_bar}bar | ${info.flow_rate_l_min}L/min | 노즐 ${info.nozzle_count}개`, 10, 20);
-			ctx.fillText(`분사 타입: ${info.spray_type}`, 10, 36);
-		}
+	  ctx.strokeStyle = "#141428";
+	  ctx.lineWidth = 0.5;
+	  for (let gx = 0; gx <= tpMaxX + 20; gx += 20) {
+	    const p1 = tpProject(gx, 0, 0);
+	    const p2 = tpProject(gx, tpMaxY, 0);
+	    ctx.beginPath(); ctx.moveTo(p1.px, p1.py); ctx.lineTo(p2.px, p2.py); ctx.stroke();
+	  }
+	  for (let gy = 0; gy <= tpMaxY + 20; gy += 20) {
+	    const p1 = tpProject(0, gy, 0);
+	    const p2 = tpProject(tpMaxX, gy, 0);
+	    ctx.beginPath(); ctx.moveTo(p1.px, p1.py); ctx.lineTo(p2.px, p2.py); ctx.stroke();
+	  }
 
-		window.addEventListener("DOMContentLoaded", () => {
-			loadBrands();
-			loadSampleSpec();
-			loadApplicationProfiles();
-			loadMockupSettings();
-			loadPresets();
-			loadWorkpieces();
+	  let prev = null;
+	  const toolRadiusPx = Math.max(2, 3 * tpScale);
+	  for (const s of tpData) {
+	    prev = drawToolpathSegment(ctx, s, prev, toolRadiusPx);
+	  }
+	}
 
-			const tpCanvas = document.getElementById("tp-canvas");
-			tpCanvas.addEventListener("wheel", (e) => {
-				e.preventDefault();
-				tpRotX += e.deltaY * 0.003;
-				tpRotX = Math.max(-Math.PI / 2, Math.min(0.1, tpRotX));
-				if (tpData.length) renderToolpath3D();
-			}, { passive: false });
+	async function renderToolpath2D() {
+	  if (animReq) cancelAnimationFrame(animReq);
+	  resizeCanvas();
+	  if (!(await fetchToolpathData())) return;
+	  renderToolpath3D();
+	}
 
-			tpCanvas.addEventListener("mousedown", (e) => {
-				tpDragging = true;
-				tpLastMX = e.clientX;
-				tpLastMY = e.clientY;
-			});
-			window.addEventListener("mousemove", (e) => {
-				if (!tpDragging) return;
-				const dx = e.clientX - tpLastMX;
-				const dy = e.clientY - tpLastMY;
-				tpRotY += dx * 0.008;
-				tpRotX += dy * 0.005;
-				tpRotX = Math.max(-Math.PI / 2, Math.min(0.1, tpRotX));
-				tpLastMX = e.clientX;
-				tpLastMY = e.clientY;
-				if (tpData.length) renderToolpath3D();
-			});
-			window.addEventListener("mouseup", () => { tpDragging = false; });
+	function resetViewport() { tpRotX = -0.55; tpRotY = 0.35; if (tpData.length) renderToolpath3D(); }
+	function fitViewport() { tpRotX = -0.4; tpRotY = 0.0; if (tpData.length) renderToolpath3D(); }
 
-			tpCanvas.addEventListener("touchstart", (e) => {
-				if (e.touches.length === 1) {
-					tpDragging = true;
-					tpLastMX = e.touches[0].clientX;
-					tpLastMY = e.touches[0].clientY;
-				}
-			}, { passive: true });
-			tpCanvas.addEventListener("touchmove", (e) => {
-				e.preventDefault();
-				if (!tpDragging || e.touches.length !== 1) return;
-				const dx = e.touches[0].clientX - tpLastMX;
-				const dy = e.touches[0].clientY - tpLastMY;
-				tpRotY += dx * 0.008;
-				tpRotX += dy * 0.005;
-				tpRotX = Math.max(-Math.PI / 2, Math.min(0.1, tpRotX));
-				tpLastMX = e.touches[0].clientX;
-				tpLastMY = e.touches[0].clientY;
-				if (tpData.length) renderToolpath3D();
-			}, { passive: false });
-			tpCanvas.addEventListener("touchend", () => { tpDragging = false; });
+	async function animateToolpath() {
+	  if (animReq) cancelAnimationFrame(animReq);
+	  
+	  try {
+	    if ((!tpData || tpData.length === 0) && !(await fetchToolpathData())) {
+	      return;
+	    }
+	  } catch (e) {
+	    setStatus('error', 'ANIM ERROR');
+	    appendLog(`애니메이션 준비 오류: ${e}`);
+	    return;
+	  }
+	  
+	  const canvas = document.getElementById("tp-canvas");
+	  const ctx = canvas.getContext("2d");
+	  ctx.lineCap = "round";
+	  currentAnimFrame = 0;
+	  let prev = null;
+	  const toolRadiusPx = Math.max(2, 3 * tpScale);
+	  ctx.fillStyle = "#0a0a14";
+	  ctx.fillRect(0, 0, canvas.width, canvas.height);
+	  setStatus('busy', 'RUNNING');
 
-			const coolCanvas = document.getElementById("coolant-canvas");
-			coolCanvas.addEventListener("wheel", (e) => {
-				e.preventDefault();
-				coolRotX += e.deltaY * 0.004;
-				coolRotX = Math.max(-Math.PI / 2, Math.min(0.2, coolRotX));
-			}, { passive: false });
-			coolCanvas.addEventListener("mousedown", (e) => {
-				coolDragging = true;
-				coolLastX = e.clientX;
-				coolLastY = e.clientY;
-				coolCanvas.style.cursor = "grabbing";
-			});
-			window.addEventListener("mousemove", (e) => {
-				if (!coolDragging) return;
-				coolRotY += (e.clientX - coolLastX) * 0.008;
-				coolRotX += (e.clientY - coolLastY) * 0.005;
-				coolRotX = Math.max(-Math.PI / 2, Math.min(0.2, coolRotX));
-				coolLastX = e.clientX;
-				coolLastY = e.clientY;
-			});
-			window.addEventListener("mouseup", () => {
-				coolDragging = false;
-				coolCanvas.style.cursor = "grab";
-			});
-			coolCanvas.addEventListener("touchstart", (e) => {
-				if (e.touches.length === 1) {
-					coolDragging = true;
-					coolLastX = e.touches[0].clientX;
-					coolLastY = e.touches[0].clientY;
-				}
-			}, { passive: true });
-			coolCanvas.addEventListener("touchmove", (e) => {
-				e.preventDefault();
-				if (!coolDragging || e.touches.length !== 1) return;
-				coolRotY += (e.touches[0].clientX - coolLastX) * 0.008;
-				coolRotX += (e.touches[0].clientY - coolLastY) * 0.005;
-				coolRotX = Math.max(-Math.PI / 2, Math.min(0.2, coolRotX));
-				coolLastX = e.touches[0].clientX;
-				coolLastY = e.touches[0].clientY;
-			}, { passive: false });
-			coolCanvas.addEventListener("touchend", () => { coolDragging = false; });
-		});
+	  function step() {
+	    try {
+	      if (currentAnimFrame < tpData.length) {
+	        const s = tpData[currentAnimFrame];
+	        prev = drawToolpathSegment(ctx, s, prev, toolRadiusPx);
+	        ctx.beginPath();
+	        ctx.arc(prev.px, prev.py, toolRadiusPx, 0, Math.PI * 2);
+	        ctx.fillStyle = "#ff6b6b";
+	        ctx.fill();
+	        updateDRO(s.x || 0, s.y || 0, s.z || 0, 1910, s.feed || 0);
+	        currentAnimFrame++;
+	        animReq = requestAnimationFrame(step);
+	      } else {
+	        setStatus('ready', 'COMPLETE');
+	      }
+	    } catch (e) {
+	      cancelAnimationFrame(animReq);
+	      setStatus('error', 'ERROR');
+	      appendLog(`애니메이션 렌더링 중 오류 발생: ${e}`);
+	    }
+	  }
+	  animReq = requestAnimationFrame(step);
+	}
+
+	function getActiveProfile() {
+	  const active = document.querySelector('#preset-tree .tree-item.active');
+	  return active ? active.dataset.name : "알루미늄 황삭 프리셋";
+	}
+
+	async function previewGcode() {
+	  const profileName = getActiveProfile();
+	  const pattern = document.getElementById("tp-pattern").value;
+	  setStatus('busy', 'GENERATING...');
+	  
+	  let data;
+	  try {
+	    data = await invoke("generate_gcode_with_pattern", { profileName, patternKey: pattern });
+	  } catch (e) {
+	    setStatus('error', 'ERROR');
+	    appendLog(`G-Code 생성 실패: ${e}`);
+	    return;
+	  }
+	  
+	  if (!data) { setStatus('error', 'FAILED'); return; }
+
+	  const gcOut = document.getElementById('gcode-output');
+    const lines = data.text.split('\n');
+    gcOut.innerHTML = lines.map(l => {
+      if (l.includes('(')) return `<div class="gc-line gc-comment">${l}</div>`;
+      return `<div class="gc-line">${l}</div>`;
+    }).join('');
+
+    renderWarnings(data.warnings);
+
+    document.getElementById('sb-profile').textContent = data.program_name;
+    document.getElementById('sb-time').textContent = data.estimated_time_min.toFixed(2) + ' min';
+    document.getElementById('sb-dist').textContent = data.total_distance_mm.toFixed(1) + ' mm';
+    document.getElementById('sb-lines').textContent = data.line_count;
+
+    appendLog(`프로그램: ${data.program_name}`);
+    appendLog(`소재: ${data.workpiece_material} | 공구: ${data.tool_model}`);
+    appendLog(`냉각: ${data.coolant_method} | 시간: ${data.estimated_time_min.toFixed(2)}min | 거리: ${data.total_distance_mm.toFixed(1)}mm`);
+
+    setStatus('ready', 'G-CODE READY');
+  }
+
+	async function saveGcode() {
+	  const profileName = getActiveProfile();
+	  const outputPath = profileName.replace(/\s/g, "_") + ".nc";
+	  try {
+	    const result = await invoke("save_gcode_to_file", { profileName, outputPath });
+	    if (result) appendLog(`G-Code 저장 성공: ${result}`);
+	  } catch (e) {
+	    appendLog(`G-Code 저장 실패: ${e}`);
+	  }
+	}
+
+	async function calculateConditions() {
+	  const workpiece = document.getElementById("calc-workpiece").value;
+	  const diameter = parseFloat(document.getElementById("calc-diameter").value);
+	  const flutes = parseInt(document.getElementById("calc-flutes").value);
+	  const isHighEnd = document.getElementById("calc-tier").value === "high";
+
+	  if (isNaN(diameter) || diameter <= 0 || isNaN(flutes) || flutes <= 0) {
+	    const box = document.getElementById("calc-result");
+	    box.classList.remove("hidden");
+	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: 유효한 직경과 날 수를 입력하세요.</div>`;
+	    return;
+	  }
+
+	  let result;
+	  try {
+	    result = await invoke("calculate_cutting_conditions", {
+	      workpiece, diameterMm: diameter, fluteCount: flutes, isHighEnd,
+	    });
+	  } catch (e) {
+	    const box = document.getElementById("calc-result");
+	    box.classList.remove("hidden");
+	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">계산 오류: ${e}</div>`;
+	    return;
+	  }
+	  if (!result) return;
+	  const box = document.getElementById("calc-result");
+	  box.classList.remove("hidden");
+	  box.innerHTML = `
+	    <div class="result-row"><span class="rlabel">절삭 속도</span><span class="rvalue">${result.cutting_speed_m_min.toFixed(1)} m/min</span></div>
+	    <div class="result-row"><span class="rlabel">스핀들</span><span class="rvalue" style="color:var(--warning)">${result.spindle_rpm} RPM</span></div>
+	    <div class="result-row"><span class="rlabel">이송</span><span class="rvalue" style="color:var(--accent)">${result.feed_rate_mm_min.toFixed(0)} mm/min</span></div>
+	    <div class="result-row"><span class="rlabel">칩/날</span><span class="rvalue">${result.feed_per_tooth_mm.toFixed(3)} mm</span></div>
+	    <div class="result-row"><span class="rlabel">절입 (축)</span><span class="rvalue">${result.axial_doc_mm.toFixed(1)} mm</span></div>
+	    <div class="result-row"><span class="rlabel">절입 (반경)</span><span class="rvalue">${result.radial_doc_mm.toFixed(1)} mm</span></div>
+	    <div class="result-row"><span class="rlabel">MRR</span><span class="rvalue" style="color:var(--danger)">${result.mrr_cm3_min.toFixed(2)} cm³/min</span></div>
+	    <div class="result-row"><span class="rlabel">절삭력</span><span class="rvalue">${result.cutting_force_n.toFixed(1)} N</span></div>
+	    <div class="result-row"><span class="rlabel">동력</span><span class="rvalue">${result.spindle_power_kw.toFixed(2)} kW</span></div>
+	    <div class="result-row"><span class="rlabel">휨량</span><span class="rvalue" style="color:var(--danger)">${result.tool_deflection_mm.toFixed(4)} mm</span></div>
+	  `;
+	  updateDRO(0, 0, 0, result.spindle_rpm, result.feed_rate_mm_min);
+	}
+
+	async function loadLeftPanel() {
+	  const presets = await invoke("list_presets");
+	  if (presets) {
+	    document.getElementById('preset-tree').innerHTML = presets.map((p, i) => `
+	      <div class="tree-item ${i === 0 ? 'active' : ''}" data-name="${p.name}" onclick="selectPreset(this)">
+	        <span class="tree-icon">📋</span>${p.name}
+	      </div>
+	    `).join('');
+	  }
+	  const tools = await invoke("list_mockup_settings");
+	  if (tools) {
+	    document.getElementById('tool-tree').innerHTML = tools.map(t => `
+	      <div class="tree-item" onclick="selectTool(this, '${t.model}')">
+	        <span class="tree-icon">🔧</span>${t.name}
+	        <span class="tree-badge">Ø${t.diameter_mm}</span>
+	      </div>
+	    `).join('');
+	  }
+	  const workpieces = await invoke("list_workpiece_setups");
+	  if (workpieces) {
+	    document.getElementById('workpiece-tree').innerHTML = workpieces.map(w => `
+	      <div class="tree-item"><span class="tree-icon">📦</span>${w.name}</div>
+	    `).join('');
+	  }
+	  const coolants = await invoke("list_coolant_options");
+	  if (coolants) {
+	    document.getElementById('coolant-tree').innerHTML = coolants.map(c => `
+	      <div class="tree-item" onclick="selectCoolant('${c.key}')">
+	        <span class="tree-icon">💧</span>${c.label}
+	        <span class="tree-badge">${c.m_code}</span>
+	      </div>
+	    `).join('');
+	  }
+	}
+
+	function selectPreset(el) {
+	  document.querySelectorAll('#preset-tree .tree-item').forEach(t => t.classList.remove('active'));
+	  el.classList.add('active');
+	  document.getElementById('sb-profile').textContent = el.dataset.name;
+	  renderToolpath2D();
+	}
+
+	function selectTool(el, model) {
+	  document.querySelectorAll('#tool-tree .tree-item').forEach(t => t.classList.remove('active'));
+	  el.classList.add('active');
+	  selectToolDetail(model);
+	  renderToolpath2D();
+	}
+
+	function selectCoolant(key) {
+	  document.getElementById('coolant-select').value = key;
+	  renderCoolant2D();
+	  renderToolpath2D();
+	}
+
+	function appendLog(msg) {
+	  const log = document.getElementById('log-output');
+	  const time = new Date().toLocaleTimeString();
+	  log.innerHTML += `<div class="gc-line">[${time}] ${msg}</div>`;
+	  log.scrollTop = log.scrollHeight;
+	}
+
+	document.querySelectorAll('.bottom-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.bottom-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      
+      const target = tab.dataset.btab;
+      document.getElementById('gcode-output').classList.toggle('hidden', target !== 'gcode');
+      document.getElementById('warnings-output').classList.toggle('hidden', target !== 'warnings');
+      document.getElementById('log-output').classList.toggle('hidden', target !== 'log');
+      document.getElementById('profile-output').classList.toggle('hidden', target !== 'profile');
+    });
+  });
+
+	function coolProject(x, y, z) {
+	  const canvas = document.getElementById("coolant-canvas");
+	  let dx = x, dy = y, dz = z;
+	  let x1 = dx * Math.cos(coolRotY) + dz * Math.sin(coolRotY);
+	  let z1 = -dx * Math.sin(coolRotY) + dz * Math.cos(coolRotY);
+	  let y1 = dy * Math.cos(coolRotX) - z1 * Math.sin(coolRotX);
+	  let z2 = dy * Math.sin(coolRotX) + z1 * Math.cos(coolRotX);
+	  const fov = 400;
+	  const s = fov / (fov + z2 + 120);
+	  return { px: canvas.width / 2 + x1 * s * 2.5, py: canvas.height / 2 - y1 * s * 2.5, depth: z2, scale: s };
+	}
+
+	function initCoolParticles(info) {
+	  coolParticles = [];
+	  if (info.spray_type === "none") return;
+	  const count = info.spray_type === "mist_particles" ? 80 : 50;
+	  const nozzleCount = Math.max(info.nozzle_count, 1);
+	  for (let i = 0; i < count; i++) {
+	    const ni = i % nozzleCount;
+	    const angleOffset = nozzleCount > 1 ? (ni - (nozzleCount - 1) / 2) * 0.6 : 0;
+	    coolParticles.push({
+	      x: Math.sin(angleOffset) * info.nozzle_distance_mm * 0.4,
+	      y: -10, z: Math.cos(angleOffset) * info.nozzle_distance_mm * 0.4,
+	      vx: (Math.random() - 0.5) * 0.3, vy: 0.6 + Math.random() * 0.5,
+	      vz: (Math.random() - 0.5) * 0.3,
+	      life: Math.random(), maxLife: 0.7 + Math.random() * 0.5,
+	      size: info.spray_type === "mist_particles" ? 1 + Math.random() : 1.5 + Math.random(),
+	      nozzleIdx: ni
+	    });
+	  }
+	}
+
+	function renderCoolantScene() {
+	  const canvas = document.getElementById("coolant-canvas");
+	  const ctx = canvas.getContext("2d");
+	  ctx.fillStyle = "#0a0a14";
+	  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+	  if (!coolInfo || coolInfo.spray_type === "none") {
+	    document.getElementById("cool-dry-overlay").style.display = "block";
+	    return;
+	  }
+	  document.getElementById("cool-dry-overlay").style.display = "none";
+	  const color = coolInfo.color_hex;
+
+	  const toolTop = coolProject(0, -20, 0);
+	  const toolBot = coolProject(0, 10, 0);
+	  ctx.beginPath(); ctx.moveTo(toolTop.px, toolTop.py); ctx.lineTo(toolBot.px, toolBot.py);
+	  ctx.strokeStyle = "#888"; ctx.lineWidth = 6 * toolTop.scale; ctx.lineCap = "round"; ctx.stroke();
+
+	  for (const p of coolParticles) {
+	    const alpha = Math.max(0, 1 - p.life / p.maxLife);
+	    const pp = coolProject(p.x, p.y, p.z);
+	    ctx.beginPath();
+	    ctx.arc(pp.px, pp.py, Math.max(0.5, p.size * pp.scale), 0, Math.PI * 2);
+	    ctx.fillStyle = color + Math.floor(alpha * 200).toString(16).padStart(2, "0");
+	    ctx.fill();
+	  }
+	}
+
+	function updateCoolParticles() {
+	  if (!coolInfo || coolInfo.spray_type === "none") return;
+	  const speed = coolInfo.pressure_bar * 0.02;
+	  for (const p of coolParticles) {
+	    p.life += 0.016;
+	    if (p.life > p.maxLife) {
+	      p.life = 0; p.x = 0; p.y = -10; p.z = 0;
+	      p.vx = (Math.random() - 0.5) * 0.4; p.vy = 0.6 + Math.random() * 0.5; p.vz = (Math.random() - 0.5) * 0.4;
+	    }
+	    p.x += p.vx * speed; p.y += p.vy * speed; p.z += p.vz * speed;
+	    if (p.y > 25) { p.y = 25; p.vy *= -0.2; p.vx *= 1.5; }
+	  }
+	}
+
+	function coolAnimLoop() { updateCoolParticles(); renderCoolantScene(); coolAnimReq = requestAnimationFrame(coolAnimLoop); }
+
+	async function renderCoolant2D() {
+    const key = document.getElementById("coolant-select").value;
+    let info;
+    try { info = await invoke("get_coolant_visual_info", { coolantKey: key }); } catch (e) { return; }
+    if (!info) return;
+    
+    coolInfo = info;
+    document.getElementById("coolant-info-panel").classList.remove("hidden");
+    document.getElementById("ci-label").textContent = info.label;
+    document.getElementById("ci-mcode").textContent = info.m_code;
+    document.getElementById("ci-pressure").textContent = info.pressure_bar + " bar";
+    document.getElementById("ci-flow").textContent = info.flow_rate_l_min + " L/min";
+    document.getElementById("ci-nozzle").textContent = info.nozzle_count + "개";
+    document.getElementById("ci-spray").textContent = info.spray_type;
+    
+    initCoolParticles(info);
+    if (coolAnimReq) cancelAnimationFrame(coolAnimReq);
+    coolAnimLoop();
+  }
+
+	async function createCustomEndmill() {
+	  const name = document.getElementById("cm-name").value.trim();
+	  const model = document.getElementById("cm-model").value.trim();
+	  const diameterMm = parseFloat(document.getElementById("cm-dia").value);
+	  const fluteCount = parseInt(document.getElementById("cm-flutes").value);
+	  const locMm = parseFloat(document.getElementById("cm-loc").value);
+	  const oalMm = parseFloat(document.getElementById("cm-oal").value);
+	  const shankDiameterMm = parseFloat(document.getElementById("cm-shank").value);
+	  const helixAngleDeg = parseFloat(document.getElementById("cm-helix").value);
+	  const coatingName = document.getElementById("cm-coating").value.trim() || null;
+	  const isHighEnd = true;
+
+	  const box = document.getElementById("cm-result");
+	  box.classList.remove("hidden");
+
+	  if (!name || !model) {
+	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: 공구 이름과 모델명을 입력해주세요.</div>`;
+	    return;
+	  }
+	  if (isNaN(diameterMm) || diameterMm <= 0 || isNaN(fluteCount) || fluteCount <= 0) {
+	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: 직경과 날 수는 0보다 커야 합니다.</div>`;
+	    return;
+	  }
+	  if (isNaN(locMm) || isNaN(oalMm) || locMm <= 0 || oalMm <= 0) {
+	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: 유효 절삭 길이(LOC)와 전체 길이(OAL)를 확인해주세요.</div>`;
+	    return;
+	  }
+	  if (locMm > oalMm) {
+	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: 유효 절삭 길이(LOC)는 전체 길이(OAL)보다 클 수 없습니다.</div>`;
+	    return;
+	  }
+	  if (isNaN(shankDiameterMm) || shankDiameterMm <= 0 || isNaN(helixAngleDeg) || helixAngleDeg < 0) {
+	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: 샹크 직경과 헬릭스 각도를 확인해주세요.</div>`;
+	    return;
+	  }
+
+	  box.innerHTML = `<div style="color:var(--text-muted);font-size:0.75rem;">생성 중...</div>`;
+
+	  try {
+	    const result = await invoke("create_custom_endmill", {
+	      name, model, diameterMm, fluteCount, locMm, oalMm, shankDiameterMm, helixAngleDeg, coatingName, isHighEnd,
+	    });
+	    if (!result) return;
+	    
+	    box.innerHTML = `<div style="color:var(--success);font-size:0.75rem;">✓ ${result.name} 생성 완료</div>`;
+	    appendLog(`커스텀 공구 생성: ${result.model}`);
+	  } catch (e) {
+	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: ${e}</div>`;
+	  }
+	}
+
+  async function createCustomWorkpiece() {
+	  const name = document.getElementById("cw-name").value.trim();
+	  const materialKey = document.getElementById("cw-material").value;
+	  const shapeKey = document.getElementById("cw-shape").value;
+	  const widthMm = parseFloat(document.getElementById("cw-width").value);
+	  const heightMm = parseFloat(document.getElementById("cw-height").value);
+	  const thicknessMm = parseFloat(document.getElementById("cw-thickness").value);
+	  const clampingKey = document.getElementById("cw-clamping").value;
+	  const stockAllowanceMm = parseFloat(document.getElementById("cw-allowance").value);
+	  
+	  const box = document.getElementById("cw-result");
+	  box.classList.remove("hidden");
+
+	  if (!name) {
+	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: 원소재 이름을 입력해주세요.</div>`;
+	    return;
+	  }
+	  if (isNaN(widthMm) || widthMm <= 0 || isNaN(heightMm) || heightMm <= 0 || isNaN(thicknessMm) || thicknessMm <= 0) {
+	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: 폭, 높이, 두께는 0보다 커야 합니다.</div>`;
+	    return;
+	  }
+	  if (isNaN(stockAllowanceMm) || stockAllowanceMm < 0) {
+	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: 여유량은 0 이상이어야 합니다.</div>`;
+	    return;
+	  }
+
+	  box.innerHTML = `<div style="color:var(--text-muted);font-size:0.75rem;">생성 중...</div>`;
+
+	  try {
+	    const result = await invoke("build_custom_workpiece", {
+	      name, materialKey, shapeKey, widthMm, heightMm, thicknessMm,
+	      clampingKey, stockAllowanceMm,
+	    });
+	    if (!result) return;
+	    
+	    box.innerHTML = `
+	      <div class="result-row"><span class="rlabel">이름</span><span class="rvalue">${result.name}</span></div>
+	      <div class="result-row"><span class="rlabel">소재</span><span class="rvalue">${result.material}</span></div>
+	      <div class="result-row"><span class="rlabel">형상</span><span class="rvalue">${result.shape}</span></div>
+	      <div class="result-row"><span class="rlabel">크기</span><span class="rvalue">${result.width_mm}×${result.height_mm}×${result.thickness_mm} mm</span></div>
+	      <div class="result-row"><span class="rlabel">클램핑</span><span class="rvalue">${result.clamping}</span></div>
+	      <div class="result-row"><span class="rlabel">여유량</span><span class="rvalue">${result.stock_allowance_mm} mm</span></div>
+	      <div class="result-row"><span class="rlabel">체적</span><span class="rvalue">${result.volume_cm3.toFixed(2)} cm³</span></div>
+	      <div class="result-row"><span class="rlabel">표면조도</span><span class="rvalue">Ra ${result.surface_roughness_target_ra}</span></div>
+	    `;
+	    appendLog(`원소재 생성: ${result.name}`);
+	  } catch (e) {
+	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: ${e}</div>`;
+	  }
+	}
+
+  async function loadProfiles() {
+    const profiles = await invoke("list_profiles");
+    if (!profiles) return;
+    
+    const list = document.getElementById("profile-result-list");
+    list.innerHTML = profiles.map(p => `
+      <div class="result-row">
+        <span class="rlabel">${p.name}</span>
+        <span class="rvalue" style="font-size:0.68rem;">${p.endmill.model} / ${p.workpiece} / ${p.coolant}</span>
+      </div>
+    `).join('');
+  }
+
+  async function saveProfile() {
+	  const profileName = getActiveProfile();
+	  const outputPath = profileName.replace(/\s/g, "_") + ".json";
+	  try {
+	    const result = await invoke("save_profile_to_json", { profileName, outputPath });
+	    if (result) appendLog(`프로필 저장 성공: ${result}`);
+	  } catch (e) {
+	    appendLog(`프로필 저장 실패: ${e}`);
+	  }
+	}
+
+	async function selectToolDetail(model) {
+    const settings = await invoke("list_mockup_settings");
+    if (!settings) return;
+    
+    const found = settings.find(s => s.model === model);
+    if (!found) return;
+    
+    const panel = document.getElementById("tool-spec-panel");
+    panel.innerHTML = `
+      <div style="font-size:0.78rem; font-weight:700; color:var(--accent); margin-bottom:6px;">
+        ${found.name} <span class="badge ${found.is_high_end ? 'badge-high' : 'badge-mid'}">${found.is_high_end ? '고급형' : '중가형'}</span>
+      </div>
+      <div class="spec-grid">
+        <div class="spec-item"><div class="label">모델</div><div class="value">${found.model}</div></div>
+        <div class="spec-item"><div class="label">직경</div><div class="value">${found.diameter_mm} mm</div></div>
+        <div class="spec-item"><div class="label">날 수</div><div class="value">${found.flute_count}</div></div>
+        <div class="spec-item"><div class="label">LOC</div><div class="value">${found.loc_mm} mm</div></div>
+        <div class="spec-item"><div class="label">OAL</div><div class="value">${found.oal_mm} mm</div></div>
+        <div class="spec-item"><div class="label">헬릭스</div><div class="value">${found.helix_angle_deg}°</div></div>
+        <div class="spec-item"><div class="label">코팅</div><div class="value">${found.coating_name || '없음'}</div></div>
+      </div>
+    `;
+  }
+
+  function renderWarnings(warnings) {
+    const warnOut = document.getElementById('warnings-output');
+    if (warnings && warnings.length > 0) {
+      warnOut.innerHTML = `
+        <div style="background:#4a1515; border-left:3px solid var(--danger); padding:10px; margin-bottom:8px; border-radius:4px;">
+          <strong style="color:var(--danger); font-size:0.78rem;">⚠ 충돌 및 간섭 경고</strong>
+          <ul style="margin-top:4px; margin-left:16px; color:#ffaaaa; font-size:0.72rem;">
+            ${warnings.map(w => `<li>${w}</li>`).join('')}
+          </ul>
+        </div>
+      `;
+    } else {
+      warnOut.innerHTML = '<div class="gc-line" style="color:var(--success);">✓ 경고 없음</div>';
+    }
+  }
+
+	window.addEventListener("DOMContentLoaded", () => {
+	  loadLeftPanel();
+	  switchView('machining', document.querySelector('.menu-btn.active'));
+	  resizeCanvas();
+	  resizeCoolantCanvas();
+	  renderToolpath2D();
+	  window.addEventListener("resize", resizeCanvas);
+
+	  const vpWrap = document.querySelector('.viewport-canvas-wrap');
+	  const ro = new ResizeObserver(() => {
+	    resizeCanvas();
+	  });
+	  ro.observe(vpWrap);
+
+	  const coolWrap = document.querySelector('.coolant-viz-wrap');
+	  if (coolWrap) {
+	    const coolRo = new ResizeObserver(() => {
+	      resizeCoolantCanvas();
+	    });
+	    coolRo.observe(coolWrap);
+	  }
+
+	  const tpCanvas = document.getElementById("tp-canvas");
+	  tpCanvas.addEventListener("wheel", (e) => {
+	    e.preventDefault();
+	    tpRotX += e.deltaY * 0.003;
+	    tpRotX = Math.max(-Math.PI / 2, Math.min(0.1, tpRotX));
+	    if (tpData.length) renderToolpath3D();
+	  }, { passive: false });
+	  tpCanvas.addEventListener("mousedown", (e) => { tpDragging = true; tpLastMX = e.clientX; tpLastMY = e.clientY; });
+	  window.addEventListener("mousemove", (e) => {
+	    if (!tpDragging) return;
+	    tpRotY += (e.clientX - tpLastMX) * 0.008;
+	    tpRotX += (e.clientY - tpLastMY) * 0.005;
+	    tpRotX = Math.max(-Math.PI / 2, Math.min(0.1, tpRotX));
+	    tpLastMX = e.clientX; tpLastMY = e.clientY;
+	    if (tpData.length) renderToolpath3D();
+	  });
+	  window.addEventListener("mouseup", () => { tpDragging = false; });
+	  tpCanvas.addEventListener("dblclick", resetViewport);
+
+	  const coolCanvas = document.getElementById("coolant-canvas");
+	  coolCanvas.addEventListener("mousedown", (e) => { coolDragging = true; coolLastX = e.clientX; coolLastY = e.clientY; });
+	  window.addEventListener("mousemove", (e) => {
+	    if (!coolDragging) return;
+	    coolRotY += (e.clientX - coolLastX) * 0.008;
+	    coolRotX += (e.clientY - coolLastY) * 0.005;
+	    coolLastX = e.clientX; coolLastY = e.clientY;
+	  });
+	  window.addEventListener("mouseup", () => { coolDragging = false; });
+
+	  appendLog("워크스페이스 초기화 완료");
+	});
 	</script>
 </body>
 </html>
