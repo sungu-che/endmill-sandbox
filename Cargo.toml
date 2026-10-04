@@ -1,0 +1,18 @@
+[package]
+name = "endmill_sandbox"
+version = "0.1.0"
+edition = "2021"
+description = "End Mill specification, coating, and cutting condition data model"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+
+[lib]
+name = "endmill_model"
+path = "src/lib.rs"
+
+[[bin]]
+name = "endmill_demo"
+path = "src/bin/main.rs"

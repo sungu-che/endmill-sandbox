@@ -1,0 +1,1201 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>End Mill Sandbox</title>
+	<style>
+		* {
+			margin: 0;
+			padding: 0;
+			box-sizing: border-box;
+		}
+		body {
+			font-family: 'Segoe UI', 'Malgun Gothic', sans-serif;
+			background: #1a1a2e;
+			color: #e0e0e0;
+			padding: 24px;
+		}
+		h1 {
+			color: #00d4ff;
+			margin-bottom: 8px;
+			font-size: 1.6rem;
+		}
+		h2 {
+			color: #00d4ff;
+			margin: 24px 0 12px;
+			font-size: 1.2rem;
+			border-bottom: 1px solid #333;
+			padding-bottom: 6px;
+		}
+		.subtitle {
+			color: #888;
+			margin-bottom: 24px;
+			font-size: 0.9rem;
+		}
+		table {
+			width: 100%;
+			border-collapse: collapse;
+			margin-bottom: 16px;
+			font-size: 0.85rem;
+		}
+		th, td {
+			padding: 8px 12px;
+			text-align: left;
+			border-bottom: 1px solid #2a2a3e;
+		}
+		th {
+			background: #16213e;
+			color: #00d4ff;
+			font-weight: 600;
+		}
+		tr:hover td {
+			background: #16213e;
+		}
+		.tier-high { color: #ff6b6b; font-weight: bold; }
+		.tier-mid { color: #ffd93d; }
+		.tier-low { color: #6bcb77; }
+		.card {
+			background: #16213e;
+			border-radius: 12px;
+			padding: 20px;
+			margin-bottom: 20px;
+			border: 1px solid #2a2a3e;
+		}
+		.card-title {
+			font-size: 1.1rem;
+			font-weight: bold;
+			color: #00d4ff;
+			margin-bottom: 12px;
+		}
+		.spec-grid {
+			display: grid;
+			grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+			gap: 12px;
+		}
+		.spec-item {
+			background: #1a1a2e;
+			padding: 10px 14px;
+			border-radius: 8px;
+		}
+		.spec-item .label {
+			font-size: 0.75rem;
+			color: #888;
+			margin-bottom: 2px;
+		}
+		.spec-item .value {
+			font-size: 1rem;
+			font-weight: 600;
+		}
+		.calc-section {
+			background: #16213e;
+			border-radius: 12px;
+			padding: 20px;
+			margin-bottom: 20px;
+			border: 1px solid #2a2a3e;
+		}
+		.calc-section label {
+			display: block;
+			margin-bottom: 4px;
+			font-size: 0.8rem;
+			color: #aaa;
+		}
+		.calc-section select,
+		.calc-section input {
+			width: 100%;
+			padding: 8px 12px;
+			background: #1a1a2e;
+			border: 1px solid #333;
+			color: #e0e0e0;
+			border-radius: 6px;
+			margin-bottom: 12px;
+		}
+		.calc-section button {
+			background: #00d4ff;
+			color: #1a1a2e;
+			border: none;
+			padding: 10px 24px;
+			border-radius: 8px;
+			font-weight: bold;
+			cursor: pointer;
+			font-size: 0.9rem;
+		}
+		.calc-section button:hover {
+			background: #00b8d4;
+		}
+		.result-box {
+			margin-top: 16px;
+			padding: 16px;
+			background: #1a1a2e;
+			border-radius: 8px;
+			display: none;
+		}
+		.result-box.visible {
+			display: block;
+		}
+		.result-row {
+			display: flex;
+			justify-content: space-between;
+			padding: 4px 0;
+			border-bottom: 1px solid #2a2a3e;
+		}
+		.result-row:last-child {
+			border-bottom: none;
+		}
+		.result-row .rlabel { color: #888; }
+		.result-row .rvalue { font-weight: 600; }
+		.badge {
+			display: inline-block;
+			padding: 2px 8px;
+			border-radius: 4px;
+			font-size: 0.75rem;
+			font-weight: bold;
+		}
+		.badge-high { background: #ff6b6b33; color: #ff6b6b; }
+		.badge-mid { background: #ffd93d33; color: #ffd93d; }
+		.badge-low { background: #6bcb7733; color: #6bcb77; }
+	</style>
+</head>
+<body>
+	<h1>🔧 End Mill Sandbox</h1>
+	<p class="subtitle">앤드밀 사양 · 코팅 · 절삭 조건 데이터 모델 시각화</p>
+
+	<h2>■ 주요 브랜드 & 가격 등급</h2>
+	<table id="brand-table">
+		<thead>
+			<tr>
+				<th>브랜드</th>
+				<th>국가</th>
+				<th>등급</th>
+				<th>대표 코팅</th>
+				<th>전문 분야</th>
+			</tr>
+		</thead>
+		<tbody id="brand-body"></tbody>
+	</table>
+
+	<h2>■ 절삭 조건 계산기</h2>
+	<div class="calc-section">
+		<label>피삭재</label>
+		<select id="calc-workpiece">
+			<option value="aluminum">알루미늄 합금</option>
+			<option value="carbon_steel">탄소강</option>
+			<option value="stainless">스테인리스강</option>
+			<option value="titanium" selected>티타늄 합금</option>
+			<option value="inconel">인코넬</option>
+			<option value="superalloy">수퍼알로이</option>
+			<option value="cfrp">CFRP</option>
+		</select>
+
+		<label>공구 직경 (mm)</label>
+		<input type="number" id="calc-diameter" value="10" min="0.1" step="0.5" />
+
+		<label>날 수</label>
+		<input type="number" id="calc-flutes" value="4" min="1" max="12" />
+
+		<label>공구 등급</label>
+		<select id="calc-tier">
+			<option value="high" selected>고급형 (하이엔드)</option>
+			<option value="low">저가형 (감속 적용)</option>
+		</select>
+
+		<button onclick="calculateConditions()">계산하기</button>
+
+		<div class="result-box" id="calc-result"></div>
+	</div>
+
+	<h2>■ 샘플 하이엔드 공구 사양</h2>
+	<div class="card" id="sample-spec">
+		<div class="card-title">로딩 중...</div>
+	</div>
+
+	<h2>■ 용도별 권장 등급 매칭</h2>
+	<table id="app-table">
+		<thead>
+			<tr>
+				<th>산업</th>
+				<th>목적</th>
+				<th>권장 등급</th>
+				<th>피삭재</th>
+				<th>비고</th>
+			</tr>
+		</thead>
+		<tbody id="app-body"></tbody>
+	</table>
+
+	<h2>■ 툴패스 2D 시각화</h2>
+	<div class="calc-section">
+		<label>프로필 선택</label>
+		<select id="tp-profile">
+			<option value="알루미늄 황삭 프리셋">알루미늄 황삭 프리셋</option>
+			<option value="티타늄 정삭 프리셋">티타늄 정삭 프리셋</option>
+			<option value="탄소강 범용 프리셋">탄소강 범용 프리셋</option>
+		</select>
+
+		<label>툴패스 패턴</label>
+		<select id="tp-pattern">
+			<option value="pocket_zigzag">포켓 지그재그</option>
+			<option value="rect_profile">사각형 프로파일</option>
+			<option value="circular">원형 프로파일</option>
+			<option value="helical_pocket">헬리컬 포켓</option>
+			<option value="contour_multi">등고선 다중 패스</option>
+			<option value="slot">슬롯 가공</option>
+		</select>
+
+		<label>냉각 방식 (2D 시각화)</label>
+		<select id="tp-coolant">
+			<option value="flood">플러드 (물)</option>
+			<option value="air_blast">에어 블로우 (바람)</option>
+			<option value="mist">미스트</option>
+			<option value="through_tool">내부 급유</option>
+			<option value="dry">건식</option>
+		</select>
+
+		<button onclick="renderToolpath2D()">2D 렌더링</button>
+		<button onclick="animateToolpath()">애니메이션 재생</button>
+
+		<div id="tp-container" style="margin-top:16px;position:relative;background:#0f0f1e;border-radius:8px;overflow:hidden;">
+			<canvas id="tp-canvas" width="600" height="450" style="width:100%;height:auto;"></canvas>
+			<div id="tp-coolant-overlay" style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.7);padding:8px 12px;border-radius:6px;font-size:0.75rem;display:none;">
+				<span id="tp-coolant-label"></span>
+			</div>
+		</div>
+		<div id="tp-info" style="margin-top:8px;font-size:0.8rem;color:#888;"></div>
+	</div>
+
+	<h2>■ G-code 생성 & 저장</h2>
+	<div class="calc-section">
+			<label>프로필 선택</label>
+			<select id="gc-profile">
+					<option value="알루미늄 황삭 프리셋">알루미늄 황삭 프리셋</option>
+					<option value="티타늄 정삭 프리셋">티타늄 정삭 프리셋</option>
+					<option value="탄소강 범용 프리셋">탄소강 범용 프리셋</option>
+			</select>
+			<button onclick="previewGcode()">G-code 미리보기</button>
+			<button onclick="saveGcode()">파일로 저장</button>
+			<div class="result-box" id="gc-result"></div>
+			<div class="result-box" id="gc-save-result"></div>
+	</div>
+
+	<h2>■ 앤드밀 목업 세팅</h2>
+	<div class="card" id="mockup-container">
+		<div class="card-title">로딩 중...</div>
+	</div>
+
+	<div class="calc-section">
+		<div class="card-title" style="color:#00d4ff;margin-bottom:12px;">커스텀 앤드밀 생성</div>
+		<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+			<div><label>이름</label><input type="text" id="cm-name" value="커스텀 Ø8 4날" /></div>
+			<div><label>모델명</label><input type="text" id="cm-model" value="CUSTOM-8F4" /></div>
+			<div><label>직경 (mm)</label><input type="number" id="cm-dia" value="8" min="0.1" step="0.5" /></div>
+			<div><label>날 수</label><input type="number" id="cm-flutes" value="4" min="1" max="12" /></div>
+			<div><label>유효 절삭 길이 (mm)</label><input type="number" id="cm-loc" value="20" min="1" /></div>
+			<div><label>전체 길이 (mm)</label><input type="number" id="cm-oal" value="60" min="1" /></div>
+			<div><label>샹크 직경 (mm)</label><input type="number" id="cm-shank" value="8" min="0.1" /></div>
+			<div><label>헬릭스 각도 (°)</label><input type="number" id="cm-helix" value="35" min="0" max="60" /></div>
+			<div><label>코팅명</label><input type="text" id="cm-coating" value="AlTiN" /></div>
+			<div><label>등급</label><select id="cm-tier"><option value="high">고급형</option><option value="mid">중가형</option></select></div>
+		</div>
+		<button onclick="createCustomEndmill()" style="margin-top:12px;">커스텀 공구 생성</button>
+		<div class="result-box" id="cm-result"></div>
+	</div>
+
+	<h2>■ 프리셋 목록</h2>
+	<div class="card" id="preset-container">
+			<div class="card-title">로딩 중...</div>
+	</div>
+
+	<h2>■ 프로필 목록</h2>
+	<div class="calc-section">
+			<button onclick="loadProfiles()">프로필 조회</button>
+			<button onclick="saveProfile()">현재 프로필 JSON 저장</button>
+			<div class="result-box" id="profile-result"></div>
+	</div>
+
+	<h2>■ 원소재 설정</h2>
+	<div class="card" id="workpiece-container">
+		<div class="card-title">로딩 중...</div>
+	</div>
+
+	<div class="calc-section">
+		<div class="card-title" style="color:#00d4ff;margin-bottom:12px;">커스텀 원소재 설정</div>
+		<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+			<div><label>이름</label><input type="text" id="cw-name" value="커스텀 판재" /></div>
+			<div><label>소재</label>
+				<select id="cw-material">
+					<option value="aluminum">알루미늄</option>
+					<option value="carbon_steel">탄소강</option>
+					<option value="stainless">스테인리스</option>
+					<option value="titanium">티타늄</option>
+					<option value="inconel">인코넬</option>
+				</select>
+			</div>
+			<div><label>형상</label>
+				<select id="cw-shape">
+					<option value="rectangular">직사각형</option>
+					<option value="cylindrical">원형</option>
+					<option value="custom">커스텀</option>
+				</select>
+			</div>
+			<div><label>클램핑</label>
+				<select id="cw-clamping">
+					<option value="vise">바이스</option>
+					<option value="vacuum">진공척</option>
+					<option value="magnetic">마그네틱척</option>
+					<option value="fixture">픽스처 플레이트</option>
+					<option value="soft_jaw">소프트 죠</option>
+				</select>
+			</div>
+			<div><label>폭 (mm)</label><input type="number" id="cw-width" value="120" /></div>
+			<div><label>높이 (mm)</label><input type="number" id="cw-height" value="80" /></div>
+			<div><label>두께 (mm)</label><input type="number" id="cw-thickness" value="25" /></div>
+			<div><label>여유량 (mm)</label><input type="number" id="cw-allowance" value="0.5" step="0.1" /></div>
+		</div>
+		<button onclick="createCustomWorkpiece()" style="margin-top:12px;">원소재 설정 생성</button>
+		<div class="result-box" id="cw-result"></div>
+	</div>
+
+	<h2>■ 냉각 옵션 (3D 분사 시각화)</h2>
+	<div class="calc-section">
+		<label>냉각 방식 선택</label>
+		<select id="coolant-select">
+			<option value="air_blast">에어 블로우 (바람, M83)</option>
+			<option value="flood">플러드 (물, M08)</option>
+			<option value="mist">미스트 (M07)</option>
+			<option value="through_tool">내부 급유 (M88)</option>
+			<option value="dry">건식 (M09)</option>
+		</select>
+		<button onclick="renderCoolant2D()">분사 시각화</button>
+		<div id="coolant-info-panel" style="display:none;margin-top:12px;">
+			<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;">
+			  <div class="spec-item"><div class="label">방식</div><div class="value" id="ci-label">-</div></div>
+			  <div class="spec-item"><div class="label">M-code</div><div class="value" id="ci-mcode">-</div></div>
+			  <div class="spec-item"><div class="label">압력</div><div class="value" id="ci-pressure">-</div></div>
+			  <div class="spec-item"><div class="label">유량</div><div class="value" id="ci-flow">-</div></div>
+			  <div class="spec-item"><div class="label">노즐 수</div><div class="value" id="ci-nozzle">-</div></div>
+			  <div class="spec-item"><div class="label">분사 타입</div><div class="value" id="ci-spray">-</div></div>
+			</div>
+		</div>
+		<div style="margin-top:12px;background:#0f0f1e;border-radius:8px;overflow:hidden;position:relative;">
+			<canvas id="coolant-canvas" width="600" height="400" style="width:100%;height:auto;cursor:grab;"></canvas>
+			<div style="position:absolute;bottom:6px;left:10px;font-size:0.7rem;color:#556;">스크롤/드래그로 회전</div>
+		</div>
+	</div>
+
+	<script>
+		const { invoke } = window.__TAURI__?.invoke
+			? window.__TAURI__
+			: { invoke: async () => null };
+
+		function tierClass(tier) {
+			if (tier.includes("고급")) return "tier-high";
+			if (tier.includes("중가")) return "tier-mid";
+			return "tier-low";
+		}
+
+		function tierBadge(tier) {
+			if (tier.includes("고급")) return "badge-high";
+			if (tier.includes("중가")) return "badge-mid";
+			return "badge-low";
+		}
+
+		async function loadBrands() {
+			const brands = await invoke("get_brands");
+			if (!brands) return;
+			const tbody = document.getElementById("brand-body");
+			tbody.innerHTML = brands
+				.map(
+					(b) => `<tr>
+						<td>${b.name}</td>
+						<td>${b.country}</td>
+						<td class="${tierClass(b.primary_tier)}">${b.primary_tier}</td>
+						<td>${b.signature_coating || "-"}</td>
+						<td>${b.specialties.join(", ")}</td>
+					</tr>`
+				)
+				.join("");
+		}
+
+		async function loadSampleSpec() {
+			const spec = await invoke("get_sample_endmill");
+			if (!spec) return;
+			const container = document.getElementById("sample-spec");
+			container.innerHTML = `
+				<div class="card-title">${spec.model} <span class="badge ${tierBadge(spec.tier)}">${spec.tier}</span></div>
+				<div class="spec-grid">
+					<div class="spec-item"><div class="label">브랜드</div><div class="value">${spec.brand}</div></div>
+					<div class="spec-item"><div class="label">직경</div><div class="value">${spec.diameter_mm} mm</div></div>
+					<div class="spec-item"><div class="label">유효 절삭 길이</div><div class="value">${spec.length_of_cut_mm} mm</div></div>
+					<div class="spec-item"><div class="label">전체 길이</div><div class="value">${spec.overall_length_mm} mm</div></div>
+					<div class="spec-item"><div class="label">샹크 직경</div><div class="value">${spec.shank_diameter_mm} mm</div></div>
+					<div class="spec-item"><div class="label">날 형상</div><div class="value">${spec.flute_geometry}</div></div>
+					<div class="spec-item"><div class="label">헬릭스 각도</div><div class="value">${spec.helix_angle_deg}°</div></div>
+					<div class="spec-item"><div class="label">부등 분할</div><div class="value">${spec.variable_pitch ? "✓ 적용" : "미적용"}</div></div>
+					<div class="spec-item"><div class="label">코팅</div><div class="value">${spec.coating_name || "없음"}</div></div>
+					<div class="spec-item"><div class="label">난삭재 가공</div><div class="value">${spec.can_machine_hard_materials ? "✓ 가능" : "불가"}</div></div>
+					<div class="spec-item"><div class="label">무인 가공 적합</div><div class="value">${spec.suitable_for_unmanned_op ? "✓ 적합" : "부적합"}</div></div>
+					<div class="spec-item"><div class="label">저가 대비 수명</div><div class="value">${spec.life_multiplier}배</div></div>
+				</div>
+			`;
+		}
+
+		async function loadApplicationProfiles() {
+			const profiles = await invoke("get_application_profiles");
+			if (!profiles) return;
+			const tbody = document.getElementById("app-body");
+			tbody.innerHTML = profiles
+				.map(
+					(p) => `<tr>
+						<td>${p.industry}</td>
+						<td>${p.purpose}</td>
+						<td class="${tierClass(p.recommended_tier)}">${p.recommended_tier}</td>
+						<td>${p.workpiece}</td>
+						<td>${p.note}</td>
+					</tr>`
+				)
+				.join("");
+		}
+
+		async function calculateConditions() {
+			const workpiece = document.getElementById("calc-workpiece").value;
+			const diameter = parseFloat(document.getElementById("calc-diameter").value);
+			const flutes = parseInt(document.getElementById("calc-flutes").value);
+			const isHighEnd = document.getElementById("calc-tier").value === "high";
+
+			const result = await invoke("calculate_cutting_conditions", {
+				workpiece,
+				diameterMm: diameter,
+				fluteCount: flutes,
+				isHighEnd,
+			});
+
+			if (!result) return;
+
+			const box = document.getElementById("calc-result");
+			box.classList.add("visible");
+			box.innerHTML = `
+				<div class="result-row"><span class="rlabel">절삭 속도</span><span class="rvalue">${result.cutting_speed_m_min.toFixed(1)} m/min</span></div>
+				<div class="result-row"><span class="rlabel">스핀들 회전수</span><span class="rvalue">${result.spindle_rpm} RPM</span></div>
+				<div class="result-row"><span class="rlabel">이송 속도</span><span class="rvalue">${result.feed_rate_mm_min.toFixed(0)} mm/min</span></div>
+				<div class="result-row"><span class="rlabel">칩당 이송량</span><span class="rvalue">${result.feed_per_tooth_mm.toFixed(3)} mm/tooth</span></div>
+				<div class="result-row"><span class="rlabel">절입 깊이 (축)</span><span class="rvalue">${result.axial_doc_mm.toFixed(1)} mm</span></div>
+				<div class="result-row"><span class="rlabel">절입 깊이 (반경)</span><span class="rvalue">${result.radial_doc_mm.toFixed(1)} mm</span></div>
+				<div class="result-row"><span class="rlabel">냉각 방식</span><span class="rvalue">${result.coolant}</span></div>
+				<div class="result-row"><span class="rlabel">소재 제거율 (MRR)</span><span class="rvalue" style="color:#ff6b6b;">${result.mrr_cm3_min.toFixed(2)} cm³/min</span></div>
+				<div class="result-row"><span class="rlabel">주절삭력</span><span class="rvalue" style="color:#ffd93d;">${result.cutting_force_n.toFixed(1)} N</span></div>
+				<div class="result-row"><span class="rlabel">소요 동력</span><span class="rvalue" style="color:#ffd93d;">${result.spindle_power_kw.toFixed(2)} kW</span></div>
+				<div class="result-row"><span class="rlabel">공구 휨량</span><span class="rvalue" style="color:#ff6b6b;">${result.tool_deflection_mm.toFixed(4)} mm</span></div>
+			`;
+		}
+
+		let tpData = [];
+		let tpScale = 1;
+		let tpPad = 20;
+		let tpMaxX = 0, tpMaxY = 0, tpMinZ = 0, tpMaxZ = 0;
+		let currentAnimFrame = 0;
+		let animReq = null;
+		let tpRotX = -0.55;
+		let tpRotY = 0.35;
+		let tpDragging = false;
+		let tpLastMX = 0, tpLastMY = 0;
+
+		function tpProject(x, y, z) {
+			const canvas = document.getElementById("tp-canvas");
+			const cx = tpMaxX / 2, cy = tpMaxY / 2, cz = (tpMinZ + tpMaxZ) / 2;
+			let dx = (x - cx) * tpScale;
+			let dy = (y - cy) * tpScale;
+			let dz = (z - cz) * tpScale;
+			let x1 = dx * Math.cos(tpRotY) + dz * Math.sin(tpRotY);
+			let z1 = -dx * Math.sin(tpRotY) + dz * Math.cos(tpRotY);
+			let y1 = dy * Math.cos(tpRotX) - z1 * Math.sin(tpRotX);
+			let z2 = dy * Math.sin(tpRotX) + z1 * Math.cos(tpRotX);
+			const fov = 600;
+			const perspScale = fov / (fov + z2 + 80);
+			return {
+				px: canvas.width / 2 + x1 * perspScale,
+				py: canvas.height / 2 - y1 * perspScale,
+				depth: z2
+			};
+		}
+
+		async function fetchToolpathData() {
+			const profileName = document.getElementById("tp-profile").value;
+			const pattern = document.getElementById("tp-pattern").value;
+			tpData = await invoke("get_toolpath_with_pattern", { profileName, patternKey: pattern });
+			if (!tpData) return false;
+			tpMaxX = 0; tpMaxY = 0; tpMinZ = 0; tpMaxZ = 0;
+			for (const s of tpData) {
+				tpMaxX = Math.max(tpMaxX, s.x || 0);
+				tpMaxY = Math.max(tpMaxY, s.y || 0);
+				const zv = s.z !== undefined ? s.z : 0;
+				tpMinZ = Math.min(tpMinZ, zv);
+				tpMaxZ = Math.max(tpMaxZ, zv);
+			}
+			const canvas = document.getElementById("tp-canvas");
+			const scaleX = (canvas.width - tpPad * 4) / Math.max(tpMaxX, 1);
+			const scaleY = (canvas.height - tpPad * 4) / Math.max(tpMaxY, 1);
+			tpScale = Math.min(scaleX, scaleY) * 0.85;
+			return true;
+		}
+
+		function drawToolpathSegment(ctx, s, prev, toolRadiusPx) {
+			const proj = tpProject(s.x || 0, s.y || 0, s.z || 0);
+			if (prev) {
+				ctx.beginPath();
+				ctx.moveTo(prev.px, prev.py);
+				if (s.kind === "Rapid") {
+					ctx.strokeStyle = "#444";
+					ctx.lineWidth = 1;
+					ctx.setLineDash([4, 4]);
+					ctx.lineTo(proj.px, proj.py);
+					ctx.stroke();
+				} else {
+					const depthRatio = Math.min(Math.max(Math.abs(s.z || 0) / 10, 0.2), 1.0);
+					ctx.strokeStyle = `rgba(0, 212, 255, ${depthRatio})`;
+					ctx.lineWidth = toolRadiusPx * 2;
+					ctx.setLineDash([]);
+					ctx.lineTo(proj.px, proj.py);
+					ctx.stroke();
+				}
+			}
+			return { px: proj.px, py: proj.py };
+		}
+
+		function renderToolpath3D() {
+			const canvas = document.getElementById("tp-canvas");
+			const ctx = canvas.getContext("2d");
+			ctx.fillStyle = "#0f0f1e";
+			ctx.fillRect(0, 0, canvas.width, canvas.height);
+			ctx.lineCap = "round";
+			ctx.lineJoin = "round";
+			const gridStep = 20 * tpScale;
+			ctx.strokeStyle = "#1a2a4a";
+			ctx.lineWidth = 0.5;
+			for (let gx = 0; gx <= tpMaxX + 20; gx += 20) {
+				const p1 = tpProject(gx, 0, 0);
+				const p2 = tpProject(gx, tpMaxY, 0);
+				ctx.beginPath(); ctx.moveTo(p1.px, p1.py); ctx.lineTo(p2.px, p2.py); ctx.stroke();
+			}
+			for (let gy = 0; gy <= tpMaxY + 20; gy += 20) {
+				const p1 = tpProject(0, gy, 0);
+				const p2 = tpProject(tpMaxX, gy, 0);
+				ctx.beginPath(); ctx.moveTo(p1.px, p1.py); ctx.lineTo(p2.px, p2.py); ctx.stroke();
+			}
+			let prev = null;
+			const toolRadiusPx = Math.max(2, 3 * tpScale);
+			for (const s of tpData) {
+				prev = drawToolpathSegment(ctx, s, prev, toolRadiusPx);
+			}
+			ctx.fillStyle = "#667";
+			ctx.font = "10px sans-serif";
+			ctx.fillText(`rotX: ${(tpRotX * 180 / Math.PI).toFixed(1)}°  rotY: ${(tpRotY * 180 / Math.PI).toFixed(1)}°  [스크롤/드래그로 회전]`, 8, canvas.height - 8);
+		}
+
+		async function renderToolpath2D() {
+			if (animReq) cancelAnimationFrame(animReq);
+			if (!(await fetchToolpathData())) return;
+			renderToolpath3D();
+		}
+
+		async function animateToolpath() {
+			if (animReq) cancelAnimationFrame(animReq);
+			if (!tpData.length && !(await fetchToolpathData())) return;
+			const canvas = document.getElementById("tp-canvas");
+			const ctx = canvas.getContext("2d");
+			ctx.lineCap = "round";
+			ctx.lineJoin = "round";
+			currentAnimFrame = 0;
+			let prev = null;
+			const toolRadiusPx = Math.max(2, 3 * tpScale);
+			ctx.fillStyle = "#0f0f1e";
+			ctx.fillRect(0, 0, canvas.width, canvas.height);
+			function step() {
+				if (currentAnimFrame < tpData.length) {
+					const s = tpData[currentAnimFrame];
+					prev = drawToolpathSegment(ctx, s, prev, toolRadiusPx);
+					ctx.beginPath();
+					ctx.arc(prev.px, prev.py, toolRadiusPx, 0, Math.PI * 2);
+					ctx.fillStyle = "#ff6b6b";
+					ctx.fill();
+					currentAnimFrame++;
+					animReq = requestAnimationFrame(step);
+				}
+			}
+			animReq = requestAnimationFrame(step);
+		}
+
+		async function previewGcode() {
+			const profileName = document.getElementById("gc-profile").value;
+			// 기존 generate_gcode_preview 대비 패턴까지 함께 적용된 결과를 미리보기 위해 함수 교체
+			const pattern = document.getElementById("tp-pattern").value; 
+			const data = await invoke("generate_gcode_with_pattern", { profileName, patternKey: pattern });
+			if (!data) return;
+
+			let warningHtml = "";
+			if (data.warnings && data.warnings.length > 0) {
+				warningHtml = `<div style="background:#4a1515; border-left:4px solid #ff4757; padding:10px; margin-bottom:12px; border-radius:4px; font-size:0.85rem;">
+					<strong style="color:#ff4757;">⚠️ 충돌 및 간섭 경고</strong>
+					<ul style="margin-top:6px; margin-left:20px; color:#ffaaaa;">
+						${data.warnings.map(w => `<li>${w}</li>`).join("")}
+					</ul>
+				</div>`;
+			}
+
+			const box = document.getElementById("gc-result");
+			box.classList.add("visible");
+			box.innerHTML = `
+				${warningHtml}
+				<div class="result-row"><span class="rlabel">프로그램</span><span class="rvalue">${data.program_name}</span></div>
+				<div class="result-row"><span class="rlabel">라인 수</span><span class="rvalue">${data.line_count}</span></div>
+				<div class="result-row"><span class="rlabel">소재</span><span class="rvalue">${data.workpiece_material}</span></div>
+				<div class="result-row"><span class="rlabel">공구</span><span class="rvalue">${data.tool_model}</span></div>
+				<div class="result-row"><span class="rlabel">냉각</span><span class="rvalue">${data.coolant_method}</span></div>
+				<div class="result-row"><span class="rlabel">예상 시간</span><span class="rvalue">${data.estimated_time_min.toFixed(2)} min</span></div>
+				<div class="result-row"><span class="rlabel">총 이동 거리</span><span class="rvalue">${data.total_distance_mm.toFixed(1)} mm</span></div>
+				<pre style="margin-top:12px;font-size:0.75rem;color:#aaa;max-height:300px;overflow:auto;white-space:pre-wrap;">${data.text}</pre>
+			`;
+		}
+
+		async function saveGcode() {
+			const profileName = document.getElementById("gc-profile").value;
+			const outputPath = profileName.replace(/\s/g, "_") + ".nc";
+			const result = await invoke("save_gcode_to_file", { profileName, outputPath });
+			const box = document.getElementById("gc-save-result");
+			box.classList.add("visible");
+			box.innerHTML = `<div class="result-row"><span class="rvalue">${result}</span></div>`;
+		}
+
+		async function loadMockupSettings() {
+			const settings = await invoke("list_mockup_settings");
+			if (!settings) return;
+			const container = document.getElementById("mockup-container");
+			container.innerHTML = settings.map(s => `
+				<div class="card-title">${s.name} <span class="badge ${s.is_high_end ? 'badge-high' : 'badge-mid'}">${s.is_high_end ? '고급형' : '중가형'}</span></div>
+				<div class="spec-grid">
+					<div class="spec-item"><div class="label">모델</div><div class="value">${s.model}</div></div>
+					<div class="spec-item"><div class="label">직경</div><div class="value">${s.diameter_mm} mm</div></div>
+					<div class="spec-item"><div class="label">날 수</div><div class="value">${s.flute_count}</div></div>
+					<div class="spec-item"><div class="label">유효 절삭 길이</div><div class="value">${s.loc_mm} mm</div></div>
+					<div class="spec-item"><div class="label">전체 길이</div><div class="value">${s.oal_mm} mm</div></div>
+					<div class="spec-item"><div class="label">헬릭스</div><div class="value">${s.helix_angle_deg}°</div></div>
+					<div class="spec-item"><div class="label">코팅</div><div class="value">${s.coating_name || '없음'}</div></div>
+				</div>
+				<hr style="border-color:#2a2a3e;margin:16px 0;">
+			`).join("");
+		}
+
+		async function loadPresets() {
+			const presets = await invoke("list_presets");
+			if (!presets) return;
+			const container = document.getElementById("preset-container");
+			container.innerHTML = presets.map(p => `
+				<div class="card-title">${p.name}</div>
+				<div class="spec-grid">
+					<div class="spec-item"><div class="label">설명</div><div class="value">${p.description}</div></div>
+					<div class="spec-item"><div class="label">공구</div><div class="value">${p.endmill.model}</div></div>
+					<div class="spec-item"><div class="label">소재</div><div class="value">${p.workpiece}</div></div>
+					<div class="spec-item"><div class="label">냉각</div><div class="value">${p.coolant}</div></div>
+				</div>
+				<hr style="border-color:#2a2a3e;margin:16px 0;">
+			`).join("");
+		}
+
+		async function loadProfiles() {
+			const profiles = await invoke("list_profiles");
+			if (!profiles) return;
+			const box = document.getElementById("profile-result");
+			box.classList.add("visible");
+			box.innerHTML = profiles.map(p => `
+				<div class="result-row"><span class="rlabel">${p.name}</span><span class="rvalue">${p.endmill.model} / ${p.workpiece} / ${p.coolant}</span></div>
+			`).join("");
+		}
+
+		async function saveProfile() {
+			const profileName = document.getElementById("gc-profile").value;
+			const outputPath = profileName.replace(/\s/g, "_") + ".json";
+			const result = await invoke("save_profile_to_json", { profileName, outputPath });
+			const box = document.getElementById("profile-result");
+			box.classList.add("visible");
+			box.innerHTML = `<div class="result-row"><span class="rvalue">${result}</span></div>`;
+		}
+
+		async function loadWorkpieces() {
+			const setups = await invoke("list_workpiece_setups");
+			if (!setups) return;
+			const container = document.getElementById("workpiece-container");
+			container.innerHTML = setups.map(w => `
+				<div class="card-title">${w.name}</div>
+				<div class="spec-grid">
+					<div class="spec-item"><div class="label">소재</div><div class="value">${w.material}</div></div>
+					<div class="spec-item"><div class="label">형상</div><div class="value">${w.shape}</div></div>
+					<div class="spec-item"><div class="label">크기</div><div class="value">${w.width_mm}×${w.height_mm}×${w.thickness_mm} mm</div></div>
+					<div class="spec-item"><div class="label">클램핑</div><div class="value">${w.clamping}</div></div>
+					<div class="spec-item"><div class="label">체적</div><div class="value">${w.volume_cm3.toFixed(1)} cm³</div></div>
+					<div class="spec-item"><div class="label">표면 조도 목표</div><div class="value">Ra ${w.surface_roughness_target_ra}</div></div>
+				</div>
+				<hr style="border-color:#2a2a3e;margin:16px 0;">
+			`).join("");
+		}
+
+		let coolRotX = -0.45;
+		let coolRotY = 0.3;
+		let coolDragging = false;
+		let coolLastX = 0, coolLastY = 0;
+		let coolParticles = [];
+		let coolAnimReq = null;
+		let coolInfo = null;
+
+		function coolProject(x, y, z) {
+			const canvas = document.getElementById("coolant-canvas");
+			const cx = 0, cy = 0, cz = 0;
+			let dx = x - cx, dy = y - cy, dz = z - cz;
+			let x1 = dx * Math.cos(coolRotY) + dz * Math.sin(coolRotY);
+			let z1 = -dx * Math.sin(coolRotY) + dz * Math.cos(coolRotY);
+			let y1 = dy * Math.cos(coolRotX) - z1 * Math.sin(coolRotX);
+			let z2 = dy * Math.sin(coolRotX) + z1 * Math.cos(coolRotX);
+			const fov = 400;
+			const s = fov / (fov + z2 + 120);
+			return {
+				px: canvas.width / 2 + x1 * s * 3,
+				py: canvas.height / 2 - y1 * s * 3,
+				depth: z2,
+				scale: s
+			};
+		}
+
+		function initCoolParticles(info) {
+			coolParticles = [];
+			if (info.spray_type === "none") return;
+			const count = info.spray_type === "mist_particles" ? 120 : 80;
+			const nozzleCount = Math.max(info.nozzle_count, 1);
+			for (let i = 0; i < count; i++) {
+				const ni = i % nozzleCount;
+				const angleOffset = nozzleCount > 1 ? (ni - (nozzleCount - 1) / 2) * 0.6 : 0;
+				coolParticles.push({
+					x: 0, y: 0, z: 0,
+					vx: (Math.random() - 0.5) * 0.3 + Math.sin(angleOffset) * 0.2,
+					vy: -0.8 - Math.random() * 0.6,
+					vz: (Math.random() - 0.5) * 0.3 + Math.cos(angleOffset) * 0.2,
+					life: Math.random(),
+					maxLife: 0.7 + Math.random() * 0.5,
+					size: info.spray_type === "mist_particles" ? 1.0 + Math.random() : 1.5 + Math.random() * 1.5,
+					nozzleIdx: ni
+				});
+			}
+		}
+
+		function renderCoolantScene() {
+			const canvas = document.getElementById("coolant-canvas");
+			const ctx = canvas.getContext("2d");
+			const W = canvas.width, H = canvas.height;
+			ctx.fillStyle = "#0a0a14";
+			ctx.fillRect(0, 0, W, H);
+
+			const gridY = 25;
+			ctx.strokeStyle = "#1a1a2e";
+			ctx.lineWidth = 0.5;
+			for (let gx = -30; gx <= 30; gx += 10) {
+				const p1 = coolProject(gx, gridY, -30);
+				const p2 = coolProject(gx, gridY, 30);
+				ctx.beginPath(); ctx.moveTo(p1.px, p1.py); ctx.lineTo(p2.px, p2.py); ctx.stroke();
+			}
+			for (let gz = -30; gz <= 30; gz += 10) {
+				const p1 = coolProject(-30, gridY, gz);
+				const p2 = coolProject(30, gridY, gz);
+				ctx.beginPath(); ctx.moveTo(p1.px, p1.py); ctx.lineTo(p2.px, p2.py); ctx.stroke();
+			}
+
+			const toolTop = coolProject(0, -20, 0);
+			const toolBot = coolProject(0, 10, 0);
+			const toolTip = coolProject(0, 18, 0);
+			ctx.beginPath();
+			ctx.moveTo(toolTop.px, toolTop.py);
+			ctx.lineTo(toolBot.px, toolBot.py);
+			ctx.strokeStyle = "#888";
+			ctx.lineWidth = 8 * toolTop.scale;
+			ctx.lineCap = "round";
+			ctx.stroke();
+			ctx.beginPath();
+			ctx.moveTo(toolBot.px, toolBot.py);
+			ctx.lineTo(toolTip.px, toolTip.py);
+			ctx.strokeStyle = "#aaa";
+			ctx.lineWidth = 3 * toolBot.scale;
+			ctx.stroke();
+
+			for (let f = 0; f < 3; f++) {
+				const fy = -15 + f * 8;
+				const fl = coolProject(-4, fy, 0);
+				const fr = coolProject(4, fy, 0);
+				ctx.beginPath();
+				ctx.moveTo(fl.px, fl.py);
+				ctx.lineTo(fr.px, fr.py);
+				ctx.strokeStyle = "#555";
+				ctx.lineWidth = 1;
+				ctx.stroke();
+			}
+
+			if (!coolInfo || coolInfo.spray_type === "none") {
+				ctx.fillStyle = "#666";
+				ctx.font = "14px sans-serif";
+				ctx.textAlign = "center";
+				ctx.fillText("건식 가공 (냉각 없음)", W / 2, H / 2 - 60);
+				return;
+			}
+
+			const color = coolInfo.color_hex;
+			const nozzleCount = Math.max(coolInfo.nozzle_count, 1);
+			const nozzleAngleRad = (coolInfo.nozzle_angle_deg * Math.PI) / 180;
+			const nozzleDist = coolInfo.nozzle_distance_mm * 0.4;
+
+			for (let n = 0; n < nozzleCount; n++) {
+				const angleOff = nozzleCount > 1 ? (n - (nozzleCount - 1) / 2) * 0.7 : 0;
+				const nx = Math.sin(angleOff) * nozzleDist;
+				const ny = -10;
+				const nz = Math.cos(angleOff) * nozzleDist;
+				const np = coolProject(nx, ny, nz);
+				ctx.beginPath();
+				ctx.arc(np.px, np.py, 4 * np.scale, 0, Math.PI * 2);
+				ctx.fillStyle = color;
+				ctx.fill();
+				ctx.beginPath();
+				ctx.arc(np.px, np.py, 6 * np.scale, 0, Math.PI * 2);
+				ctx.strokeStyle = color + "66";
+				ctx.lineWidth = 1;
+				ctx.stroke();
+			}
+
+			if (coolInfo.spray_type === "internal_jet") {
+				const jetStart = coolProject(0, 5, 0);
+				const jetEnd = coolProject(0, 20, 0);
+				ctx.beginPath();
+				ctx.moveTo(jetStart.px, jetStart.py);
+				ctx.lineTo(jetEnd.px, jetEnd.py);
+				ctx.strokeStyle = color;
+				ctx.lineWidth = 3;
+				ctx.setLineDash([3, 3]);
+				ctx.stroke();
+				ctx.setLineDash([]);
+			}
+
+			for (const p of coolParticles) {
+				const alpha = Math.max(0, 1 - p.life / p.maxLife);
+				const pp = coolProject(p.x, p.y, p.z);
+				const sz = p.size * pp.scale;
+				ctx.beginPath();
+				ctx.arc(pp.px, pp.py, Math.max(0.5, sz), 0, Math.PI * 2);
+				ctx.fillStyle = color + Math.floor(alpha * 200).toString(16).padStart(2, "0");
+				ctx.fill();
+			}
+
+			ctx.fillStyle = "#445";
+			ctx.font = "10px sans-serif";
+			ctx.textAlign = "left";
+			ctx.fillText(`rotX:${(coolRotX * 180 / Math.PI).toFixed(0)}° rotY:${(coolRotY * 180 / Math.PI).toFixed(0)}°`, 8, H - 8);
+		}
+
+		function updateCoolParticles() {
+			if (!coolInfo || coolInfo.spray_type === "none") return;
+			const speed = coolInfo.pressure_bar * 0.02;
+			for (const p of coolParticles) {
+				p.life += 0.016;
+				if (p.life > p.maxLife) {
+					p.life = 0;
+					p.x = 0; p.y = -10; p.z = 0;
+					const nozzleCount = Math.max(coolInfo.nozzle_count, 1);
+					const angleOff = nozzleCount > 1 ? (p.nozzleIdx - (nozzleCount - 1) / 2) * 0.7 : 0;
+					p.x = Math.sin(angleOff) * coolInfo.nozzle_distance_mm * 0.4;
+					p.y = -10;
+					p.z = Math.cos(angleOff) * coolInfo.nozzle_distance_mm * 0.4;
+					p.vx = (Math.random() - 0.5) * 0.4 - p.x * 0.02;
+					p.vy = 0.6 + Math.random() * 0.5;
+					p.vz = (Math.random() - 0.5) * 0.4 - p.z * 0.02;
+				}
+				p.x += p.vx * speed;
+				p.y += p.vy * speed;
+				p.z += p.vz * speed;
+				if (p.y > 25) {
+					p.y = 25;
+					p.vy *= -0.2;
+					p.vx *= 1.5;
+					p.vz *= 1.5;
+				}
+			}
+		}
+
+		function coolAnimLoop() {
+			updateCoolParticles();
+			renderCoolantScene();
+			coolAnimReq = requestAnimationFrame(coolAnimLoop);
+		}
+
+		async function renderCoolant2D() {
+			const key = document.getElementById("coolant-select").value;
+			let info;
+			try {
+				info = await invoke("get_coolant_visual_info", { coolantKey: key });
+			} catch (e) {
+				alert("냉각 정보 로드 실패: " + e);
+				return;
+			}
+			if (!info) return;
+			coolInfo = info;
+
+			const panel = document.getElementById("coolant-info-panel");
+			panel.style.display = "block";
+			document.getElementById("ci-label").textContent = info.label;
+			document.getElementById("ci-mcode").textContent = info.m_code;
+			document.getElementById("ci-pressure").textContent = info.pressure_bar + " bar";
+			document.getElementById("ci-flow").textContent = info.flow_rate_l_min + " L/min";
+			document.getElementById("ci-nozzle").textContent = info.nozzle_count + "개";
+			document.getElementById("ci-spray").textContent = info.spray_type;
+
+			initCoolParticles(info);
+			if (coolAnimReq) cancelAnimationFrame(coolAnimReq);
+			coolAnimLoop();
+		}
+
+		async function createCustomEndmill() {
+			const name = document.getElementById("cm-name").value;
+			const model = document.getElementById("cm-model").value;
+			const diameterMm = parseFloat(document.getElementById("cm-dia").value);
+			const fluteCount = parseInt(document.getElementById("cm-flutes").value);
+			const locMm = parseFloat(document.getElementById("cm-loc").value);
+			const oalMm = parseFloat(document.getElementById("cm-oal").value);
+			const shankDiameterMm = parseFloat(document.getElementById("cm-shank").value);
+			const helixAngleDeg = parseFloat(document.getElementById("cm-helix").value);
+			const coatingName = document.getElementById("cm-coating").value || null;
+			const isHighEnd = document.getElementById("cm-tier").value === "high";
+			try {
+				const result = await invoke("create_custom_endmill", {
+					name, model, diameterMm, fluteCount, locMm, oalMm,
+					shankDiameterMm, helixAngleDeg, coatingName, isHighEnd,
+				});
+				if (!result) return;
+				const box = document.getElementById("cm-result");
+				box.classList.add("visible");
+				box.innerHTML = `
+					<div class="result-row"><span class="rlabel">이름</span><span class="rvalue">${result.name}</span></div>
+					<div class="result-row"><span class="rlabel">모델</span><span class="rvalue">${result.model}</span></div>
+					<div class="result-row"><span class="rlabel">직경</span><span class="rvalue">${result.diameter_mm} mm</span></div>
+					<div class="result-row"><span class="rlabel">날 수</span><span class="rvalue">${result.flute_count}</span></div>
+					<div class="result-row"><span class="rlabel">LOC</span><span class="rvalue">${result.loc_mm} mm</span></div>
+					<div class="result-row"><span class="rlabel">OAL</span><span class="rvalue">${result.oal_mm} mm</span></div>
+					<div class="result-row"><span class="rlabel">샹크</span><span class="rvalue">${result.shank_diameter_mm} mm</span></div>
+					<div class="result-row"><span class="rlabel">헬릭스</span><span class="rvalue">${result.helix_angle_deg}°</span></div>
+					<div class="result-row"><span class="rlabel">코팅</span><span class="rvalue">${result.coating_name || "없음"}</span></div>
+					<div class="result-row"><span class="rlabel">등급</span><span class="rvalue">${result.is_high_end ? "고급형" : "중가형"}</span></div>
+				`;
+			} catch (e) {
+				const box = document.getElementById("cm-result");
+				box.classList.add("visible");
+				box.innerHTML = `<div style="color:#ff6b6b;padding:8px;">오류: ${e}</div>`;
+			}
+		}
+
+		async function createCustomWorkpiece() {
+			const name = document.getElementById("cw-name").value;
+			const materialKey = document.getElementById("cw-material").value;
+			const shapeKey = document.getElementById("cw-shape").value;
+			const widthMm = parseFloat(document.getElementById("cw-width").value);
+			const heightMm = parseFloat(document.getElementById("cw-height").value);
+			const thicknessMm = parseFloat(document.getElementById("cw-thickness").value);
+			const clampingKey = document.getElementById("cw-clamping").value;
+			const stockAllowanceMm = parseFloat(document.getElementById("cw-allowance").value);
+			try {
+				const result = await invoke("build_custom_workpiece", {
+					name, materialKey, shapeKey, widthMm, heightMm, thicknessMm,
+					clampingKey, stockAllowanceMm,
+				});
+				if (!result) return;
+				const box = document.getElementById("cw-result");
+				box.classList.add("visible");
+				box.innerHTML = `
+					<div class="result-row"><span class="rlabel">이름</span><span class="rvalue">${result.name}</span></div>
+					<div class="result-row"><span class="rlabel">소재</span><span class="rvalue">${result.material}</span></div>
+					<div class="result-row"><span class="rlabel">형상</span><span class="rvalue">${result.shape}</span></div>
+					<div class="result-row"><span class="rlabel">크기</span><span class="rvalue">${result.width_mm}×${result.height_mm}×${result.thickness_mm} mm</span></div>
+					<div class="result-row"><span class="rlabel">클램핑</span><span class="rvalue">${result.clamping}</span></div>
+					<div class="result-row"><span class="rlabel">여유량</span><span class="rvalue">${result.stock_allowance_mm} mm</span></div>
+					<div class="result-row"><span class="rlabel">체적</span><span class="rvalue">${result.volume_cm3.toFixed(2)} cm³</span></div>
+					<div class="result-row"><span class="rlabel">표면조도</span><span class="rvalue">Ra ${result.surface_roughness_target_ra}</span></div>
+				`;
+			} catch (e) {
+				const box = document.getElementById("cw-result");
+				box.classList.add("visible");
+				box.innerHTML = `<div style="color:#ff6b6b;padding:8px;">오류: ${e}</div>`;
+			}
+		}
+
+		async function renderCoolant2D() {
+			const key = document.getElementById("coolant-select").value;
+			let info;
+			try {
+				info = await invoke("get_coolant_visual_info", { coolantKey: key });
+			} catch (e) {
+				alert("냉각 정보 로드 실패: " + e);
+				return;
+			}
+			if (!info) return;
+			const canvas = document.getElementById("coolant-canvas");
+			const ctx = canvas.getContext("2d");
+			const W = canvas.width, H = canvas.height;
+			ctx.clearRect(0, 0, W, H);
+			ctx.fillStyle = "#0f0f1e";
+			ctx.fillRect(0, 0, W, H);
+			const cx = W / 2, cy = H / 2 + 40;
+			ctx.fillStyle = "#555";
+			ctx.fillRect(cx - 6, cy - 80, 12, 80);
+			ctx.beginPath();
+			ctx.moveTo(cx - 6, cy);
+			ctx.lineTo(cx, cy + 12);
+			ctx.lineTo(cx + 6, cy);
+			ctx.closePath();
+			ctx.fillStyle = "#888";
+			ctx.fill();
+			ctx.fillStyle = "#333";
+			ctx.fillRect(cx - 80, cy + 12, 160, 20);
+			if (info.spray_type === "none") {
+				ctx.fillStyle = "#666";
+				ctx.font = "14px sans-serif";
+				ctx.textAlign = "center";
+				ctx.fillText("건식 가공 (냉각 없음)", cx, cy - 100);
+				return;
+			}
+			const color = info.color_hex;
+			const nozzleCount = Math.max(info.nozzle_count, 1);
+			const angleRad = (info.nozzle_angle_deg * Math.PI) / 180;
+			const dist = info.nozzle_distance_mm * 1.5;
+			for (let n = 0; n < nozzleCount; n++) {
+				const offsetX = nozzleCount > 1 ? (n - (nozzleCount - 1) / 2) * 40 : 0;
+				const nx = cx + offsetX + Math.sin(angleRad) * dist;
+				const ny = cy - 40 - Math.cos(angleRad) * dist;
+				ctx.beginPath();
+				ctx.arc(nx, ny, 4, 0, Math.PI * 2);
+				ctx.fillStyle = color;
+				ctx.fill();
+				const particleCount = 20;
+				for (let i = 0; i < particleCount; i++) {
+					const t = (i + 1) / particleCount;
+					const spread = (Math.random() - 0.5) * 0.4;
+					const px = nx + (cx + offsetX - nx) * t + spread * 20 * t;
+					const py = ny + (cy - ny) * t;
+					const size = info.spray_type === "mist_particles" ? 1.5 : 2.5;
+					ctx.beginPath();
+					ctx.arc(px, py, size * (1 - t * 0.5), 0, Math.PI * 2);
+					ctx.fillStyle = color + Math.floor((1 - t * 0.6) * 255).toString(16).padStart(2, "0");
+					ctx.fill();
+				}
+				ctx.beginPath();
+				ctx.moveTo(nx, ny);
+				ctx.lineTo(cx + offsetX, cy);
+				ctx.strokeStyle = color + "44";
+				ctx.lineWidth = info.spray_type === "liquid_stream" ? 3 : 1;
+				ctx.stroke();
+			}
+			ctx.fillStyle = "#aaa";
+			ctx.font = "11px sans-serif";
+			ctx.textAlign = "left";
+			ctx.fillText(`${info.label} | ${info.pressure_bar}bar | ${info.flow_rate_l_min}L/min | 노즐 ${info.nozzle_count}개`, 10, 20);
+			ctx.fillText(`분사 타입: ${info.spray_type}`, 10, 36);
+		}
+
+		window.addEventListener("DOMContentLoaded", () => {
+			loadBrands();
+			loadSampleSpec();
+			loadApplicationProfiles();
+			loadMockupSettings();
+			loadPresets();
+			loadWorkpieces();
+
+			const tpCanvas = document.getElementById("tp-canvas");
+			tpCanvas.addEventListener("wheel", (e) => {
+				e.preventDefault();
+				tpRotX += e.deltaY * 0.003;
+				tpRotX = Math.max(-Math.PI / 2, Math.min(0.1, tpRotX));
+				if (tpData.length) renderToolpath3D();
+			}, { passive: false });
+
+			tpCanvas.addEventListener("mousedown", (e) => {
+				tpDragging = true;
+				tpLastMX = e.clientX;
+				tpLastMY = e.clientY;
+			});
+			window.addEventListener("mousemove", (e) => {
+				if (!tpDragging) return;
+				const dx = e.clientX - tpLastMX;
+				const dy = e.clientY - tpLastMY;
+				tpRotY += dx * 0.008;
+				tpRotX += dy * 0.005;
+				tpRotX = Math.max(-Math.PI / 2, Math.min(0.1, tpRotX));
+				tpLastMX = e.clientX;
+				tpLastMY = e.clientY;
+				if (tpData.length) renderToolpath3D();
+			});
+			window.addEventListener("mouseup", () => { tpDragging = false; });
+
+			tpCanvas.addEventListener("touchstart", (e) => {
+				if (e.touches.length === 1) {
+					tpDragging = true;
+					tpLastMX = e.touches[0].clientX;
+					tpLastMY = e.touches[0].clientY;
+				}
+			}, { passive: true });
+			tpCanvas.addEventListener("touchmove", (e) => {
+				e.preventDefault();
+				if (!tpDragging || e.touches.length !== 1) return;
+				const dx = e.touches[0].clientX - tpLastMX;
+				const dy = e.touches[0].clientY - tpLastMY;
+				tpRotY += dx * 0.008;
+				tpRotX += dy * 0.005;
+				tpRotX = Math.max(-Math.PI / 2, Math.min(0.1, tpRotX));
+				tpLastMX = e.touches[0].clientX;
+				tpLastMY = e.touches[0].clientY;
+				if (tpData.length) renderToolpath3D();
+			}, { passive: false });
+			tpCanvas.addEventListener("touchend", () => { tpDragging = false; });
+
+			const coolCanvas = document.getElementById("coolant-canvas");
+			coolCanvas.addEventListener("wheel", (e) => {
+				e.preventDefault();
+				coolRotX += e.deltaY * 0.004;
+				coolRotX = Math.max(-Math.PI / 2, Math.min(0.2, coolRotX));
+			}, { passive: false });
+			coolCanvas.addEventListener("mousedown", (e) => {
+				coolDragging = true;
+				coolLastX = e.clientX;
+				coolLastY = e.clientY;
+				coolCanvas.style.cursor = "grabbing";
+			});
+			window.addEventListener("mousemove", (e) => {
+				if (!coolDragging) return;
+				coolRotY += (e.clientX - coolLastX) * 0.008;
+				coolRotX += (e.clientY - coolLastY) * 0.005;
+				coolRotX = Math.max(-Math.PI / 2, Math.min(0.2, coolRotX));
+				coolLastX = e.clientX;
+				coolLastY = e.clientY;
+			});
+			window.addEventListener("mouseup", () => {
+				coolDragging = false;
+				coolCanvas.style.cursor = "grab";
+			});
+			coolCanvas.addEventListener("touchstart", (e) => {
+				if (e.touches.length === 1) {
+					coolDragging = true;
+					coolLastX = e.touches[0].clientX;
+					coolLastY = e.touches[0].clientY;
+				}
+			}, { passive: true });
+			coolCanvas.addEventListener("touchmove", (e) => {
+				e.preventDefault();
+				if (!coolDragging || e.touches.length !== 1) return;
+				coolRotY += (e.touches[0].clientX - coolLastX) * 0.008;
+				coolRotX += (e.touches[0].clientY - coolLastY) * 0.005;
+				coolRotX = Math.max(-Math.PI / 2, Math.min(0.2, coolRotX));
+				coolLastX = e.touches[0].clientX;
+				coolLastY = e.touches[0].clientY;
+			}, { passive: false });
+			coolCanvas.addEventListener("touchend", () => { coolDragging = false; });
+		});
+	</script>
+</body>
+</html>
