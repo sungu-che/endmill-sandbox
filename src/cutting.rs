@@ -29,9 +29,9 @@ impl WorkpieceMaterial {
             Self::CarbonSteel => 180.0,
             Self::AlloySteel { hardness_hrc } => match hardness_hrc {
                 0..=30 => 150.0,
-                31..=45 => 100.0,
-                46..=55 => 60.0,
-                _ => 40.0,
+                31..=45 => 110.0,
+                46..=55 => 90.0,
+                _ => 70.0,
             },
             Self::StainlessSteel => 120.0,
             Self::Titanium => 60.0,
@@ -50,15 +50,33 @@ impl WorkpieceMaterial {
     }
 
     pub fn kienzle_constants(&self) -> (f64, f64) {
+        let p = crate::physics::WorkpieceProps::of(self);
+        (p.kc11, p.mc)
+    }
+
+    pub fn key(&self) -> String {
         match self {
-            Self::Aluminum => (700.0, 0.25),
-            Self::CarbonSteel => (1500.0, 0.22),
-            Self::AlloySteel { .. } => (1900.0, 0.22),
-            Self::StainlessSteel => (1800.0, 0.23),
-            Self::Titanium => (1300.0, 0.23),
-            Self::Inconel => (2400.0, 0.24),
-            Self::SuperAlloy => (2500.0, 0.24),
-            Self::CFRP => (600.0, 0.20),
+            Self::Aluminum => "aluminum".into(),
+            Self::CarbonSteel => "carbon_steel".into(),
+            Self::AlloySteel { hardness_hrc } => format!("alloy_steel_hrc{}", hardness_hrc),
+            Self::StainlessSteel => "stainless".into(),
+            Self::Titanium => "titanium".into(),
+            Self::Inconel => "inconel".into(),
+            Self::SuperAlloy => "superalloy".into(),
+            Self::CFRP => "cfrp".into(),
+        }
+    }
+
+    pub fn family_key(&self) -> &'static str {
+        match self {
+            Self::Aluminum => "aluminum",
+            Self::CarbonSteel => "carbon_steel",
+            Self::AlloySteel { .. } => "alloy_steel",
+            Self::StainlessSteel => "stainless",
+            Self::Titanium => "titanium",
+            Self::Inconel => "inconel",
+            Self::SuperAlloy => "superalloy",
+            Self::CFRP => "cfrp",
         }
     }
 }
@@ -69,6 +87,16 @@ pub struct PhysicalSimulationResult {
     pub cutting_force_n: f64,
     pub spindle_power_kw: f64,
     pub tool_deflection_mm: f64,
+    #[serde(default)]
+    pub torque_nm: f64,
+    #[serde(default)]
+    pub chip_thickness_max_mm: f64,
+    #[serde(default)]
+    pub interface_temp_c: f64,
+    #[serde(default)]
+    pub tool_life_min: f64,
+    #[serde(default)]
+    pub wall_error_um: f64,
 }
 
 /// 절삭 조건 파라미터
@@ -149,7 +177,6 @@ impl CuttingCalculator {
         spindle_rpm as f64 * flute_count as f64 * feed_per_tooth_mm
     }
 
-    /// 피삭재 + 공구 직경 기반 권장 절삭 조건 산출
     pub fn recommend_conditions(
         workpiece: &WorkpieceMaterial,
         tool_diameter_mm: f64,
@@ -160,38 +187,34 @@ impl CuttingCalculator {
             return Err(CuttingCalcError::InvalidDiameter(tool_diameter_mm));
         }
 
-        // 고급 공구는 기준 속도의 100%, 저가는 50~60% 적용
+        if flute_count == 0 {
+            return Err(CuttingCalcError::FeedExceedsChipEvacuation);
+        }
+        let props = crate::physics::WorkpieceProps::of(workpiece);
         let speed_factor = if is_high_end_tool { 1.0 } else { 0.55 };
-        let base_speed = workpiece.reference_cutting_speed();
-        let cutting_speed = base_speed * speed_factor;
-
+        let cutting_speed = props.ref_vc * speed_factor;
         let rpm = Self::calc_spindle_rpm(cutting_speed, tool_diameter_mm)?;
-
-        // 칩당 이송량: 직경 비례 (간이 공식)
-        // 일반적: D × 0.02 ~ 0.05 (mm/tooth)
-        let fpt_base = tool_diameter_mm * 0.03;
-        let feed_per_tooth = if workpiece.is_hard_to_machine() {
-            fpt_base * 0.5 // 난삭재는 이송 감소
+        let fz_target = (props.fz_coeff * tool_diameter_mm).clamp(0.003, 0.25)
+            * if is_high_end_tool { 1.0 } else { 0.8 };
+        let axial_doc = props.ap_ratio * tool_diameter_mm;
+        let radial_doc = props.ae_ratio * tool_diameter_mm;
+        let thinning = if radial_doc < tool_diameter_mm / 2.0 {
+            let phis = (1.0 - 2.0 * radial_doc / tool_diameter_mm).clamp(-1.0, 1.0).acos();
+            (1.0 / phis.sin()).min(2.5)
         } else {
-            fpt_base
+            1.0
         };
-
+        let feed_per_tooth = fz_target * thinning;
         let feed_rate = Self::calc_feed_rate(rpm, flute_count, feed_per_tooth);
-
-        // 절입 깊이: 황삭 기준 축방향 = 직경 × 1.0, 반경 = 직경 × 0.3
-        let axial_doc = tool_diameter_mm * 1.0;
-        let radial_doc = tool_diameter_mm * 0.3;
-
-        let coolant = if workpiece.is_hard_to_machine() {
-            CoolantType::ThroughTool
-        } else if matches!(workpiece, WorkpieceMaterial::Aluminum) {
-            CoolantType::Flood
-        } else {
-            CoolantType::Mist
+        let coolant = match workpiece {
+            WorkpieceMaterial::AlloySteel { hardness_hrc } if *hardness_hrc >= 45 => CoolantType::AirBlast,
+            WorkpieceMaterial::CFRP => CoolantType::AirBlast,
+            WorkpieceMaterial::Aluminum => CoolantType::Flood,
+            m if m.is_hard_to_machine() => CoolantType::ThroughTool,
+            _ => CoolantType::Mist,
         };
-
         Ok(CuttingConditions {
-            cutting_speed_m_min: cutting_speed,
+            cutting_speed_m_min: Self::actual_cutting_speed(rpm, tool_diameter_mm),
             feed_rate_mm_min: feed_rate,
             feed_per_tooth_mm: feed_per_tooth,
             axial_doc_mm: axial_doc,
@@ -201,22 +224,23 @@ impl CuttingCalculator {
         })
     }
 
-    /// 저가 공구로 고급 공구 조건 "흉내" 시 감속 계수 적용
-    ///
-    /// 대화 내용: "절삭 속도를 30~50% 낮추고, 절입 깊이를 최소화"
+    pub fn actual_cutting_speed(spindle_rpm: u32, tool_diameter_mm: f64) -> f64 {
+        std::f64::consts::PI * tool_diameter_mm * spindle_rpm as f64 / 1000.0
+    }
+
     pub fn apply_low_end_derating(
         conditions: &CuttingConditions,
-        derate_factor: f64, // 0.3 ~ 0.5
+        derate_factor: f64,
     ) -> CuttingConditions {
         let factor = derate_factor.clamp(0.2, 0.6);
-        let new_rpm = (conditions.spindle_rpm as f64 * factor).round() as u32;
-        let new_feed = conditions.feed_rate_mm_min * factor;
-
+        let new_rpm = (conditions.spindle_rpm as f64 * factor).round().max(1.0) as u32;
+        let flutes = crate::physics::flute_count_from_conditions(conditions) as f64;
+        let rpm_ratio = new_rpm as f64 / conditions.spindle_rpm.max(1) as f64;
         CuttingConditions {
-            cutting_speed_m_min: conditions.cutting_speed_m_min * factor,
-            feed_rate_mm_min: new_feed,
-            feed_per_tooth_mm: conditions.feed_per_tooth_mm * factor,
-            axial_doc_mm: conditions.axial_doc_mm * 0.5, // 절입 깊이 절반
+            cutting_speed_m_min: conditions.cutting_speed_m_min * rpm_ratio,
+            feed_rate_mm_min: new_rpm as f64 * flutes * conditions.feed_per_tooth_mm,
+            feed_per_tooth_mm: conditions.feed_per_tooth_mm,
+            axial_doc_mm: conditions.axial_doc_mm * 0.5,
             radial_doc_mm: conditions.radial_doc_mm * 0.5,
             spindle_rpm: new_rpm,
             coolant: conditions.coolant.clone(),
@@ -229,30 +253,47 @@ impl CuttingCalculator {
         tool_diameter_mm: f64,
         tool_loc_mm: f64,
     ) -> PhysicalSimulationResult {
-        let (k_c11, m_c) = workpiece.kienzle_constants();
-        
-        let mrr_cm3_min = (conds.axial_doc_mm * conds.radial_doc_mm * conds.feed_rate_mm_min) / 1000.0;
-        
-        let f_z = conds.feed_per_tooth_mm;
-        let cutting_force_n = if f_z > 0.0 {
-            conds.axial_doc_mm * f_z.powf(1.0 - m_c) * k_c11
-        } else {
-            0.0
+        let flutes = crate::physics::flute_count_from_conditions(conds) as u8;
+        let setting = crate::profile::EndMillMockupSetting::custom(
+            "simulate".into(),
+            "simulate".into(),
+            tool_diameter_mm,
+            flutes,
+            tool_loc_mm,
+            tool_loc_mm + 3.0 * tool_diameter_mm,
+            tool_diameter_mm,
+            35.0,
+            Some("AlTiN".into()),
+            true,
+        );
+        let props = crate::physics::WorkpieceProps::of(workpiece);
+        let machine = crate::profile::MachineLimits::default();
+        let tool = crate::physics::ToolGeometry::from_setting(&setting, &props, &machine, None);
+        let ctx = crate::physics::CutContext {
+            coolant: crate::physics::CoolantState::from_type(&conds.coolant),
+            machine,
+            calib: crate::physics::Calibration::default(),
+            tolerance_mm: 0.02,
+            allowance_mm: 0.5,
+            wp: props,
+            tool,
         };
-        
-        let spindle_power_kw = (cutting_force_n * conds.cutting_speed_m_min) / (60000.0 * 0.8);
-
-        let l = tool_loc_mm + 10.0;
-        let e = 600_000.0;
-        let i = (std::f64::consts::PI * tool_diameter_mm.powi(4)) / 64.0;
-        let radial_force_n = cutting_force_n * 0.3;
-        let tool_deflection_mm = (radial_force_n * l.powi(3)) / (3.0 * e * i);
-
+        let body = crate::physics::ThermalBody {
+            mass_kg: 2.0,
+            area_m2: 0.04,
+            size_mm: 100.0,
+        };
+        let a = crate::physics::analyze_cut(&ctx, conds, true, body);
         PhysicalSimulationResult {
-            mrr_cm3_min,
-            cutting_force_n,
-            spindle_power_kw,
-            tool_deflection_mm,
+            mrr_cm3_min: a.mrr_cm3_min,
+            cutting_force_n: a.forces.f_res_peak,
+            spindle_power_kw: a.spindle_power_kw,
+            tool_deflection_mm: a.deflection_peak_um / 1000.0,
+            torque_nm: a.forces.torque_mean_nm,
+            chip_thickness_max_mm: a.forces.h_max_mm,
+            interface_temp_c: a.thermal.interface_c,
+            tool_life_min: a.wear.tool_life_min,
+            wall_error_um: a.wall.deflection_um,
         }
     }
 }

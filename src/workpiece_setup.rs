@@ -32,6 +32,8 @@ pub struct WorkpieceSetup {
     pub hardness_hrc: Option<u8>,
     pub grain_direction_deg: f64,
     pub pre_machined: bool,
+    #[serde(default)]
+    pub tolerance_mm: Option<f64>,
 }
 
 impl WorkpieceSetup {
@@ -50,6 +52,7 @@ impl WorkpieceSetup {
             hardness_hrc: None,
             grain_direction_deg: 0.0,
             pre_machined: false,
+            tolerance_mm: None,
         }
     }
 
@@ -68,6 +71,7 @@ impl WorkpieceSetup {
             hardness_hrc: Some(25),
             grain_direction_deg: 0.0,
             pre_machined: false,
+            tolerance_mm: None,
         }
     }
 
@@ -86,6 +90,7 @@ impl WorkpieceSetup {
             hardness_hrc: Some(36),
             grain_direction_deg: 0.0,
             pre_machined: false,
+            tolerance_mm: None,
         }
     }
 
@@ -104,6 +109,7 @@ impl WorkpieceSetup {
             hardness_hrc: Some(25),
             grain_direction_deg: 0.0,
             pre_machined: false,
+            tolerance_mm: None,
         }
     }
 
@@ -122,6 +128,45 @@ impl WorkpieceSetup {
             hardness_hrc: Some(40),
             grain_direction_deg: 0.0,
             pre_machined: false,
+            tolerance_mm: None,
+        }
+    }
+
+    pub fn effective_material(&self) -> WorkpieceMaterial {
+        match (&self.material, self.hardness_hrc) {
+            (WorkpieceMaterial::AlloySteel { .. }, Some(h)) => WorkpieceMaterial::AlloySteel { hardness_hrc: h },
+            (m, _) => m.clone(),
+        }
+    }
+
+    pub fn effective_tolerance_mm(&self) -> f64 {
+        if let Some(t) = self.tolerance_mm.filter(|t| *t > 0.0) {
+            return t;
+        }
+        let ra = self.surface_roughness_target_ra;
+        if ra <= 0.8 {
+            0.01
+        } else if ra <= 1.6 {
+            0.02
+        } else if ra <= 3.2 {
+            0.05
+        } else {
+            0.1
+        }
+    }
+
+    pub fn surface_area_m2(&self) -> f64 {
+        match &self.shape {
+            StockShape::Cylindrical { diameter_mm } => {
+                let r = diameter_mm / 2.0;
+                (2.0 * std::f64::consts::PI * r * r + 2.0 * std::f64::consts::PI * r * self.thickness_mm) / 1.0e6
+            }
+            _ => {
+                2.0 * (self.width_mm * self.height_mm
+                    + self.width_mm * self.thickness_mm
+                    + self.height_mm * self.thickness_mm)
+                    / 1.0e6
+            }
         }
     }
 
@@ -139,7 +184,7 @@ impl WorkpieceSetup {
     }
 
     pub fn material_label(&self) -> String {
-        match &self.material {
+        match &self.effective_material() {
             WorkpieceMaterial::Aluminum => "알루미늄 합금".into(),
             WorkpieceMaterial::CarbonSteel => "탄소강 (S45C)".into(),
             WorkpieceMaterial::AlloySteel { hardness_hrc } => format!("합금강 (HRC {})", hardness_hrc),

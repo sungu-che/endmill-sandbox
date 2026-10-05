@@ -32,6 +32,9 @@ pub struct CuttingConditionsResponse {
     pub cutting_force_n: f64,
     pub spindle_power_kw: f64,
     pub tool_deflection_mm: f64,
+    pub interface_temp_c: f64,
+    pub tool_life_min: Option<f64>,
+    pub wall_error_um: f64,
 }
 
 #[derive(Serialize)]
@@ -120,17 +123,9 @@ pub fn calculate_cutting_conditions(
     diameter_mm: f64,
     flute_count: u8,
     is_high_end: bool,
+    hardness_hrc: Option<u8>,
 ) -> Result<CuttingConditionsResponse, String> {
-    let wp = match workpiece.as_str() {
-        "aluminum" => WorkpieceMaterial::Aluminum,
-        "carbon_steel" => WorkpieceMaterial::CarbonSteel,
-        "stainless" => WorkpieceMaterial::StainlessSteel,
-        "titanium" => WorkpieceMaterial::Titanium,
-        "inconel" => WorkpieceMaterial::Inconel,
-        "superalloy" => WorkpieceMaterial::SuperAlloy,
-        "cfrp" => WorkpieceMaterial::CFRP,
-        _ => WorkpieceMaterial::AlloySteel { hardness_hrc: 45 },
-    };
+    let wp = material_from_key(&workpiece, hardness_hrc)?;
 
     let conds = CuttingCalculator::recommend_conditions(&wp, diameter_mm, flute_count, is_high_end)
         .map_err(|e| e.to_string())?;
@@ -150,6 +145,9 @@ pub fn calculate_cutting_conditions(
         cutting_force_n: physics_result.cutting_force_n,
         spindle_power_kw: physics_result.spindle_power_kw,
         tool_deflection_mm: physics_result.tool_deflection_mm,
+        interface_temp_c: physics_result.interface_temp_c,
+        tool_life_min: Some(physics_result.tool_life_min).filter(|v| v.is_finite()),
+        wall_error_um: physics_result.wall_error_um,
     })
 }
 
@@ -181,12 +179,102 @@ pub fn get_sample_endmill() -> EndMillSpecResponse {
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use endmill_model::gcode::{GCodeGenerator, ToolPathSegment};
+use endmill_model::ingest::material_from_key;
+use endmill_model::pipeline::{
+    AdaptiveProgram, IngestOptions, IngestOutcome, ModelStatus, Models, ProcessOutcome, Workspace, WorkspaceSummary,
+};
 use endmill_model::profile::{
     CoolantConfig, EndMillMockupSetting, MachiningProfile, ProfileStore,
 };
+use endmill_model::sds::{SdsStatus, SdsStore};
+use endmill_model::timeseries::ForecastResult;
+use endmill_model::decision::DecisionReport;
+use endmill_model::physics::Recommendation;
 use endmill_model::workpiece_setup::{ClampingMethod, StockShape, WorkpieceSetup};
 use endmill_model::cutting::WorkpieceMaterial;
+
+pub struct Shared {
+    pub data_dir: PathBuf,
+    pub store: Mutex<ProfileStore>,
+    pub ws: Mutex<Workspace>,
+    pub models: Mutex<Models>,
+    pub sds: Mutex<SdsStore>,
+}
+
+pub struct AppState {
+    pub shared: Arc<Shared>,
+}
+
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    match m.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    }
+}
+
+impl AppState {
+    pub fn new(data_dir: PathBuf) -> Self {
+        let _ = fs::create_dir_all(&data_dir);
+        let store_path = data_dir.join("profiles.json");
+        let store = ProfileStore::load_from_file(&store_path.display().to_string())
+            .ok()
+            .filter(|s| !s.profiles.is_empty())
+            .unwrap_or_else(build_demo_profile_store);
+        let first = store
+            .profiles
+            .first()
+            .cloned()
+            .unwrap_or_else(|| MachiningProfile::from_preset(&ProfileStore::new().presets[0], "기본"));
+        let models_root = fs::read_to_string(data_dir.join("models_root.txt"))
+            .map(|s| PathBuf::from(s.trim()))
+            .unwrap_or_else(|_| data_dir.join("models"));
+        Self {
+            shared: Arc::new(Shared {
+                store: Mutex::new(store),
+                ws: Mutex::new(Workspace::new(&data_dir, first)),
+                models: Mutex::new(Models::new(&models_root)),
+                sds: Mutex::new(SdsStore::open(&data_dir.join("sds"))),
+                data_dir,
+            }),
+        }
+    }
+
+    pub fn flush(&self) {
+        lock(&self.shared.sds).flush();
+        persist_store(&self.shared);
+    }
+}
+
+fn persist_store(sh: &Shared) {
+    let store = lock(&sh.store);
+    let _ = store.save_to_file(&sh.data_dir.join("profiles.json").display().to_string());
+}
+
+fn with_profile<T>(state: &tauri::State<'_, AppState>, name: &str, f: impl FnOnce(&MachiningProfile) -> Result<T, String>) -> Result<T, String> {
+    let store = lock(&state.shared.store);
+    let profile = store
+        .get_by_name(name)
+        .ok_or_else(|| format!("프로필을 찾을 수 없음: {}", name))?;
+    f(profile)
+}
+
+fn sync_profile_to_store(sh: &Shared, profile: &MachiningProfile) {
+    lock(&sh.store).upsert_profile(profile.clone());
+    persist_store(sh);
+}
+
+async fn blocking<T, F>(state: &tauri::State<'_, AppState>, f: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(&Shared) -> Result<T, String> + Send + 'static,
+{
+    let sh = state.shared.clone();
+    tauri::async_runtime::spawn_blocking(move || f(&sh))
+        .await
+        .map_err(|e| format!("작업 실행 실패: {}", e))?
+}
 
 #[derive(Serialize)]
 pub struct GCodePreviewResponse {
@@ -200,6 +288,8 @@ pub struct GCodePreviewResponse {
     pub estimated_time_min: f64,
     pub total_distance_mm: f64,
     pub warnings: Vec<String>,
+    pub cutting_time_min: f64,
+    pub rapid_time_min: f64,
 }
 
 #[derive(Serialize)]
@@ -214,6 +304,8 @@ pub struct EndMillSettingResponse {
     pub helix_angle_deg: f64,
     pub coating_name: Option<String>,
     pub is_high_end: bool,
+    pub nose: String,
+    pub stickout_mm: f64,
 }
 
 #[derive(Serialize)]
@@ -251,6 +343,7 @@ pub struct WorkpieceSetupResponse {
     pub surface_roughness_target_ra: f64,
     pub hardness_hrc: Option<u8>,
     pub volume_cm3: f64,
+    pub tolerance_mm: f64,
 }
 
 #[derive(Serialize)]
@@ -270,6 +363,10 @@ pub struct ToolPathSegmentResponse {
     pub y: Option<f64>,
     pub z: Option<f64>,
     pub feed: Option<f64>,
+    pub z_start: Option<f64>,
+    pub i: Option<f64>,
+    pub j: Option<f64>,
+    pub rpm: u32,
 }
 
 fn endmill_to_response(e: &EndMillMockupSetting) -> EndMillSettingResponse {
@@ -284,6 +381,8 @@ fn endmill_to_response(e: &EndMillMockupSetting) -> EndMillSettingResponse {
         helix_angle_deg: e.helix_angle_deg,
         coating_name: e.coating_name.clone(),
         is_high_end: e.is_high_end,
+        nose: e.nose.label(),
+        stickout_mm: e.effective_stickout_mm(),
     }
 }
 
@@ -301,6 +400,7 @@ fn workpiece_to_response(w: &WorkpieceSetup) -> WorkpieceSetupResponse {
         surface_roughness_target_ra: w.surface_roughness_target_ra,
         hardness_hrc: w.hardness_hrc,
         volume_cm3: w.volume_cm3(),
+        tolerance_mm: w.effective_tolerance_mm(),
     }
 }
 
@@ -315,6 +415,57 @@ fn coolant_to_response(key: &str, cfg: &CoolantConfig) -> CoolantOptionResponse 
     }
 }
 
+fn profile_to_response(p: &MachiningProfile) -> ProfileResponse {
+    ProfileResponse {
+        name: p.name.clone(),
+        description: p.description.clone(),
+        endmill: endmill_to_response(&p.endmill_setting),
+        workpiece: p.workpiece_setup.material_label(),
+        coolant: p.coolant_config.method.label(),
+        tags: p.tags.clone(),
+        created_at: p.created_at.clone(),
+        modified_at: p.modified_at.clone(),
+    }
+}
+
+fn segments_to_response(segments: Vec<ToolPathSegment>, rpm: u32) -> Vec<ToolPathSegmentResponse> {
+    segments
+        .into_iter()
+        .map(|s| {
+            let kind = s.kind().to_string();
+            let feed = s.feed();
+            match s {
+                ToolPathSegment::Linear { x, y, z, .. } | ToolPathSegment::Rapid { x, y, z } => ToolPathSegmentResponse {
+                    kind, x: Some(x), y: Some(y), z: Some(z), feed, z_start: None, i: None, j: None, rpm,
+                },
+                ToolPathSegment::ArcCW { x, y, z, i, j, .. } | ToolPathSegment::ArcCCW { x, y, z, i, j, .. } => ToolPathSegmentResponse {
+                    kind, x: Some(x), y: Some(y), z: Some(z), feed, z_start: None, i: Some(i), j: Some(j), rpm,
+                },
+                ToolPathSegment::Plunge { x, y, z_start, z_end, .. } => ToolPathSegmentResponse {
+                    kind, x: Some(x), y: Some(y), z: Some(z_end), feed, z_start: Some(z_start), i: None, j: None, rpm,
+                },
+            }
+        })
+        .collect()
+}
+
+fn preview_response(program: &endmill_model::gcode::GCodeProgram, metadata: endmill_model::gcode::GCodeMetadata) -> GCodePreviewResponse {
+    GCodePreviewResponse {
+        program_name: program.program_name.clone(),
+        line_count: program.line_count(),
+        text: program.to_text(),
+        generated_at: metadata.generated_at,
+        workpiece_material: metadata.workpiece_material,
+        tool_model: metadata.tool_model,
+        coolant_method: metadata.coolant_method,
+        estimated_time_min: metadata.estimated_time_min,
+        total_distance_mm: metadata.total_distance_mm,
+        warnings: metadata.warnings,
+        cutting_time_min: metadata.cutting_time_min,
+        rapid_time_min: metadata.rapid_time_min,
+    }
+}
+
 fn build_demo_profile_store() -> ProfileStore {
     let mut store = ProfileStore::new();
     let presets = store.presets.clone();
@@ -326,38 +477,21 @@ fn build_demo_profile_store() -> ProfileStore {
 }
 
 #[tauri::command]
-pub fn generate_gcode_preview(profile_name: String) -> Result<GCodePreviewResponse, String> {
-    let store = build_demo_profile_store();
-    let profile = store
-        .get_by_name(&profile_name)
-        .ok_or_else(|| format!("프로필을 찾을 수 없음: {}", profile_name))?;
-    let program = GCodeGenerator::generate_from_profile(profile);
-    let metadata = GCodeGenerator::generate_metadata(profile);
-    Ok(GCodePreviewResponse {
-        program_name: program.program_name.clone(),
-        line_count: program.line_count(),
-        text: program.to_text(),
-        generated_at: metadata.generated_at,
-        workpiece_material: metadata.workpiece_material,
-        tool_model: metadata.tool_model,
-        coolant_method: metadata.coolant_method,
-        estimated_time_min: metadata.estimated_time_min,
-        total_distance_mm: metadata.total_distance_mm,
-        warnings: metadata.warnings,
+pub fn generate_gcode_preview(state: tauri::State<'_, AppState>, profile_name: String) -> Result<GCodePreviewResponse, String> {
+    with_profile(&state, &profile_name, |profile| {
+        let program = GCodeGenerator::generate_from_profile(profile);
+        let metadata = GCodeGenerator::generate_metadata(profile);
+        Ok(preview_response(&program, metadata))
     })
 }
 
 #[tauri::command]
 pub fn save_gcode_to_file(
+    state: tauri::State<'_, AppState>,
     profile_name: String,
     output_path: String,
 ) -> Result<String, String> {
-    let store = build_demo_profile_store();
-    let profile = store
-        .get_by_name(&profile_name)
-        .ok_or_else(|| format!("프로필을 찾을 수 없음: {}", profile_name))?;
-    let program = GCodeGenerator::generate_from_profile(profile);
-    let text = program.to_text();
+    let text = with_profile(&state, &profile_name, |profile| Ok(GCodeGenerator::generate_from_profile(profile).to_text()))?;
     let path = PathBuf::from(&output_path);
     fs::write(&path, text).map_err(|e| format!("파일 쓰기 실패: {}", e))?;
     Ok(format!("저장 완료: {}", path.display()))
@@ -392,55 +526,33 @@ pub fn list_presets() -> Vec<PresetResponse> {
 }
 
 #[tauri::command]
-pub fn list_profiles() -> Vec<ProfileResponse> {
-    let store = build_demo_profile_store();
-    store
-        .profiles
-        .iter()
-        .map(|p| ProfileResponse {
-            name: p.name.clone(),
-            description: p.description.clone(),
-            endmill: endmill_to_response(&p.endmill_setting),
-            workpiece: p.workpiece_setup.material_label(),
-            coolant: p.coolant_config.method.label(),
-            tags: p.tags.clone(),
-            created_at: p.created_at.clone(),
-            modified_at: p.modified_at.clone(),
-        })
-        .collect()
+pub fn list_profiles(state: tauri::State<'_, AppState>) -> Vec<ProfileResponse> {
+    let store = lock(&state.shared.store);
+    store.profiles.iter().map(profile_to_response).collect()
 }
 
 #[tauri::command]
 pub fn save_profile_to_json(
+    state: tauri::State<'_, AppState>,
     profile_name: String,
     output_path: String,
 ) -> Result<String, String> {
-    let store = build_demo_profile_store();
-    let profile = store
-        .get_by_name(&profile_name)
-        .ok_or_else(|| format!("프로필을 찾을 수 없음: {}", profile_name))?;
-    let json = serde_json::to_string_pretty(profile)
-        .map_err(|e| format!("직렬화 실패: {}", e))?;
+    let json = with_profile(&state, &profile_name, |profile| {
+        serde_json::to_string_pretty(profile).map_err(|e| format!("직렬화 실패: {}", e))
+    })?;
     fs::write(&output_path, json).map_err(|e| format!("파일 쓰기 실패: {}", e))?;
     Ok(format!("프로필 저장 완료: {}", output_path))
 }
 
 #[tauri::command]
-pub fn load_profile_from_json(input_path: String) -> Result<ProfileResponse, String> {
+pub fn load_profile_from_json(state: tauri::State<'_, AppState>, input_path: String) -> Result<ProfileResponse, String> {
     let json = fs::read_to_string(&input_path)
         .map_err(|e| format!("파일 읽기 실패: {}", e))?;
     let profile: MachiningProfile =
         serde_json::from_str(&json).map_err(|e| format!("역직렬화 실패: {}", e))?;
-    Ok(ProfileResponse {
-        name: profile.name.clone(),
-        description: profile.description.clone(),
-        endmill: endmill_to_response(&profile.endmill_setting),
-        workpiece: profile.workpiece_setup.material_label(),
-        coolant: profile.coolant_config.method.label(),
-        tags: profile.tags.clone(),
-        created_at: profile.created_at.clone(),
-        modified_at: profile.modified_at.clone(),
-    })
+    profile.endmill_setting.validate()?;
+    sync_profile_to_store(&state.shared, &profile);
+    Ok(profile_to_response(&profile))
 }
 
 #[tauri::command]
@@ -467,15 +579,10 @@ pub fn build_custom_workpiece(
     thickness_mm: f64,
     clamping_key: String,
     stock_allowance_mm: f64,
+    hardness_hrc: Option<u8>,
+    tolerance_mm: Option<f64>,
 ) -> Result<WorkpieceSetupResponse, String> {
-    let material = match material_key.as_str() {
-        "aluminum" => WorkpieceMaterial::Aluminum,
-        "carbon_steel" => WorkpieceMaterial::CarbonSteel,
-        "stainless" => WorkpieceMaterial::StainlessSteel,
-        "titanium" => WorkpieceMaterial::Titanium,
-        "inconel" => WorkpieceMaterial::Inconel,
-        _ => return Err(format!("지원하지 않는 소재: {}", material_key)),
-    };
+    let material = material_from_key(&material_key, hardness_hrc)?;
     let shape = match shape_key.as_str() {
         "rectangular" => StockShape::Rectangular,
         "cylindrical" => StockShape::Cylindrical { diameter_mm: width_mm },
@@ -500,9 +607,10 @@ pub fn build_custom_workpiece(
         stock_allowance_mm,
         zero_point: (0.0, 0.0),
         surface_roughness_target_ra: 1.6,
-        hardness_hrc: None,
+        hardness_hrc,
         grain_direction_deg: 0.0,
         pre_machined: false,
+        tolerance_mm: tolerance_mm.filter(|t| *t > 0.0),
     };
     Ok(workpiece_to_response(&setup))
 }
@@ -520,71 +628,32 @@ pub fn list_coolant_options() -> Vec<CoolantOptionResponse> {
 
 #[tauri::command]
 pub fn apply_coolant_to_profile(
+    state: tauri::State<'_, AppState>,
     profile_name: String,
     coolant_key: String,
 ) -> Result<CoolantOptionResponse, String> {
-    let store = build_demo_profile_store();
-    let _profile = store
-        .get_by_name(&profile_name)
-        .ok_or_else(|| format!("프로필을 찾을 수 없음: {}", profile_name))?;
-    let cfg = match coolant_key.as_str() {
-        "air_blast" => CoolantConfig::air_blast(),
-        "flood" => CoolantConfig::flood(),
-        "mist" => CoolantConfig::mist(),
-        "through_tool" => CoolantConfig::through_tool(),
-        "dry" => CoolantConfig::dry(),
-        _ => return Err(format!("지원하지 않는 냉각: {}", coolant_key)),
-    };
+    let cfg = CoolantConfig::from_key(&coolant_key)
+        .ok_or_else(|| format!("지원하지 않는 냉각: {}", coolant_key))?;
+    let mut profile = with_profile(&state, &profile_name, |p| Ok(p.clone()))?;
+    profile.conditions.coolant = endmill_model::pipeline::coolant_type_of(&cfg.method);
+    profile.coolant_config = cfg.clone();
+    sync_profile_to_store(&state.shared, &profile);
+    if let Ok(mut ws) = state.shared.ws.try_lock() {
+        if ws.profile.name == profile.name {
+            ws.set_profile(profile);
+        }
+    }
     Ok(coolant_to_response(&coolant_key, &cfg))
 }
 
 #[tauri::command]
-pub fn get_toolpath_segments(profile_name: String) -> Result<Vec<ToolPathSegmentResponse>, String> {
-    let store = build_demo_profile_store();
-    let profile = store
-        .get_by_name(&profile_name)
-        .ok_or_else(|| format!("프로필을 찾을 수 없음: {}", profile_name))?;
-    let segments = GCodeGenerator::generate_synthetic_segments(profile);
-    Ok(segments
-        .into_iter()
-        .map(|s| match s {
-            ToolPathSegment::Linear { x, y, z, feed } => ToolPathSegmentResponse {
-                kind: "Linear".into(),
-                x: Some(x),
-                y: Some(y),
-                z: Some(z),
-                feed: Some(feed),
-            },
-            ToolPathSegment::ArcCW { x, y, z, feed, .. } => ToolPathSegmentResponse {
-                kind: "ArcCW".into(),
-                x: Some(x),
-                y: Some(y),
-                z: Some(z),
-                feed: Some(feed),
-            },
-            ToolPathSegment::ArcCCW { x, y, z, feed, .. } => ToolPathSegmentResponse {
-                kind: "ArcCCW".into(),
-                x: Some(x),
-                y: Some(y),
-                z: Some(z),
-                feed: Some(feed),
-            },
-            ToolPathSegment::Rapid { x, y, z } => ToolPathSegmentResponse {
-                kind: "Rapid".into(),
-                x: Some(x),
-                y: Some(y),
-                z: Some(z),
-                feed: None,
-            },
-            ToolPathSegment::Plunge { x, y, z_start, feed, .. } => ToolPathSegmentResponse {
-                kind: "Plunge".into(),
-                x: Some(x),
-                y: Some(y),
-                z: Some(z_start),
-                feed: Some(feed),
-            },
-        })
-        .collect())
+pub fn get_toolpath_segments(state: tauri::State<'_, AppState>, profile_name: String) -> Result<Vec<ToolPathSegmentResponse>, String> {
+    with_profile(&state, &profile_name, |profile| {
+        Ok(segments_to_response(
+            GCodeGenerator::generate_synthetic_segments(profile),
+            profile.conditions.spindle_rpm,
+        ))
+    })
 }
 
 #[tauri::command]
@@ -611,6 +680,7 @@ pub fn create_custom_endmill(
 
 #[tauri::command]
 pub fn create_custom_profile(
+    state: tauri::State<'_, AppState>,
     name: String,
     description: String,
     endmill_name: String,
@@ -629,6 +699,8 @@ pub fn create_custom_profile(
     workpiece_thickness: f64,
     coolant_key: String,
     tags: Vec<String>,
+    hardness_hrc: Option<u8>,
+    tolerance_mm: Option<f64>,
 ) -> Result<ProfileResponse, String> {
     let endmill = EndMillMockupSetting::custom(
         endmill_name, endmill_model, diameter_mm, flute_count,
@@ -637,15 +709,7 @@ pub fn create_custom_profile(
     );
     endmill.validate()?;
 
-    let material = match workpiece_material_key.as_str() {
-        "aluminum" => WorkpieceMaterial::Aluminum,
-        "carbon_steel" => WorkpieceMaterial::CarbonSteel,
-        "stainless" => WorkpieceMaterial::StainlessSteel,
-        "titanium" => WorkpieceMaterial::Titanium,
-        "inconel" => WorkpieceMaterial::Inconel,
-        "cfrp" => WorkpieceMaterial::CFRP,
-        _ => return Err(format!("지원하지 않는 소재: {}", workpiece_material_key)),
-    };
+    let material = material_from_key(&workpiece_material_key, hardness_hrc)?;
 
     let conditions = CuttingCalculator::recommend_conditions(
         &material, diameter_mm, flute_count, is_high_end,
@@ -662,151 +726,53 @@ pub fn create_custom_profile(
         stock_allowance_mm: 0.5,
         zero_point: (0.0, 0.0),
         surface_roughness_target_ra: 1.6,
-        hardness_hrc: None,
+        hardness_hrc,
         grain_direction_deg: 0.0,
         pre_machined: false,
+        tolerance_mm: tolerance_mm.filter(|t| *t > 0.0),
     };
 
-    let coolant = match coolant_key.as_str() {
-        "air_blast" => CoolantConfig::air_blast(),
-        "flood" => CoolantConfig::flood(),
-        "mist" => CoolantConfig::mist(),
-        "through_tool" => CoolantConfig::through_tool(),
-        "dry" => CoolantConfig::dry(),
-        _ => return Err(format!("지원하지 않는 냉각: {}", coolant_key)),
+    let coolant = CoolantConfig::from_key(&coolant_key)
+        .ok_or_else(|| format!("지원하지 않는 냉각: {}", coolant_key))?;
+
+    let profile = {
+        let mut store = lock(&state.shared.store);
+        store
+            .create_profile_from_custom(name, description, endmill, conditions, workpiece, coolant, tags)?
+            .clone()
     };
+    persist_store(&state.shared);
 
-    let mut store = build_demo_profile_store();
-    let profile = store.create_profile_from_custom(
-        name, description, endmill, conditions, workpiece, coolant, tags,
-    )?;
-
-    Ok(ProfileResponse {
-        name: profile.name.clone(),
-        description: profile.description.clone(),
-        endmill: endmill_to_response(&profile.endmill_setting),
-        workpiece: profile.workpiece_setup.material_label(),
-        coolant: profile.coolant_config.method.label(),
-        tags: profile.tags.clone(),
-        created_at: profile.created_at.clone(),
-        modified_at: profile.modified_at.clone(),
-    })
+    Ok(profile_to_response(&profile))
 }
 
 #[tauri::command]
 pub fn generate_gcode_with_pattern(
+    state: tauri::State<'_, AppState>,
     profile_name: String,
     pattern_key: String,
 ) -> Result<GCodePreviewResponse, String> {
-    let store = build_demo_profile_store();
-    let profile = store
-        .get_by_name(&profile_name)
-        .ok_or_else(|| format!("프로필을 찾을 수 없음: {}", profile_name))?;
-
-    let pattern = match pattern_key.as_str() {
-        "rect_profile" => ToolPathPattern::RectangularProfile,
-        "pocket_zigzag" => ToolPathPattern::PocketZigZag,
-        "circular" => ToolPathPattern::CircularProfile {
-            center_x: profile.workpiece_setup.width_mm / 2.0,
-            center_y: profile.workpiece_setup.height_mm / 2.0,
-            radius: profile.workpiece_setup.width_mm.min(profile.workpiece_setup.height_mm) * 0.35,
-        },
-        "helical_pocket" => ToolPathPattern::HelicalPocket {
-            center_x: profile.workpiece_setup.width_mm / 2.0,
-            center_y: profile.workpiece_setup.height_mm / 2.0,
-            radius: profile.workpiece_setup.width_mm.min(profile.workpiece_setup.height_mm) * 0.3,
-            depth_per_rev: 0.5,
-        },
-        "contour_multi" => ToolPathPattern::ContourMultiPass {
-            offset_count: 4,
-            step_over_mm: profile.endmill_setting.diameter_mm * 0.4,
-        },
-        "slot" => ToolPathPattern::Slot {
-            start_x: 10.0,
-            start_y: profile.workpiece_setup.height_mm / 2.0,
-            end_x: profile.workpiece_setup.width_mm - 10.0,
-            end_y: profile.workpiece_setup.height_mm / 2.0,
-            width: profile.endmill_setting.diameter_mm,
-        },
-        _ => return Err(format!("지원하지 않는 패턴: {}", pattern_key)),
-    };
-
-    let program = GCodeGenerator::generate_gcode_with_pattern(profile, &pattern);
-    let metadata = GCodeGenerator::generate_metadata_with_pattern(profile, &pattern);
-
-    Ok(GCodePreviewResponse {
-        program_name: program.program_name.clone(),
-        line_count: program.line_count(),
-        text: program.to_text(),
-        generated_at: metadata.generated_at,
-        workpiece_material: metadata.workpiece_material,
-        tool_model: metadata.tool_model,
-        coolant_method: metadata.coolant_method,
-        estimated_time_min: metadata.estimated_time_min,
-        total_distance_mm: metadata.total_distance_mm,
-        warnings: metadata.warnings,
+    with_profile(&state, &profile_name, |profile| {
+        let pattern = ToolPathPattern::from_key(&pattern_key, profile)?;
+        let program = GCodeGenerator::generate_gcode_with_pattern(profile, &pattern);
+        let metadata = GCodeGenerator::generate_metadata_with_pattern(profile, &pattern);
+        Ok(preview_response(&program, metadata))
     })
 }
 
 #[tauri::command]
 pub fn get_toolpath_with_pattern(
+    state: tauri::State<'_, AppState>,
     profile_name: String,
     pattern_key: String,
 ) -> Result<Vec<ToolPathSegmentResponse>, String> {
-    let store = build_demo_profile_store();
-    let profile = store
-        .get_by_name(&profile_name)
-        .ok_or_else(|| format!("프로필을 찾을 수 없음: {}", profile_name))?;
-
-    let pattern = match pattern_key.as_str() {
-        "rect_profile" => ToolPathPattern::RectangularProfile,
-        "pocket_zigzag" => ToolPathPattern::PocketZigZag,
-        "circular" => ToolPathPattern::CircularProfile {
-            center_x: profile.workpiece_setup.width_mm / 2.0,
-            center_y: profile.workpiece_setup.height_mm / 2.0,
-            radius: profile.workpiece_setup.width_mm.min(profile.workpiece_setup.height_mm) * 0.35,
-        },
-        "helical_pocket" => ToolPathPattern::HelicalPocket {
-            center_x: profile.workpiece_setup.width_mm / 2.0,
-            center_y: profile.workpiece_setup.height_mm / 2.0,
-            radius: profile.workpiece_setup.width_mm.min(profile.workpiece_setup.height_mm) * 0.3,
-            depth_per_rev: 0.5,
-        },
-        "contour_multi" => ToolPathPattern::ContourMultiPass {
-            offset_count: 4,
-            step_over_mm: profile.endmill_setting.diameter_mm * 0.4,
-        },
-        "slot" => ToolPathPattern::Slot {
-            start_x: 10.0,
-            start_y: profile.workpiece_setup.height_mm / 2.0,
-            end_x: profile.workpiece_setup.width_mm - 10.0,
-            end_y: profile.workpiece_setup.height_mm / 2.0,
-            width: profile.endmill_setting.diameter_mm,
-        },
-        _ => return Err(format!("지원하지 않는 패턴: {}", pattern_key)),
-    };
-
-    let segments = GCodeGenerator::generate_synthetic_segments_with_pattern(profile, &pattern);
-    Ok(segments
-        .into_iter()
-        .map(|s| match s {
-            ToolPathSegment::Linear { x, y, z, feed } => ToolPathSegmentResponse {
-                kind: "Linear".into(), x: Some(x), y: Some(y), z: Some(z), feed: Some(feed),
-            },
-            ToolPathSegment::ArcCW { x, y, z, feed, .. } => ToolPathSegmentResponse {
-                kind: "ArcCW".into(), x: Some(x), y: Some(y), z: Some(z), feed: Some(feed),
-            },
-            ToolPathSegment::ArcCCW { x, y, z, feed, .. } => ToolPathSegmentResponse {
-                kind: "ArcCCW".into(), x: Some(x), y: Some(y), z: Some(z), feed: Some(feed),
-            },
-            ToolPathSegment::Rapid { x, y, z } => ToolPathSegmentResponse {
-                kind: "Rapid".into(), x: Some(x), y: Some(y), z: Some(z), feed: None,
-            },
-            ToolPathSegment::Plunge { x, y, z_start, feed, .. } => ToolPathSegmentResponse {
-                kind: "Plunge".into(), x: Some(x), y: Some(y), z: Some(z_start), feed: Some(feed),
-            },
-        })
-        .collect())
+    with_profile(&state, &profile_name, |profile| {
+        let pattern = ToolPathPattern::from_key(&pattern_key, profile)?;
+        Ok(segments_to_response(
+            GCodeGenerator::generate_synthetic_segments_with_pattern(profile, &pattern),
+            profile.conditions.spindle_rpm,
+        ))
+    })
 }
 
 #[derive(Serialize)]
@@ -849,46 +815,234 @@ pub fn get_coolant_visual_info(coolant_key: String) -> Result<CoolantVisualRespo
 
 #[tauri::command]
 pub fn save_gcode_with_pattern(
+    state: tauri::State<'_, AppState>,
     profile_name: String,
     pattern_key: String,
     output_path: String,
 ) -> Result<String, String> {
-    let store = build_demo_profile_store();
-    let profile = store
-        .get_by_name(&profile_name)
-        .ok_or_else(|| format!("프로필을 찾을 수 없음: {}", profile_name))?;
-
-    let pattern = match pattern_key.as_str() {
-        "rect_profile" => ToolPathPattern::RectangularProfile,
-        "pocket_zigzag" => ToolPathPattern::PocketZigZag,
-        "circular" => ToolPathPattern::CircularProfile {
-            center_x: profile.workpiece_setup.width_mm / 2.0,
-            center_y: profile.workpiece_setup.height_mm / 2.0,
-            radius: profile.workpiece_setup.width_mm.min(profile.workpiece_setup.height_mm) * 0.35,
-        },
-        "helical_pocket" => ToolPathPattern::HelicalPocket {
-            center_x: profile.workpiece_setup.width_mm / 2.0,
-            center_y: profile.workpiece_setup.height_mm / 2.0,
-            radius: profile.workpiece_setup.width_mm.min(profile.workpiece_setup.height_mm) * 0.3,
-            depth_per_rev: 0.5,
-        },
-        "contour_multi" => ToolPathPattern::ContourMultiPass {
-            offset_count: 4,
-            step_over_mm: profile.endmill_setting.diameter_mm * 0.4,
-        },
-        "slot" => ToolPathPattern::Slot {
-            start_x: 10.0,
-            start_y: profile.workpiece_setup.height_mm / 2.0,
-            end_x: profile.workpiece_setup.width_mm - 10.0,
-            end_y: profile.workpiece_setup.height_mm / 2.0,
-            width: profile.endmill_setting.diameter_mm,
-        },
-        _ => return Err(format!("지원하지 않는 패턴: {}", pattern_key)),
-    };
-
-    let program = GCodeGenerator::generate_gcode_with_pattern(profile, &pattern);
-    let text = program.to_text();
+    let text = with_profile(&state, &profile_name, |profile| {
+        let pattern = ToolPathPattern::from_key(&pattern_key, profile)?;
+        Ok(GCodeGenerator::generate_gcode_with_pattern(profile, &pattern).to_text())
+    })?;
     let path = PathBuf::from(&output_path);
     fs::write(&path, text).map_err(|e| format!("파일 쓰기 실패: {}", e))?;
     Ok(format!("저장 완료: {}", path.display()))
+}
+
+#[tauri::command]
+pub fn save_text_file(output_path: String, text: String) -> Result<String, String> {
+    let path = PathBuf::from(&output_path);
+    fs::write(&path, text).map_err(|e| format!("파일 쓰기 실패: {}", e))?;
+    Ok(format!("저장 완료: {}", path.display()))
+}
+
+#[tauri::command]
+pub async fn ws_summary(state: tauri::State<'_, AppState>) -> Result<WorkspaceSummary, String> {
+    blocking(&state, |sh| Ok(lock(&sh.ws).summary())).await
+}
+
+#[tauri::command]
+pub async fn ws_select_profile(state: tauri::State<'_, AppState>, profile_name: String) -> Result<WorkspaceSummary, String> {
+    blocking(&state, move |sh| {
+        let profile = lock(&sh.store)
+            .get_by_name(&profile_name)
+            .cloned()
+            .ok_or_else(|| format!("프로필을 찾을 수 없음: {}", profile_name))?;
+        let mut ws = lock(&sh.ws);
+        if ws.profile.name != profile.name
+            || serde_json::to_string(&ws.profile).ok() != serde_json::to_string(&profile).ok()
+        {
+            ws.set_profile(profile);
+        }
+        Ok(ws.summary())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn ws_set_options(
+    state: tauri::State<'_, AppState>,
+    purpose: Option<String>,
+    pattern_key: Option<String>,
+    tool_id: Option<String>,
+    mold_id: Option<String>,
+    cut_minutes: Option<f64>,
+    clear_program: Option<bool>,
+) -> Result<WorkspaceSummary, String> {
+    blocking(&state, move |sh| {
+        let mut ws = lock(&sh.ws);
+        if let Some(p) = purpose {
+            ws.set_purpose(&p);
+        }
+        if clear_program.unwrap_or(false) {
+            ws.clear_program();
+        }
+        if let Some(k) = pattern_key {
+            if ws.pattern_key != k {
+                ws.set_pattern(&k)?;
+            }
+        }
+        ws.set_ids(tool_id, mold_id, cut_minutes);
+        Ok(ws.summary())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn ws_ingest(
+    state: tauri::State<'_, AppState>,
+    name: String,
+    data_b64: String,
+    options: Option<IngestOptions>,
+) -> Result<IngestOutcome, String> {
+    blocking(&state, move |sh| {
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(data_b64.trim())
+            .map_err(|e| format!("파일 데이터 디코딩 실패: {}", e))?;
+        let opt = options.unwrap_or_default();
+        let (out, profile) = {
+            let mut ws = lock(&sh.ws);
+            let models = lock(&sh.models);
+            let mut sds = lock(&sh.sds);
+            let out = ws.ingest(&models, &mut sds, &name, &bytes, &opt)?;
+            (out, ws.profile.clone())
+        };
+        if !out.doc.applied.is_empty() {
+            sync_profile_to_store(sh, &profile);
+        }
+        Ok(out)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn ws_run_process(state: tauri::State<'_, AppState>) -> Result<ProcessOutcome, String> {
+    blocking(&state, |sh| {
+        let mut ws = lock(&sh.ws);
+        let sds = lock(&sh.sds);
+        ws.run_process(&sds)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn ws_recommend(state: tauri::State<'_, AppState>, apply: bool) -> Result<Recommendation, String> {
+    blocking(&state, move |sh| {
+        let (rec, profile) = {
+            let mut ws = lock(&sh.ws);
+            let sds = lock(&sh.sds);
+            let rec = ws.recommend(&sds, apply)?;
+            (rec, ws.profile.clone())
+        };
+        if apply {
+            sync_profile_to_store(sh, &profile);
+        }
+        Ok(rec)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn ws_forecast(state: tauri::State<'_, AppState>, key: String, horizon: Option<usize>) -> Result<ForecastResult, String> {
+    blocking(&state, move |sh| {
+        let mut ws = lock(&sh.ws);
+        let models = lock(&sh.models);
+        let sds = lock(&sh.sds);
+        ws.forecast(&models, &sds, &key, horizon.unwrap_or(16))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn ws_decide(state: tauri::State<'_, AppState>, use_advisor: bool) -> Result<DecisionReport, String> {
+    blocking(&state, move |sh| {
+        let mut ws = lock(&sh.ws);
+        let models = lock(&sh.models);
+        let mut sds = lock(&sh.sds);
+        ws.decide(&models, &mut sds, use_advisor)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn ws_apply_decision(state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
+    blocking(&state, |sh| {
+        let (changes, profile) = {
+            let mut ws = lock(&sh.ws);
+            let changes = ws.apply_decision()?;
+            (changes, ws.profile.clone())
+        };
+        sync_profile_to_store(sh, &profile);
+        Ok(changes)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn ws_adaptive_program(state: tauri::State<'_, AppState>) -> Result<AdaptiveProgram, String> {
+    blocking(&state, |sh| lock(&sh.ws).adaptive_program()).await
+}
+
+#[tauri::command]
+pub async fn models_status(state: tauri::State<'_, AppState>) -> Result<ModelStatus, String> {
+    blocking(&state, |sh| Ok(lock(&sh.models).status())).await
+}
+
+#[tauri::command]
+pub async fn models_set_root(state: tauri::State<'_, AppState>, root: String) -> Result<ModelStatus, String> {
+    blocking(&state, move |sh| {
+        let dir = PathBuf::from(root.trim());
+        if !dir.is_dir() {
+            return Err(format!("폴더가 없습니다: {}", dir.display()));
+        }
+        let _ = fs::write(sh.data_dir.join("models_root.txt"), dir.display().to_string());
+        let mut models = lock(&sh.models);
+        models.set_root(&dir);
+        Ok(models.status())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn models_load(state: tauri::State<'_, AppState>, which: String) -> Result<ModelStatus, String> {
+    blocking(&state, move |sh| {
+        let mut models = lock(&sh.models);
+        let keys: Vec<&str> = match which.as_str() {
+            "all" => vec!["siglip", "ttm", "laya"],
+            "siglip" => vec!["siglip"],
+            "ttm" => vec!["ttm"],
+            "laya" => vec!["laya"],
+            other => return Err(format!("알 수 없는 모델: {}", other)),
+        };
+        for k in keys {
+            let _ = match k {
+                "siglip" => models.load_siglip(),
+                "ttm" => models.load_ttm(),
+                _ => models.load_laya(),
+            };
+        }
+        Ok(models.status())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn sds_status(state: tauri::State<'_, AppState>) -> Result<SdsStatus, String> {
+    blocking(&state, |sh| Ok(lock(&sh.sds).status(80))).await
+}
+
+#[tauri::command]
+pub async fn sds_flush(state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
+    blocking(&state, |sh| Ok(lock(&sh.sds).flush())).await
+}
+
+#[tauri::command]
+pub async fn sds_purge(state: tauri::State<'_, AppState>) -> Result<SdsStatus, String> {
+    blocking(&state, |sh| {
+        let mut sds = lock(&sh.sds);
+        sds.purge();
+        Ok(sds.status(80))
+    })
+    .await
 }

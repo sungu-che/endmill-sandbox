@@ -588,6 +588,58 @@
     .tier-high { color: var(--danger); font-weight: 700; }
     .tier-mid { color: var(--warning); }
     .tier-low { color: var(--success); }
+    .precision-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: var(--bg-panel);
+      overflow-y: auto;
+      padding: 12px 14px;
+      z-index: 60;
+      display: none;
+    }
+    .precision-overlay.visible { display: block; }
+    .pv-head { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-bottom: 8px; }
+    .pv-chip { background: var(--bg-input); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-size: 0.7rem; }
+    .pv-chip .k { display: block; color: var(--text-muted); font-size: 0.62rem; }
+    .pv-chip .v { font-weight: 600; word-break: break-all; }
+    .pv-opts { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end; margin-bottom: 8px; }
+    .pv-opts .form-group { margin-bottom: 0; min-width: 120px; }
+    .pv-tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+    .pv-tab { padding: 6px 12px; font-size: 0.74rem; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; }
+    .pv-tab:hover { color: var(--text); }
+    .pv-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .pv-pane { display: none; }
+    .pv-pane.active { display: block; }
+    .pv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; }
+    .pv-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 10px; min-width: 0; }
+    .pv-card h4 { font-size: 0.76rem; color: var(--accent); margin-bottom: 6px; }
+    .pv-table { width: 100%; border-collapse: collapse; font-size: 0.7rem; }
+    .pv-table th, .pv-table td { padding: 4px 6px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+    .pv-table th { color: var(--accent); font-weight: 600; background: var(--bg-panel); }
+    .pv-canvas { width: 100%; background: var(--bg-darkest); border: 1px solid var(--border); border-radius: 4px; display: block; }
+    .pv-bar { height: 6px; background: var(--bg-input); border-radius: 3px; overflow: hidden; min-width: 60px; }
+    .pv-bar > span { display: block; height: 100%; background: var(--accent); }
+    .pv-log { font-family: 'Consolas', 'Courier New', monospace; font-size: 0.68rem; color: var(--text-dim); white-space: pre-wrap; max-height: 180px; overflow-y: auto; background: var(--bg-darkest); padding: 6px; border-radius: 4px; }
+    .pv-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px; }
+    .pv-row select, .pv-row input[type=number], .pv-row input[type=text] { background: var(--bg-input); border: 1px solid var(--border); color: var(--text); padding: 3px 6px; border-radius: 4px; font-size: 0.72rem; }
+    .pv-check { font-size: 0.7rem; color: var(--text-dim); display: flex; align-items: center; gap: 4px; }
+    .pv-check input { width: auto !important; }
+    .pv-state { display: inline-block; padding: 2px 8px; border-radius: 3px; font-weight: 700; font-size: 0.72rem; }
+    .st-normal { background: #6bcb7733; color: var(--success); }
+    .st-watch { background: #ffd93d33; color: var(--warning); }
+    .st-alert { background: #ff9f4333; color: #ff9f43; }
+    .st-replace { background: #ff6b6b33; color: var(--danger); }
+    .sev-0 { color: var(--success); }
+    .sev-1 { color: var(--warning); }
+    .sev-2 { color: #ff9f43; }
+    .sev-3 { color: var(--danger); font-weight: 700; }
+    .pv-status { font-size: 0.7rem; color: var(--warning); min-height: 1em; margin-bottom: 6px; }
+    .pv-kv { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(80px, auto); gap: 2px 8px; font-size: 0.72rem; }
+    .pv-kv .k { color: var(--text-dim); }
+    .pv-kv .v { font-weight: 600; text-align: right; }
 
     @media (max-width: 1100px) {
       :root { --left-w: 200px; --right-w: 240px; }
@@ -610,6 +662,7 @@
 	        <button class="menu-btn active" onclick="switchView('machining', this)">가공</button>
 	        <button class="menu-btn" onclick="switchView('setup', this)">설정</button>
 	        <button class="menu-btn" onclick="switchView('reference', this)">참고</button>
+	        <button class="menu-btn" onclick="switchView('precision', this)">정밀 분석</button>
 	      </div>
 	      <div class="dro-display">
 	        <div class="dro-item"><span class="dro-label">X</span><span class="dro-value" id="dro-x">0.000</span></div>
@@ -646,6 +699,7 @@
 	    </div>
 	    <div class="panel-section-body" id="secToolList">
 	      <div id="tool-tree"></div>
+	      <div id="tool-spec-panel" style="margin-top:6px;"></div>
 	    </div>
 
 	    <div class="panel-section-header" data-section="secMaterial">
@@ -723,6 +777,201 @@
 	        <div style="font-size:0.72rem; color:var(--text-muted);">로딩 중...</div>
 	      </div>
 	    </div>
+	    <div class="precision-overlay" id="precision-view">
+	      <div class="section-title">정밀 분석 — 공구 이미지 형상 벡터 · 금형 형상 벡터 · 마찰/냉각/마모 · 시계열 · 판단</div>
+	      <div class="pv-status" id="pv-status"></div>
+	      <div class="pv-head" id="pv-head"></div>
+	      <div class="pv-opts">
+	        <div class="form-group"><label>가공 목적</label>
+	          <select id="pv-purpose"><option value="roughing">황삭</option><option value="finishing">정삭</option></select>
+	        </div>
+	        <div class="form-group"><label>경로 패턴</label>
+	          <select id="pv-pattern">
+	            <option value="pocket_zigzag">포켓 지그재그</option>
+	            <option value="rect_profile">사각형 프로파일</option>
+	            <option value="circular">원형 프로파일</option>
+	            <option value="helical_pocket">헬리컬 포켓</option>
+	            <option value="contour_multi">등고선 다중 패스</option>
+	            <option value="slot">슬롯 가공</option>
+	          </select>
+	        </div>
+	        <div class="form-group"><label>공구 ID (개체)</label><input type="text" id="pv-toolid" placeholder="비우면 공구 서명" /></div>
+	        <div class="form-group"><label>금형 ID</label><input type="text" id="pv-moldid" placeholder="mold" /></div>
+	        <div class="form-group"><label>누적 절삭 (분)</label><input type="number" id="pv-cutmin" step="0.1" min="0" /></div>
+	        <button class="btn btn-sm" onclick="pvApplyOptions(false)">옵션 적용</button>
+	        <button class="btn btn-sm btn-outline" onclick="pvApplyOptions(true)">NC 프로그램 해제</button>
+	      </div>
+	      <div class="pv-tabs">
+	        <div class="pv-tab active" onclick="pvTab('input', this)">① 입력·모델</div>
+	        <div class="pv-tab" onclick="pvTab('tool', this)">② 공구 형상 벡터</div>
+	        <div class="pv-tab" onclick="pvTab('mold', this)">③ 금형 형상 벡터</div>
+	        <div class="pv-tab" onclick="pvTab('proc', this)">④ 마찰·냉각·마모</div>
+	        <div class="pv-tab" onclick="pvTab('ts', this)">⑤ 시계열 예측</div>
+	        <div class="pv-tab" onclick="pvTab('decide', this)">⑥ 판단·SDS</div>
+	      </div>
+
+	      <div class="pv-pane active" id="pv-pane-input">
+	        <div class="pv-grid">
+	          <div class="pv-card">
+	            <h4>모델 (safetensors 전용 · ONNX 미사용)</h4>
+	            <div class="form-group"><label>모델 루트 폴더</label><input type="text" id="pv-model-root" /></div>
+	            <div class="pv-row">
+	              <button class="btn btn-sm" onclick="pvSetModelRoot()">폴더 지정</button>
+	              <button class="btn btn-sm btn-outline" onclick="pvLoadModel('siglip')">SigLIP2 로드</button>
+	              <button class="btn btn-sm btn-outline" onclick="pvLoadModel('ttm')">TTM-R3 로드</button>
+	              <button class="btn btn-sm btn-outline" onclick="pvLoadModel('laya')">laya 로드</button>
+	              <button class="btn btn-sm btn-outline" onclick="pvLoadModel('all')">모두 로드</button>
+	            </div>
+	            <div id="pv-models"></div>
+	          </div>
+	          <div class="pv-card">
+	            <h4>문서 입력 (L0 · 사양서/프로필/NC/측정 로그/이미지/깊이맵/높이맵/CMM 일원화)</h4>
+	            <div class="form-group"><label>파일</label><input type="file" id="pv-files" multiple /></div>
+	            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;">
+	              <div class="form-group"><label>유형 힌트</label>
+	                <select id="pv-hint">
+	                  <option value="">자동 판별</option>
+	                  <option value="tool_spec">공구 사양서</option>
+	                  <option value="workpiece">피삭재/원소재</option>
+	                  <option value="profile">가공 프로필</option>
+	                  <option value="gcode">NC 프로그램</option>
+	                  <option value="measurement">측정·가공 로그</option>
+	                  <option value="tool_image">공구 이미지</option>
+	                  <option value="mold_image">금형 표면 이미지</option>
+	                  <option value="mold_depth">금형 깊이맵 이미지</option>
+	                  <option value="mold_csv">금형 높이맵 CSV</option>
+	                  <option value="wall_csv">벽면 CMM CSV</option>
+	                </select>
+	              </div>
+	              <div class="form-group"><label>역할</label>
+	                <select id="pv-role">
+	                  <option value="">자동</option>
+	                  <option value="reference">기준 (신품/양품)</option>
+	                  <option value="current">현재</option>
+	                  <option value="nominal">공칭 (설계)</option>
+	                  <option value="measured">측정</option>
+	                </select>
+	              </div>
+	              <div class="form-group"><label>공구 뷰</label>
+	                <select id="pv-view"><option value="side">측면</option><option value="end">저면</option></select>
+	              </div>
+	              <div class="form-group"><label>px/mm (빈칸=샹크 보정)</label><input type="number" id="pv-pxmm" step="0.1" /></div>
+	              <div class="form-group"><label>날끝 방향</label>
+	                <select id="pv-tip"><option value="">자동</option><option value="bottom">아래</option><option value="top">위</option></select>
+	              </div>
+	              <div class="form-group"><label>HRC (합금강)</label><input type="number" id="pv-hrc" min="0" max="70" /></div>
+	              <div class="form-group"><label>깊이맵 mm/px</label><input type="number" id="pv-mmpx" step="0.001" /></div>
+	              <div class="form-group"><label>깊이 범위 (mm)</label><input type="number" id="pv-depth" step="0.1" /></div>
+	              <div class="form-group"><label>높이맵 셀 (mm)</label><input type="number" id="pv-cell" step="0.01" /></div>
+	              <div class="form-group"><label>원점 X (mm)</label><input type="number" id="pv-ox" step="0.1" /></div>
+	              <div class="form-group"><label>원점 Y (mm)</label><input type="number" id="pv-oy" step="0.1" /></div>
+	            </div>
+	            <div class="pv-row">
+	              <label class="pv-check"><input type="checkbox" id="pv-samesetup" /> 동일 촬영 셋업</label>
+	              <label class="pv-check"><input type="checkbox" id="pv-invert" /> 깊이 반전</label>
+	              <button class="btn btn-sm" onclick="pvIngest()">입력 실행</button>
+	            </div>
+	            <div class="pv-log" id="pv-ingest-log"></div>
+	          </div>
+	        </div>
+	        <div class="pv-card" style="margin-top:10px;"><h4>입력 문서 · 완결성 · 반영 내역</h4><div id="pv-docs"></div></div>
+	      </div>
+
+	      <div class="pv-pane" id="pv-pane-tool">
+	        <div class="pv-row" id="pv-tool-state"></div>
+	        <div class="pv-grid">
+	          <div class="pv-card"><h4>기준(신품) 정렬 이미지</h4><canvas class="pv-canvas" id="pv-tool-ref" width="320" height="320"></canvas></div>
+	          <div class="pv-card"><h4>현재 이미지 · 패치 벡터 이탈 z (배경 대비)</h4><canvas class="pv-canvas" id="pv-tool-cur" width="320" height="320"></canvas></div>
+	          <div class="pv-card"><h4>실루엣 반경 손실 (µm, 가로축: 날끝으로부터 mm)</h4><canvas class="pv-canvas" id="pv-tool-geom" width="420" height="240"></canvas><div id="pv-tool-geominfo" style="margin-top:6px;"></div></div>
+	        </div>
+	        <div class="pv-grid" style="margin-top:10px;">
+	          <div class="pv-card"><h4>부위별 마모 벡터 비교 (패치 · 공동공간)</h4><div id="pv-tool-zones"></div></div>
+	          <div class="pv-card"><h4>영어 제로샷 프롬프트 변화 (SigLIP2)</h4><div id="pv-tool-prompts"></div></div>
+	        </div>
+	        <div class="pv-card" style="margin-top:10px;"><h4>메모 · 보정 원장 기록</h4><div class="pv-log" id="pv-tool-notes"></div></div>
+	      </div>
+
+	      <div class="pv-pane" id="pv-pane-mold">
+	        <div class="pv-grid">
+	          <div class="pv-card"><h4>공칭 높이맵 (시뮬레이션/설계, mm)</h4><canvas class="pv-canvas" id="pv-mold-nom" width="320" height="240"></canvas></div>
+	          <div class="pv-card"><h4>측정 높이맵 (mm)</h4><canvas class="pv-canvas" id="pv-mold-meas" width="320" height="240"></canvas></div>
+	          <div class="pv-card"><h4>미설명 잔차 맵 (µm)</h4><canvas class="pv-canvas" id="pv-mold-res" width="320" height="240"></canvas></div>
+	        </div>
+	        <div class="pv-grid" style="margin-top:10px;">
+	          <div class="pv-card"><h4>금형 형상 벡터 (mold.geom · 공구 벡터와 분리)</h4><div id="pv-mold-desc"></div></div>
+	          <div class="pv-card"><h4>편차 분해 (Z 오프셋 · 반경 마모 · 휨 · 소재 열)</h4><div id="pv-mold-fit"></div></div>
+	          <div class="pv-card"><h4>벽면 CMM 분해 · 표면 이미지 (mold.image)</h4><div id="pv-mold-wall"></div><div id="pv-mold-surface" style="margin-top:8px;"></div></div>
+	        </div>
+	        <div class="pv-card" style="margin-top:10px;"><h4>메모 · 보정 원장 기록</h4><div class="pv-log" id="pv-mold-notes"></div></div>
+	      </div>
+
+	      <div class="pv-pane" id="pv-pane-proc">
+	        <div class="pv-row">
+	          <button class="btn btn-sm" onclick="pvRunProcess()">공정 해석 실행</button>
+	          <button class="btn btn-sm btn-outline" onclick="pvRecommend(false)">조건 추천 보기</button>
+	          <button class="btn btn-sm btn-outline" onclick="pvRecommend(true)">추천 조건 적용</button>
+	          <button class="btn btn-sm btn-outline" onclick="pvAdaptive()">적응 이송 G-code 생성·저장</button>
+	          <span id="pv-proc-source" style="font-size:0.7rem;color:var(--text-muted);"></span>
+	        </div>
+	        <div class="pv-row" id="pv-calib"></div>
+	        <div class="pv-grid" id="pv-proc-cards"></div>
+	        <div class="pv-card" style="margin-top:10px;"><h4>냉각 방식 비교 (마찰 · 날끝 온도 · 열균열 · 구성인선 · 수명 · 치수)</h4><div id="pv-coolant"></div></div>
+	        <div class="pv-card" style="margin-top:10px;">
+	          <h4>경로 부하 타임라인 (높이맵 제거 시뮬레이션)</h4>
+	          <div class="pv-row">
+	            <select id="pv-sim-metric" onchange="pvDrawSim()">
+	              <option value="power_kw">스핀들 동력 (kW)</option>
+	              <option value="force_peak_n">피크 절삭력 (N)</option>
+	              <option value="wall_defl_um">벽면 휨 (µm)</option>
+	              <option value="temp_c">날끝 온도 (°C)</option>
+	              <option value="vb_mm">플랭크 마모 VB (mm)</option>
+	              <option value="engage_deg">맞물림 각 (°)</option>
+	              <option value="wp_temp_c">소재 온도 (°C)</option>
+	            </select>
+	          </div>
+	          <canvas class="pv-canvas" id="pv-sim-chart" width="900" height="220"></canvas>
+	        </div>
+	        <div class="pv-card" style="margin-top:10px;"><h4>구간(episode) · 제한 요인 · 이송 배율</h4><div id="pv-episodes"></div></div>
+	        <div class="pv-card" style="margin-top:10px;"><h4>추천 · 경고</h4><div class="pv-log" id="pv-proc-notes"></div></div>
+	      </div>
+
+	      <div class="pv-pane" id="pv-pane-ts">
+	        <div class="pv-row">
+	          <select id="pv-ts-key"></select>
+	          <label class="pv-check">예측 길이 <input type="number" id="pv-ts-h" value="16" min="1" max="64" style="width:64px;" /></label>
+	          <button class="btn btn-sm" onclick="pvForecast()">예측 실행</button>
+	          <span id="pv-ts-method" style="font-size:0.72rem;"></span>
+	        </div>
+	        <canvas class="pv-canvas" id="pv-ts-chart" width="900" height="300"></canvas>
+	        <div class="pv-log" id="pv-ts-notes" style="margin-top:8px;"></div>
+	      </div>
+
+	      <div class="pv-pane" id="pv-pane-decide">
+	        <div class="pv-row">
+	          <label class="pv-check"><input type="checkbox" id="pv-use-adv" checked /> laya 조언 사용 (상향만 허용)</label>
+	          <button class="btn btn-sm" onclick="pvDecide()">판단 실행</button>
+	          <button class="btn btn-sm btn-outline" onclick="pvApplyDecision()">판단을 절삭 조건에 반영</button>
+	        </div>
+	        <div id="pv-decision-head" style="margin-bottom:8px;"></div>
+	        <div class="pv-card"><h4>결정적 안전 게이트</h4><div id="pv-gates"></div></div>
+	        <div class="pv-grid" style="margin-top:10px;">
+	          <div class="pv-card"><h4>조언 모델 (laya-typed-decisions)</h4><div id="pv-advisor"></div></div>
+	          <div class="pv-card"><h4>판단 근거 · 메모</h4><div class="pv-log" id="pv-decision-notes"></div></div>
+	        </div>
+	        <div class="pv-card" style="margin-top:10px;">
+	          <h4>score_dynamics 원장 (tool · mold · process · decision 분리)</h4>
+	          <div class="pv-row">
+	            <button class="btn btn-sm btn-outline" onclick="pvSdsStatus()">상태 갱신</button>
+	            <button class="btn btn-sm btn-outline" onclick="pvSdsFlush()">원장 저장</button>
+	            <button class="btn btn-sm btn-danger" onclick="pvSdsPurge(this)">원장 초기화</button>
+	          </div>
+	          <div id="pv-sds-ledgers"></div>
+	          <div id="pv-sds-axes" style="margin-top:8px;"></div>
+	          <div id="pv-sds-conf" style="margin-top:8px;"></div>
+	          <div class="pv-log" id="pv-sds-log" style="margin-top:8px;"></div>
+	        </div>
+	      </div>
+	    </div>
 	  </main>
 
 	  <div class="resizer resizer-v right" id="resizerRight"></div>
@@ -745,6 +994,7 @@
 	        <select id="calc-workpiece">
 	          <option value="aluminum">알루미늄 합금</option>
 	          <option value="carbon_steel">탄소강</option>
+	          <option value="alloy_steel">합금강·금형강 (HRC)</option>
 	          <option value="stainless">스테인리스강</option>
 	          <option value="titanium" selected>티타늄 합금</option>
 	          <option value="inconel">인코넬</option>
@@ -761,6 +1011,10 @@
 	          <label>날 수</label>
 	          <input type="number" id="calc-flutes" value="4" min="1" max="12" />
 	        </div>
+	      </div>
+	      <div class="form-group">
+	        <label>경도 HRC (합금강·금형강)</label>
+	        <input type="number" id="calc-hrc" value="50" min="10" max="70" />
 	      </div>
 	      <div class="form-group">
 	        <label>공구 등급</label>
@@ -835,8 +1089,11 @@
 	            <option value="aluminum">알루미늄</option>
 	            <option value="carbon_steel">탄소강</option>
 	            <option value="stainless">스테인리스</option>
+	            <option value="alloy_steel">합금강·금형강 (HRC)</option>
 	            <option value="titanium">티타늄</option>
 	            <option value="inconel">인코넬</option>
+	            <option value="superalloy">수퍼알로이</option>
+	            <option value="cfrp">CFRP</option>
 	          </select>
 	        </div>
 	        <div class="form-group">
@@ -861,6 +1118,8 @@
 	        <div class="form-group"><label>높이 (mm)</label><input type="number" id="cw-height" value="80" /></div>
 	        <div class="form-group"><label>두께 (mm)</label><input type="number" id="cw-thickness" value="25" /></div>
 	        <div class="form-group"><label>여유량 (mm)</label><input type="number" id="cw-allowance" value="0.5" step="0.1" /></div>
+	        <div class="form-group"><label>경도 HRC</label><input type="number" id="cw-hrc" min="10" max="70" placeholder="합금강" /></div>
+	        <div class="form-group"><label>공차 (±µm)</label><input type="number" id="cw-tol" min="1" step="1" placeholder="Ra 기준" /></div>
 	      </div>
 	      <button class="btn btn-sm" onclick="createCustomWorkpiece()" style="width:100%;">원소재 생성</button>
 	      <div id="cw-result" class="hidden" style="margin-top:6px;"></div>
@@ -948,25 +1207,31 @@
 	function switchView(view, btnElement) {
 	  document.querySelectorAll('.menu-btn').forEach(b => b.classList.remove('active'));
 	  if (btnElement) btnElement.classList.add('active');
-	  
+
 	  const refView = document.getElementById('reference-view');
+	  const precView = document.getElementById('precision-view');
 	  if (view === 'reference') {
 	    refView.classList.add('visible');
 	    loadReferenceData();
 	  } else {
 	    refView.classList.remove('visible');
 	  }
+	  if (view === 'precision') {
+	    precView.classList.add('visible');
+	    pvEnter();
+	  } else {
+	    precView.classList.remove('visible');
+	  }
 
-	  // 뷰 모드에 따른 좌우 패널 섹션 자동 전개/접기 로직
-	  if (view === 'machining') {
+	  if (view === 'machining' || view === 'precision') {
 	    setSectionState('secPreset', true);
-	    setSectionState('secAnim', true);
+	    setSectionState('secAnim', view === 'machining');
 	    setSectionState('secToolList', false);
 	    setSectionState('secMaterial', false);
 	    setSectionState('secCoolant', false);
-	    
+
 	    setSectionState('secParam', true);
-	    setSectionState('secCutCalc', true);
+	    setSectionState('secCutCalc', view === 'machining');
 	    setSectionState('secCoolSet', false);
 	    setSectionState('secCustomTool', false);
 	    setSectionState('secCustomMat', false);
@@ -976,7 +1241,7 @@
 	    setSectionState('secToolList', true);
 	    setSectionState('secMaterial', true);
 	    setSectionState('secCoolant', true);
-	    
+
 	    setSectionState('secParam', false);
 	    setSectionState('secCutCalc', false);
 	    setSectionState('secCoolSet', true);
@@ -1354,7 +1619,8 @@
 	}
 
 	function drawToolpathSegment(ctx, s, prev, toolRadiusPx) {
-	  const proj = tpProject(s.x || 0, s.y || 0, s.z || 0);
+	  const end = { x: s.x || 0, y: s.y || 0, z: s.z || 0 };
+	  const proj = tpProject(end.x, end.y, end.z);
 	  if (prev) {
 	    ctx.beginPath();
 	    ctx.moveTo(prev.px, prev.py);
@@ -1362,18 +1628,36 @@
 	      ctx.strokeStyle = "#333";
 	      ctx.lineWidth = 1;
 	      ctx.setLineDash([4, 4]);
-	      ctx.lineTo(proj.px, proj.py);
-	      ctx.stroke();
 	    } else {
-	      const depthRatio = Math.min(Math.max(Math.abs(s.z || 0) / 10, 0.2), 1.0);
+	      const depthRatio = Math.min(Math.max(Math.abs(end.z) / 10, 0.2), 1.0);
 	      ctx.strokeStyle = `rgba(0, 212, 255, ${depthRatio})`;
 	      ctx.lineWidth = toolRadiusPx * 2;
 	      ctx.setLineDash([]);
-	      ctx.lineTo(proj.px, proj.py);
-	      ctx.stroke();
 	    }
+	    if ((s.kind === "ArcCW" || s.kind === "ArcCCW") && s.i !== null && s.i !== undefined && prev.x !== undefined) {
+	      const cx = prev.x + s.i;
+	      const cy = prev.y + (s.j || 0);
+	      const r = Math.hypot(prev.x - cx, prev.y - cy);
+	      const a0 = Math.atan2(prev.y - cy, prev.x - cx);
+	      const a1 = Math.atan2(end.y - cy, end.x - cx);
+	      const cw = s.kind === "ArcCW";
+	      let sweep = cw ? a0 - a1 : a1 - a0;
+	      sweep = ((sweep % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+	      if (sweep < 1e-9) sweep = 2 * Math.PI;
+	      const n = Math.min(360, Math.max(8, Math.ceil(sweep * r / 0.5)));
+	      for (let k = 1; k <= n; k++) {
+	        const t = k / n;
+	        const a = a0 + (cw ? -1 : 1) * sweep * t;
+	        const p = tpProject(cx + r * Math.cos(a), cy + r * Math.sin(a), prev.z + (end.z - prev.z) * t);
+	        ctx.lineTo(p.px, p.py);
+	      }
+	    } else {
+	      ctx.lineTo(proj.px, proj.py);
+	    }
+	    ctx.stroke();
+	    ctx.setLineDash([]);
 	  }
-	  return { px: proj.px, py: proj.py };
+	  return { px: proj.px, py: proj.py, x: end.x, y: end.y, z: end.z };
 	}
 
 	function renderToolpath3D() {
@@ -1446,7 +1730,7 @@
 	        ctx.arc(prev.px, prev.py, toolRadiusPx, 0, Math.PI * 2);
 	        ctx.fillStyle = "#ff6b6b";
 	        ctx.fill();
-	        updateDRO(s.x || 0, s.y || 0, s.z || 0, 1910, s.feed || 0);
+	        updateDRO(s.x || 0, s.y || 0, s.z || 0, s.rpm || 0, s.feed || 0);
 	        currentAnimFrame++;
 	        animReq = requestAnimationFrame(step);
 	      } else {
@@ -1505,9 +1789,10 @@
 
 	async function saveGcode() {
 	  const profileName = getActiveProfile();
-	  const outputPath = profileName.replace(/\s/g, "_") + ".nc";
+	  const pattern = document.getElementById("tp-pattern").value;
+	  const outputPath = `${profileName.replace(/\s/g, "_")}_${pattern}.nc`;
 	  try {
-	    const result = await invoke("save_gcode_to_file", { profileName, outputPath });
+	    const result = await invoke("save_gcode_with_pattern", { profileName, patternKey: pattern, outputPath });
 	    if (result) appendLog(`G-Code 저장 성공: ${result}`);
 	  } catch (e) {
 	    appendLog(`G-Code 저장 실패: ${e}`);
@@ -1519,11 +1804,18 @@
 	  const diameter = parseFloat(document.getElementById("calc-diameter").value);
 	  const flutes = parseInt(document.getElementById("calc-flutes").value);
 	  const isHighEnd = document.getElementById("calc-tier").value === "high";
+	  const hrcRaw = parseInt(document.getElementById("calc-hrc").value);
+	  const hardnessHrc = isNaN(hrcRaw) ? null : hrcRaw;
+	  const box = document.getElementById("calc-result");
 
 	  if (isNaN(diameter) || diameter <= 0 || isNaN(flutes) || flutes <= 0) {
-	    const box = document.getElementById("calc-result");
 	    box.classList.remove("hidden");
 	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: 유효한 직경과 날 수를 입력하세요.</div>`;
+	    return;
+	  }
+	  if (workpiece === "alloy_steel" && (hardnessHrc === null || hardnessHrc < 10 || hardnessHrc > 70)) {
+	    box.classList.remove("hidden");
+	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: 합금강·금형강은 경도(HRC 10~70)를 입력하세요.</div>`;
 	    return;
 	  }
 
@@ -1531,15 +1823,14 @@
 	  try {
 	    result = await invoke("calculate_cutting_conditions", {
 	      workpiece, diameterMm: diameter, fluteCount: flutes, isHighEnd,
+	      hardnessHrc: workpiece === "alloy_steel" ? hardnessHrc : null,
 	    });
 	  } catch (e) {
-	    const box = document.getElementById("calc-result");
 	    box.classList.remove("hidden");
 	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">계산 오류: ${e}</div>`;
 	    return;
 	  }
 	  if (!result) return;
-	  const box = document.getElementById("calc-result");
 	  box.classList.remove("hidden");
 	  box.innerHTML = `
 	    <div class="result-row"><span class="rlabel">절삭 속도</span><span class="rvalue">${result.cutting_speed_m_min.toFixed(1)} m/min</span></div>
@@ -1549,27 +1840,33 @@
 	    <div class="result-row"><span class="rlabel">절입 (축)</span><span class="rvalue">${result.axial_doc_mm.toFixed(1)} mm</span></div>
 	    <div class="result-row"><span class="rlabel">절입 (반경)</span><span class="rvalue">${result.radial_doc_mm.toFixed(1)} mm</span></div>
 	    <div class="result-row"><span class="rlabel">MRR</span><span class="rvalue" style="color:var(--danger)">${result.mrr_cm3_min.toFixed(2)} cm³/min</span></div>
-	    <div class="result-row"><span class="rlabel">절삭력</span><span class="rvalue">${result.cutting_force_n.toFixed(1)} N</span></div>
+	    <div class="result-row"><span class="rlabel">절삭력 (피크)</span><span class="rvalue">${result.cutting_force_n.toFixed(1)} N</span></div>
 	    <div class="result-row"><span class="rlabel">동력</span><span class="rvalue">${result.spindle_power_kw.toFixed(2)} kW</span></div>
 	    <div class="result-row"><span class="rlabel">휨량</span><span class="rvalue" style="color:var(--danger)">${result.tool_deflection_mm.toFixed(4)} mm</span></div>
+	    <div class="result-row"><span class="rlabel">날끝 온도</span><span class="rvalue">${result.interface_temp_c.toFixed(0)} °C</span></div>
+	    <div class="result-row"><span class="rlabel">공구 수명</span><span class="rvalue">${result.tool_life_min === null ? '-' : result.tool_life_min.toFixed(1) + ' min'}</span></div>
+	    <div class="result-row"><span class="rlabel">벽면 휨 오차</span><span class="rvalue">${result.wall_error_um.toFixed(1)} µm</span></div>
 	  `;
 	  updateDRO(0, 0, 0, result.spindle_rpm, result.feed_rate_mm_min);
 	}
 
 	async function loadLeftPanel() {
-	  const presets = await invoke("list_presets");
-	  if (presets) {
-	    document.getElementById('preset-tree').innerHTML = presets.map((p, i) => `
-	      <div class="tree-item ${i === 0 ? 'active' : ''}" data-name="${p.name}" onclick="selectPreset(this)">
-	        <span class="tree-icon">📋</span>${p.name}
+	  const activeName = document.querySelector('#preset-tree .tree-item.active')?.dataset.name;
+	  let entries = await invoke("list_profiles");
+	  if (!entries || !entries.length) entries = await invoke("list_presets");
+	  if (entries) {
+	    const keep = entries.some(p => p.name === activeName);
+	    document.getElementById('preset-tree').innerHTML = entries.map((p, i) => `
+	      <div class="tree-item ${(keep ? p.name === activeName : i === 0) ? 'active' : ''}" data-name="${esc(p.name)}" onclick="selectPreset(this)">
+	        <span class="tree-icon">📋</span>${esc(p.name)}
 	      </div>
 	    `).join('');
 	  }
 	  const tools = await invoke("list_mockup_settings");
 	  if (tools) {
 	    document.getElementById('tool-tree').innerHTML = tools.map(t => `
-	      <div class="tree-item" onclick="selectTool(this, '${t.model}')">
-	        <span class="tree-icon">🔧</span>${t.name}
+	      <div class="tree-item" onclick="selectTool(this, '${esc(t.model)}')">
+	        <span class="tree-icon">🔧</span>${esc(t.name)}
 	        <span class="tree-badge">Ø${t.diameter_mm}</span>
 	      </div>
 	    `).join('');
@@ -1577,7 +1874,7 @@
 	  const workpieces = await invoke("list_workpiece_setups");
 	  if (workpieces) {
 	    document.getElementById('workpiece-tree').innerHTML = workpieces.map(w => `
-	      <div class="tree-item"><span class="tree-icon">📦</span>${w.name}</div>
+	      <div class="tree-item"><span class="tree-icon">📦</span>${esc(w.name)}</div>
 	    `).join('');
 	  }
 	  const coolants = await invoke("list_coolant_options");
@@ -1596,6 +1893,7 @@
 	  el.classList.add('active');
 	  document.getElementById('sb-profile').textContent = el.dataset.name;
 	  renderToolpath2D();
+	  if (document.getElementById('precision-view').classList.contains('visible')) pvEnter();
 	}
 
 	function selectTool(el, model) {
@@ -1787,6 +2085,10 @@
 	  const thicknessMm = parseFloat(document.getElementById("cw-thickness").value);
 	  const clampingKey = document.getElementById("cw-clamping").value;
 	  const stockAllowanceMm = parseFloat(document.getElementById("cw-allowance").value);
+	  const hrcRaw = parseInt(document.getElementById("cw-hrc").value);
+	  const hardnessHrc = isNaN(hrcRaw) ? null : hrcRaw;
+	  const tolRaw = parseFloat(document.getElementById("cw-tol").value);
+	  const toleranceMm = isNaN(tolRaw) || tolRaw <= 0 ? null : tolRaw / 1000;
 	  
 	  const box = document.getElementById("cw-result");
 	  box.classList.remove("hidden");
@@ -1803,13 +2105,17 @@
 	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: 여유량은 0 이상이어야 합니다.</div>`;
 	    return;
 	  }
+	  if (materialKey === "alloy_steel" && (hardnessHrc === null || hardnessHrc < 10 || hardnessHrc > 70)) {
+	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: 합금강·금형강은 경도(HRC 10~70)를 입력해주세요.</div>`;
+	    return;
+	  }
 
 	  box.innerHTML = `<div style="color:var(--text-muted);font-size:0.75rem;">생성 중...</div>`;
 
 	  try {
 	    const result = await invoke("build_custom_workpiece", {
 	      name, materialKey, shapeKey, widthMm, heightMm, thicknessMm,
-	      clampingKey, stockAllowanceMm,
+	      clampingKey, stockAllowanceMm, hardnessHrc, toleranceMm,
 	    });
 	    if (!result) return;
 	    
@@ -1822,6 +2128,7 @@
 	      <div class="result-row"><span class="rlabel">여유량</span><span class="rvalue">${result.stock_allowance_mm} mm</span></div>
 	      <div class="result-row"><span class="rlabel">체적</span><span class="rvalue">${result.volume_cm3.toFixed(2)} cm³</span></div>
 	      <div class="result-row"><span class="rlabel">표면조도</span><span class="rvalue">Ra ${result.surface_roughness_target_ra}</span></div>
+	      <div class="result-row"><span class="rlabel">치수 공차</span><span class="rvalue">±${(result.tolerance_mm * 1000).toFixed(0)} µm</span></div>
 	    `;
 	    appendLog(`원소재 생성: ${result.name}`);
 	  } catch (e) {
@@ -1873,6 +2180,8 @@
         <div class="spec-item"><div class="label">OAL</div><div class="value">${found.oal_mm} mm</div></div>
         <div class="spec-item"><div class="label">헬릭스</div><div class="value">${found.helix_angle_deg}°</div></div>
         <div class="spec-item"><div class="label">코팅</div><div class="value">${found.coating_name || '없음'}</div></div>
+        <div class="spec-item"><div class="label">노즈</div><div class="value">${found.nose}</div></div>
+        <div class="spec-item"><div class="label">돌출 길이</div><div class="value">${found.stickout_mm.toFixed(1)} mm</div></div>
       </div>
     `;
   }
@@ -1892,6 +2201,860 @@
       warnOut.innerHTML = '<div class="gc-line" style="color:var(--success);">✓ 경고 없음</div>';
     }
   }
+
+	const PV = { summary: null, process: null, tool: null, moldNom: null, moldMeas: null, moldFit: null, moldImage: null, wall: null, forecast: null, decision: null };
+	const PV_ACTION = {
+	  continue: '현 조건 유지', reduce_feed: '이송 감속', reduce_speed: '회전수 감속', change_coolant: '냉각 방식 변경',
+	  inspect_tool: '공구 점검', replace_tool: '공구 교체', stop: '즉시 정지',
+	};
+
+	function fmt(v, d = 2) {
+	  if (v === null || v === undefined || typeof v !== 'number' || !isFinite(v)) return '-';
+	  return v.toFixed(d);
+	}
+
+	function esc(s) {
+	  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+	}
+
+	function pvNum(id) {
+	  const el = document.getElementById(id);
+	  const v = el ? parseFloat(el.value) : NaN;
+	  return isFinite(v) ? v : null;
+	}
+
+	function pvStr(id) {
+	  const el = document.getElementById(id);
+	  const v = el ? el.value.trim() : '';
+	  return v ? v : null;
+	}
+
+	function pvStatus(msg) {
+	  const el = document.getElementById('pv-status');
+	  if (el) el.textContent = msg || '';
+	}
+
+	function pvLogLines(id, lines, replace) {
+	  const el = document.getElementById(id);
+	  if (!el) return;
+	  const text = (lines || []).filter(l => l !== null && l !== undefined).map(l => esc(l)).join('\n');
+	  el.innerHTML = replace ? text : (el.innerHTML ? el.innerHTML + '\n' : '') + text;
+	  el.scrollTop = el.scrollHeight;
+	}
+
+	function pvTable(cols, rows) {
+	  if (!rows || !rows.length) return '<div style="font-size:0.7rem;color:var(--text-muted);">데이터 없음</div>';
+	  return `<table class="pv-table"><thead><tr>${cols.map(c => `<th>${esc(c.t)}</th>`).join('')}</tr></thead><tbody>${
+	    rows.map(r => `<tr>${cols.map(c => `<td${c.nw ? ' style="white-space:nowrap"' : ''}>${c.f ? c.f(r) : esc(r[c.k])}</td>`).join('')}</tr>`).join('')
+	  }</tbody></table>`;
+	}
+
+	function pvKv(pairs) {
+	  return `<div class="pv-kv">${pairs.map(([k, v]) => `<span class="k">${esc(k)}</span><span class="v">${esc(v)}</span>`).join('')}</div>`;
+	}
+
+	function pvStateBadge(state) {
+	  const key = String(state || 'Normal').toLowerCase();
+	  const label = { normal: '정상', watch: '관찰', alert: '경고', replace: '교체' }[key] || key;
+	  return `<span class="pv-state st-${key}">${label}</span>`;
+	}
+
+	async function pvCall(cmd, args) {
+	  try {
+	    const r = await invoke(cmd, args || {});
+	    pvStatus('');
+	    return r;
+	  } catch (e) {
+	    appendLog(`${cmd} 실패: ${e}`);
+	    pvStatus(`${cmd}: ${e}`);
+	    return null;
+	  }
+	}
+
+	function pvReadB64(file) {
+	  return new Promise((resolve, reject) => {
+	    const r = new FileReader();
+	    r.onload = () => {
+	      const s = String(r.result || '');
+	      resolve(s.slice(s.indexOf(',') + 1));
+	    };
+	    r.onerror = () => reject(r.error);
+	    r.readAsDataURL(file);
+	  });
+	}
+
+	function pvImg(b64) {
+	  return new Promise(resolve => {
+	    if (!b64) return resolve(null);
+	    const im = new Image();
+	    im.onload = () => resolve(im);
+	    im.onerror = () => resolve(null);
+	    im.src = 'data:image/png;base64,' + b64;
+	  });
+	}
+
+	function pvShort(v) {
+	  const a = Math.abs(v);
+	  if (a >= 1000) return v.toFixed(0);
+	  if (a >= 10) return v.toFixed(1);
+	  if (a >= 1) return v.toFixed(2);
+	  return v.toFixed(3);
+	}
+
+	function pvBlank(cv, msg) {
+	  const ctx = cv.getContext('2d');
+	  ctx.fillStyle = '#0a0a14';
+	  ctx.fillRect(0, 0, cv.width, cv.height);
+	  ctx.fillStyle = '#556';
+	  ctx.font = '12px sans-serif';
+	  ctx.fillText(msg || '데이터 없음', 10, 20);
+	  return ctx;
+	}
+
+	function pvChart(cv, cfg) {
+	  const xs = [], ys = [];
+	  for (const l of cfg.lines || []) {
+	    l.x.forEach((v, i) => { const y = l.y[i]; if (isFinite(v) && isFinite(y) && y !== null) { xs.push(v); ys.push(y); } });
+	  }
+	  if (cfg.band) {
+	    cfg.band.x.forEach((v, i) => { if (isFinite(v)) { xs.push(v); ys.push(cfg.band.lo[i], cfg.band.hi[i]); } });
+	  }
+	  for (const h of cfg.hlines || []) if (isFinite(h.y)) ys.push(h.y);
+	  if (!xs.length) { pvBlank(cv); return; }
+	  const ctx = cv.getContext('2d');
+	  const W = cv.width, H = cv.height;
+	  ctx.fillStyle = '#0a0a14';
+	  ctx.fillRect(0, 0, W, H);
+	  let x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys.filter(isFinite)), y1 = Math.max(...ys.filter(isFinite));
+	  if (x1 - x0 < 1e-12) x1 = x0 + 1;
+	  if (y1 - y0 < 1e-12) { y1 = y0 + 1; }
+	  const pad = (y1 - y0) * 0.08;
+	  y0 -= pad; y1 += pad;
+	  const L = 56, R = 10, T = 12, B = 24;
+	  const px = x => L + (x - x0) / (x1 - x0) * (W - L - R);
+	  const py = y => H - B - (y - y0) / (y1 - y0) * (H - T - B);
+	  ctx.font = '10px Consolas, monospace';
+	  ctx.lineWidth = 1;
+	  for (let i = 0; i <= 4; i++) {
+	    const yv = y0 + (y1 - y0) * i / 4, yy = py(yv);
+	    ctx.strokeStyle = '#1c1c30';
+	    ctx.beginPath(); ctx.moveTo(L, yy); ctx.lineTo(W - R, yy); ctx.stroke();
+	    ctx.fillStyle = '#778'; ctx.fillText(pvShort(yv), 4, yy + 3);
+	  }
+	  for (let i = 0; i <= 5; i++) {
+	    const xv = x0 + (x1 - x0) * i / 5;
+	    ctx.fillStyle = '#778'; ctx.fillText(pvShort(xv), px(xv) - 12, H - 8);
+	  }
+	  if (cfg.band) {
+	    ctx.fillStyle = cfg.band.color || 'rgba(0,212,255,0.15)';
+	    ctx.beginPath();
+	    cfg.band.x.forEach((v, i) => { const X = px(v), Y = py(cfg.band.hi[i]); i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); });
+	    for (let i = cfg.band.x.length - 1; i >= 0; i--) ctx.lineTo(px(cfg.band.x[i]), py(cfg.band.lo[i]));
+	    ctx.closePath();
+	    ctx.fill();
+	  }
+	  for (const h of cfg.hlines || []) {
+	    if (!isFinite(h.y)) continue;
+	    ctx.strokeStyle = h.color || '#ff6b6b';
+	    ctx.setLineDash([5, 4]);
+	    ctx.beginPath(); ctx.moveTo(L, py(h.y)); ctx.lineTo(W - R, py(h.y)); ctx.stroke();
+	    ctx.setLineDash([]);
+	    ctx.fillStyle = h.color || '#ff6b6b';
+	    ctx.fillText(h.label || '', W - R - 140, py(h.y) - 4);
+	  }
+	  for (const v of cfg.vlines || []) {
+	    if (!isFinite(v.x)) continue;
+	    ctx.strokeStyle = v.color || '#888';
+	    ctx.setLineDash([3, 3]);
+	    ctx.beginPath(); ctx.moveTo(px(v.x), T); ctx.lineTo(px(v.x), H - B); ctx.stroke();
+	    ctx.setLineDash([]);
+	    ctx.fillStyle = v.color || '#888';
+	    ctx.fillText(v.label || '', px(v.x) + 3, H - B - 6);
+	  }
+	  let ly = T + 12;
+	  for (const l of cfg.lines || []) {
+	    ctx.strokeStyle = l.color;
+	    ctx.lineWidth = l.width || 1.5;
+	    ctx.setLineDash(l.dash || []);
+	    ctx.beginPath();
+	    let started = false;
+	    l.x.forEach((v, i) => {
+	      const y = l.y[i];
+	      if (!isFinite(v) || y === null || !isFinite(y)) { started = false; return; }
+	      const X = px(v), Y = py(y);
+	      if (!started) { ctx.moveTo(X, Y); started = true; } else ctx.lineTo(X, Y);
+	    });
+	    ctx.stroke();
+	    ctx.setLineDash([]);
+	    if (l.dots) {
+	      ctx.fillStyle = l.color;
+	      l.x.forEach((v, i) => { const y = l.y[i]; if (isFinite(v) && y !== null && isFinite(y)) { ctx.beginPath(); ctx.arc(px(v), py(y), 2.5, 0, Math.PI * 2); ctx.fill(); } });
+	    }
+	    if (l.label) {
+	      ctx.fillStyle = l.color;
+	      ctx.fillText(l.label, L + 8, ly);
+	      ly += 12;
+	    }
+	  }
+	}
+
+	function pvColor(t, diverging) {
+	  t = Math.max(0, Math.min(1, t));
+	  if (diverging) {
+	    const a = t < 0.5 ? [40, 90, 220] : [230, 70, 60];
+	    const k = Math.abs(t - 0.5) * 2;
+	    return [Math.round(235 + (a[0] - 235) * k), Math.round(235 + (a[1] - 235) * k), Math.round(235 + (a[2] - 235) * k)];
+	  }
+	  const stops = [[68, 1, 84], [59, 82, 139], [33, 145, 140], [94, 201, 98], [253, 231, 37]];
+	  const p = t * (stops.length - 1), i = Math.min(stops.length - 2, Math.floor(p)), f = p - i;
+	  return stops[i].map((c, k) => Math.round(c + (stops[i + 1][k] - c) * f));
+	}
+
+	function pvHeat(cv, hm, opts) {
+	  opts = opts || {};
+	  if (!hm || !hm.nx || !hm.ny || !hm.z) { pvBlank(cv); return; }
+	  const vals = hm.z.filter(v => v !== null && isFinite(v));
+	  if (!vals.length) { pvBlank(cv, '유효 셀 없음'); return; }
+	  let lo = Math.min(...vals), hi = Math.max(...vals);
+	  if (opts.symmetric) { const m = Math.max(Math.abs(lo), Math.abs(hi)) || 1; lo = -m; hi = m; }
+	  if (hi - lo < 1e-12) hi = lo + 1;
+	  const off = document.createElement('canvas');
+	  off.width = hm.nx; off.height = hm.ny;
+	  const octx = off.getContext('2d');
+	  const img = octx.createImageData(hm.nx, hm.ny);
+	  for (let j = 0; j < hm.ny; j++) {
+	    for (let i = 0; i < hm.nx; i++) {
+	      const v = hm.z[j * hm.nx + i];
+	      const o = ((hm.ny - 1 - j) * hm.nx + i) * 4;
+	      if (v === null || !isFinite(v)) { img.data[o + 3] = 0; continue; }
+	      const [r, g, b] = pvColor((v - lo) / (hi - lo), !!opts.symmetric);
+	      img.data[o] = r; img.data[o + 1] = g; img.data[o + 2] = b; img.data[o + 3] = 255;
+	    }
+	  }
+	  octx.putImageData(img, 0, 0);
+	  const ctx = cv.getContext('2d');
+	  ctx.fillStyle = '#0a0a14';
+	  ctx.fillRect(0, 0, cv.width, cv.height);
+	  const s = Math.min(cv.width / hm.nx, (cv.height - 16) / hm.ny);
+	  ctx.imageSmoothingEnabled = false;
+	  ctx.drawImage(off, 0, 0, hm.nx * s, hm.ny * s);
+	  ctx.fillStyle = '#aab';
+	  ctx.font = '10px Consolas, monospace';
+	  ctx.fillText(`${pvShort(lo)} ~ ${pvShort(hi)} ${opts.unit || ''} · 셀 ${fmt(hm.cell_mm, 2)} mm · ${hm.nx}×${hm.ny}`, 4, cv.height - 4);
+	}
+
+	function pvDrawImage(cv, img, z, grid) {
+	  if (!img) { pvBlank(cv, '이미지 없음'); return; }
+	  const ctx = cv.getContext('2d');
+	  ctx.drawImage(img, 0, 0, cv.width, cv.height);
+	  if (z && grid) {
+	    const s = cv.width / grid;
+	    for (let k = 0; k < z.length; k++) {
+	      const v = z[k];
+	      if (!(v > 1.5)) continue;
+	      const a = Math.min(0.65, 0.15 + (v - 1.5) / 5);
+	      ctx.fillStyle = v >= 4.5 ? `rgba(255,70,70,${a})` : v >= 3 ? `rgba(255,160,60,${a})` : `rgba(255,230,80,${a})`;
+	      ctx.fillRect((k % grid) * s, Math.floor(k / grid) * s, s, s);
+	    }
+	  }
+	}
+
+	function pvTab(name, el) {
+	  document.querySelectorAll('.pv-tab').forEach(t => t.classList.toggle('active', t === el));
+	  document.querySelectorAll('.pv-pane').forEach(p => p.classList.toggle('active', p.id === 'pv-pane-' + name));
+	  if (name === 'proc') pvDrawSim();
+	  if (name === 'ts') pvRenderForecast();
+	  if (name === 'decide') pvSdsStatus();
+	}
+
+	async function pvEnter() {
+	  const s = await pvCall('ws_select_profile', { profileName: getActiveProfile() });
+	  pvRenderSummary(s);
+	  pvModels();
+	  pvSdsStatus();
+	}
+
+	async function pvRefresh() {
+	  const s = await pvCall('ws_summary');
+	  pvRenderSummary(s);
+	}
+
+	function pvRenderSummary(s) {
+	  if (!s) return;
+	  PV.summary = s;
+	  const state = [
+	    s.has_sim ? '시뮬레이션' : null,
+	    s.has_nominal_mold ? '공칭 금형' : null,
+	    s.has_measured_mold ? '측정 금형' : null,
+	    s.has_forecast ? '예측' : null,
+	    s.has_decision ? '판단' : null,
+	  ].filter(Boolean).join(' · ') || '-';
+	  const chips = [
+	    ['프로필', s.profile_name],
+	    ['공구', s.tool],
+	    ['공구 서명 (SDS 스코프)', s.tool_signature],
+	    ['공구 개체 ID', s.tool_id],
+	    ['피삭재', `${s.material} · ${s.material_scope}`],
+	    ['냉각', s.coolant],
+	    ['절삭 조건', `S${s.rpm} · F${fmt(s.feed_mm_min, 0)}`],
+	    ['절입', `ap ${fmt(s.ap_mm, 2)} / ae ${fmt(s.ae_mm, 2)} mm`],
+	    ['공차', `±${fmt(s.tolerance_mm * 1000, 0)} µm`],
+	    ['가공 경로', s.program || `패턴 ${s.pattern_key}`],
+	    ['금형 ID', s.mold_id],
+	    ['누적 절삭', `${fmt(s.cut_minutes, 1)} 분`],
+	    ['공구 기준 이미지', s.tool_reference.length ? s.tool_reference.join(', ') : '없음'],
+	    ['금형 기준 표면', s.mold_reference ? '있음' : '없음'],
+	    ['시계열', s.series.map(x => `${x.key}(${x.points})`).join(', ') || '없음'],
+	    ['산출물', state],
+	  ];
+	  document.getElementById('pv-head').innerHTML = chips.map(([k, v]) => `<div class="pv-chip"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`).join('');
+	  document.getElementById('pv-purpose').value = s.purpose;
+	  document.getElementById('pv-pattern').value = s.pattern_key;
+	  const tid = document.getElementById('pv-toolid');
+	  if (document.activeElement !== tid) tid.value = s.tool_id === s.tool_signature ? '' : s.tool_id;
+	  const mid = document.getElementById('pv-moldid');
+	  if (document.activeElement !== mid) mid.value = s.mold_id;
+	  const cm = document.getElementById('pv-cutmin');
+	  if (document.activeElement !== cm && s.cut_minutes > 0) cm.value = s.cut_minutes;
+	  const sel = document.getElementById('pv-ts-key');
+	  const cur = sel.value;
+	  sel.innerHTML = s.series.map(x => `<option value="${esc(x.key)}"${x.points < 3 ? ' disabled' : ''}>${esc(x.key)} · ${x.points}점 · ${esc(x.unit)} · 시간축 ${esc(x.t_unit)}${x.episodes > 1 ? ` · 구간 ${x.episodes}` : ''}</option>`).join('');
+	  const usable = s.series.filter(x => x.points >= 3).map(x => x.key);
+	  const pick = (cur && usable.includes(cur)) ? cur : ['vb_mm', 'radial_loss_um', 'deviation_um', 'spindle_power_kw'].find(k => usable.includes(k)) || usable[0];
+	  if (pick) sel.value = pick;
+	  pvRenderDocs(s.docs);
+	  if (s.calibration && s.calibration.length) pvRenderCalib(s.calibration);
+	}
+
+	function pvRenderDocs(docs) {
+	  document.getElementById('pv-docs').innerHTML = pvTable([
+	    { t: '문서', f: d => `${esc(d.name)}${d.duplicate ? ' <span class="badge badge-mid">재입력</span>' : ''}` },
+	    { t: '유형', f: d => esc(d.kind_label) },
+	    { t: '완결성', f: d => {
+	        const pct = Math.round((d.completeness || 0) * 100);
+	        const col = pct >= 99 ? 'var(--success)' : pct >= 60 ? 'var(--warning)' : 'var(--danger)';
+	        return `<div class="pv-bar"><span style="width:${pct}%;background:${col}"></span></div>${pct}%`;
+	      } },
+	    { t: '필수 항목 누락/가정', f: d => esc((d.missing || []).join(', ') || '-') },
+	    { t: '문제', f: d => (d.issues || []).map(i => `<div class="${i.level === 'error' ? 'sev-3' : i.level === 'warn' ? 'sev-1' : ''}">[${esc(i.field)}] ${esc(i.message)}</div>`).join('') || '-' },
+	    { t: '반영', f: d => (d.applied || []).map(a => `<div>${esc(a)}</div>`).join('') || '-' },
+	  ], docs || []);
+	}
+
+	async function pvApplyOptions(clearProgram) {
+	  const s = await pvCall('ws_set_options', {
+	    purpose: document.getElementById('pv-purpose').value,
+	    patternKey: document.getElementById('pv-pattern').value,
+	    toolId: document.getElementById('pv-toolid').value.trim(),
+	    moldId: pvStr('pv-moldid'),
+	    cutMinutes: pvNum('pv-cutmin'),
+	    clearProgram: !!clearProgram,
+	  });
+	  pvRenderSummary(s);
+	}
+
+	async function pvModels() {
+	  pvRenderModels(await pvCall('models_status'));
+	}
+
+	function pvRenderModels(st) {
+	  if (!st) return;
+	  const root = document.getElementById('pv-model-root');
+	  if (!root.value) root.value = st.root;
+	  document.getElementById('pv-models').innerHTML = pvTable([
+	    { t: '모델', f: m => esc(m.label) },
+	    { t: '상태', nw: true, f: m => m.loaded ? '<span class="sev-0">✓ 로드</span>' : '<span class="sev-1">미로드</span>' },
+	    { t: '상세', f: m => `${esc(m.detail)}${m.dir ? `<div style="color:var(--text-muted)">${esc(m.dir)}</div>` : ''}${m.error ? `<div class="sev-3">${esc(m.error)}</div>` : ''}` },
+	  ], st.slots);
+	}
+
+	async function pvSetModelRoot() {
+	  const root = pvStr('pv-model-root');
+	  if (!root) { pvStatus('모델 루트 폴더 경로를 입력하세요'); return; }
+	  pvRenderModels(await pvCall('models_set_root', { root }));
+	}
+
+	async function pvLoadModel(which) {
+	  setStatus('busy', 'LOADING MODEL...');
+	  pvStatus('모델을 불러오는 중입니다 (SigLIP2-large 는 수십 초가 걸릴 수 있습니다)');
+	  const st = await pvCall('models_load', { which });
+	  setStatus('ready', 'READY');
+	  pvRenderModels(st);
+	}
+
+	async function pvIngest() {
+	  const files = Array.from(document.getElementById('pv-files').files || []);
+	  if (!files.length) { pvStatus('입력할 파일을 선택하세요'); return; }
+	  const hrc = pvNum('pv-hrc');
+	  const options = {
+	    hint: pvStr('pv-hint'),
+	    role: pvStr('pv-role'),
+	    view: document.getElementById('pv-view').value,
+	    px_per_mm: pvNum('pv-pxmm'),
+	    tip: pvStr('pv-tip'),
+	    same_setup: document.getElementById('pv-samesetup').checked,
+	    mm_per_px: pvNum('pv-mmpx'),
+	    depth_range_mm: pvNum('pv-depth'),
+	    depth_invert: document.getElementById('pv-invert').checked,
+	    origin_x: pvNum('pv-ox'),
+	    origin_y: pvNum('pv-oy'),
+	    cell_mm: pvNum('pv-cell'),
+	    tool_id: document.getElementById('pv-toolid').value.trim(),
+	    mold_id: pvStr('pv-moldid'),
+	    cut_minutes: pvNum('pv-cutmin'),
+	    hardness_hrc: hrc === null ? null : Math.round(hrc),
+	  };
+	  setStatus('busy', 'INGEST...');
+	  for (const f of files) {
+	    pvStatus(`${f.name} 처리 중...`);
+	    let dataB64;
+	    try { dataB64 = await pvReadB64(f); } catch (e) { pvStatus(`${f.name} 읽기 실패: ${e}`); continue; }
+	    const out = await pvCall('ws_ingest', { name: f.name, dataB64, options });
+	    if (!out) continue;
+	    pvLogLines('pv-ingest-log', [
+	      `■ ${f.name} → ${out.doc.kind_label} · 완결성 ${Math.round(out.doc.completeness * 100)}%${out.doc.duplicate ? ' · 재입력(보정 원장 재기록 안 함)' : ''}`,
+	      ...out.doc.applied.map(a => '  ✓ ' + a),
+	      ...out.doc.issues.map(i => `  ${i.level === 'error' ? '✗' : i.level === 'warn' ? '!' : '·'} [${i.field}] ${i.message}`),
+	      ...out.sds.map(l => '  SDS ' + l),
+	    ]);
+	    if (out.tool_image) { PV.tool = out.tool_image; pvRenderTool(); }
+	    if (out.mold_image) { PV.moldImage = out.mold_image; pvRenderMoldSurface(); }
+	    if (out.mold_geometry) pvAbsorbMold(out.mold_geometry);
+	    if (out.wall) { PV.wall = out.wall; pvRenderWall(); }
+	  }
+	  setStatus('ready', 'READY');
+	  pvRefresh();
+	  loadLeftPanel();
+	}
+
+	async function pvRenderTool() {
+	  const t = PV.tool;
+	  if (!t) return;
+	  const c = t.comparison;
+	  const refSrc = t.reference ? t.reference.png_b64 : (t.role === 'reference' ? t.image.png_b64 : null);
+	  pvDrawImage(document.getElementById('pv-tool-ref'), await pvImg(refSrc), null, 0);
+	  pvDrawImage(document.getElementById('pv-tool-cur'), await pvImg(t.role === 'reference' ? null : t.image.png_b64), c ? c.patch_z : null, c ? c.grid : 0);
+	  const head = [];
+	  if (t.role === 'reference') {
+	    head.push(`<span class="pv-state st-normal">기준 등록</span> <span style="font-size:0.72rem;">${esc(t.image.key)} / ${esc(t.image.view)}</span>`);
+	  } else if (c) {
+	    head.push(pvStateBadge(c.state));
+	    head.push(`<span style="font-size:0.72rem;">유형: <b>${esc(c.wear_type_label)}</b> (${esc(t.type_confidence || '-')})</span>`);
+	    head.push(`<span style="font-size:0.72rem;">전역 형상 유사도 ${fmt(t.identity, 3)} ${t.reliable ? '' : '<span class="sev-3">· 비교 신뢰도 낮음</span>'}</span>`);
+	    if (c.sds_z !== null && c.sds_z !== undefined) head.push(`<span style="font-size:0.72rem;">SDS 이력 대비 z=${fmt(c.sds_z, 1)}</span>`);
+	  }
+	  document.getElementById('pv-tool-state').innerHTML = head.join(' ');
+	  const g = c ? c.geometry : null;
+	  const geomCv = document.getElementById('pv-tool-geom');
+	  if (g && g.z_mm && g.z_mm.length && t.image.view === 'side') {
+	    const hl = [];
+	    if (t.radial_limit_um) hl.push({ y: t.radial_limit_um, color: '#ff6b6b', label: `한계 ${fmt(t.radial_limit_um, 1)} µm` });
+	    pvChart(geomCv, {
+	      lines: [{ x: g.z_mm, y: g.radial_loss_um, color: '#00d4ff', label: '반경 손실 (기준-현재)' }],
+	      hlines: hl,
+	      vlines: [{ x: g.flank_from_mm, color: '#888', label: '플랭크 시작' }],
+	    });
+	  } else if (g && g.radial_loss_um && g.radial_loss_um.length) {
+	    pvChart(geomCv, { lines: [{ x: g.z_mm, y: g.radial_loss_um, color: '#00d4ff', label: '각도별 반경 손실 (µm)' }] });
+	  } else {
+	    pvBlank(geomCv, '형상 비교 없음');
+	  }
+	  document.getElementById('pv-tool-geominfo').innerHTML = g ? pvKv([
+	    ['플랭크 최대 반경 손실', `${fmt(g.max_loss_um, 1)} µm`],
+	    ['날끝 구간 평균 손실', `${fmt(g.mean_loss_tip_um, 1)} µm`],
+	    ['코너 R (기준 → 현재)', `${fmt(g.corner_r_ref_mm, 3)} → ${fmt(g.corner_r_cur_mm, 3)} mm`],
+	    ['날 윤곽 거칠기 (기준 → 현재)', `${fmt(g.edge_roughness_ref_um, 1)} → ${fmt(g.edge_roughness_cur_um, 1)} µm`],
+	    ['헬릭스 위상 정렬', `${fmt(g.helix_shift_mm, 3)}`],
+	    ['날별 손실', (g.per_flute_loss_um || []).map(v => fmt(v, 1)).join(' / ') || '-'],
+	    ['측정 반경 손실 (맞물림 구간)', `${fmt(t.measured_radial_um, 1)} µm`],
+	    ['물리 예측 (누적 절삭 기준)', `${fmt(t.predicted_radial_um, 1)} µm`],
+	    ['측정/예측 (보정 전)', fmt(t.calibration_ratio, 2)],
+	    ['배율', g.scale_note],
+	  ]) : (t.image.side ? pvKv([
+	    ['배율', `${fmt(t.image.side.px_per_mm, 2)} px/mm (${t.image.side.calibration})`],
+	    ['보이는 길이', `${fmt(t.image.side.visible_length_mm, 1)} mm`],
+	    ['코너 R', `${fmt(t.image.side.corner_r_left_mm, 3)} / ${fmt(t.image.side.corner_r_right_mm, 3)} mm`],
+	    ['날 윤곽 거칠기', `${fmt(t.image.side.edge_roughness_um, 1)} µm`],
+	  ]) : '');
+	  document.getElementById('pv-tool-zones').innerHTML = c ? pvTable([
+	    { t: '부위', f: z => esc(z.label) },
+	    { t: '패치', k: 'patches' },
+	    { t: '평균 거리', f: z => fmt(z.mean_distance, 3) },
+	    { t: '상위 25% 거리', f: z => fmt(z.top_distance, 3) },
+	    { t: 'z (배경 대비)', f: z => `<span class="${z.z >= 4.5 ? 'sev-3' : z.z >= 3 ? 'sev-2' : z.z >= 1.5 ? 'sev-1' : 'sev-0'}">${fmt(z.z, 1)}</span>` },
+	    { t: '공동공간 거리', f: z => fmt(z.embed_distance, 3) },
+	    { t: '프롬프트 최대 증가', f: z => {
+	        const top = (z.prompt_delta || []).slice().sort((a, b) => b[1] - a[1])[0];
+	        return top ? `${esc(top[0])} ${fmt(top[1], 3)}` : '-';
+	      } },
+	  ], c.zones.slice().sort((a, b) => b.z - a.z)) : '';
+	  document.getElementById('pv-tool-prompts').innerHTML = c ? pvTable([
+	    { t: '프롬프트', f: p => esc(p[1]) },
+	    { t: '기준', f: p => fmt(p[2], 3) },
+	    { t: '현재', f: p => fmt(p[3], 3) },
+	    { t: '변화', f: p => `<span class="${p[4] > 0.12 ? 'sev-2' : p[4] > 0.05 ? 'sev-1' : ''}">${p[4] >= 0 ? '+' : ''}${fmt(p[4], 3)}</span>` },
+	  ], c.global_prompt_delta) : pvTable([
+	    { t: '프롬프트', k: 'label' },
+	    { t: '확률', f: p => fmt(p.probability, 3) },
+	  ], t.image.zero_shot);
+	  pvLogLines('pv-tool-notes', [
+	    ...(c ? c.state_reasons.map(r => '판정: ' + r) : []),
+	    ...(c ? c.notes : t.image.notes),
+	    ...t.sds.map(l => 'SDS ' + l),
+	  ], true);
+	}
+
+	function pvAbsorbMold(m) {
+	  if (m.role === 'nominal') PV.moldNom = m; else PV.moldMeas = m;
+	  if (m.fit) PV.moldFit = m.fit;
+	  pvRenderMold(m);
+	}
+
+	function pvRenderMold(last) {
+	  pvHeat(document.getElementById('pv-mold-nom'), PV.moldNom ? PV.moldNom.heightmap : null, { unit: 'mm' });
+	  pvHeat(document.getElementById('pv-mold-meas'), PV.moldMeas ? PV.moldMeas.heightmap : null, { unit: 'mm' });
+	  pvHeat(document.getElementById('pv-mold-res'), PV.moldFit ? PV.moldFit.residual_map : null, { unit: 'µm', symmetric: true });
+	  const n = PV.moldNom ? PV.moldNom.descriptor : null;
+	  const m = PV.moldMeas ? PV.moldMeas.descriptor : null;
+	  const rows = [
+	    ['max_depth_mm', '최대 깊이 (mm)', 2], ['mean_depth_mm', '평균 깊이 (mm)', 2], ['cavity_area_ratio', '캐비티 면적비', 3],
+	    ['steep_ratio', '급경사(>60°) 비율', 3], ['flat_ratio', '평탄(<5°) 비율', 3], ['min_concave_radius_mm', '최소 오목 반경 (mm)', 3],
+	    ['rest_material_ratio', '잔삭 위험 비율 (R<공구R)', 3], ['removed_volume_cm3', '제거 체적 (cm³)', 2], ['reach_ratio', '돌출 대비 깊이', 3],
+	  ].map(([k, label, d]) => ({ label, nom: n ? fmt(n[k], d) : '-', meas: m ? fmt(m[k], d) : '-' }));
+	  const cmp = (last && last.comparison) || (PV.moldMeas && PV.moldMeas.comparison) || (PV.moldNom && PV.moldNom.comparison);
+	  document.getElementById('pv-mold-desc').innerHTML = pvTable([
+	    { t: '지표', k: 'label' }, { t: '공칭', k: 'nom' }, { t: '측정', k: 'meas' },
+	  ], rows) + (cmp ? `<div style="margin-top:6px;">${pvKv([
+	    ['벡터 코사인 (공칭 vs 측정)', fmt(cmp.cosine, 4)],
+	    ...cmp.block_distance.map(b => [`블록 거리 · ${b[0]}`, fmt(b[1], 4)]),
+	  ])}</div>` : '') + ((last && last.drift && last.drift.length) ? `<div style="margin-top:6px;">${pvTable([
+	    { t: '이력 대비 지표', k: 'axis' }, { t: '값', f: d => fmt(d.value, 3) }, { t: '평균±표준편차', f: d => `${fmt(d.mean, 3)}±${fmt(d.sd, 3)}` },
+	    { t: 'n', k: 'n' }, { t: 'z', f: d => `<span class="${Math.abs(d.z) >= 3 ? 'sev-3' : Math.abs(d.z) >= 2 ? 'sev-1' : ''}">${fmt(d.z, 1)}</span>` },
+	  ], last.drift)}</div>` : '');
+	  const f = PV.moldFit;
+	  document.getElementById('pv-mold-fit').innerHTML = f ? pvKv([
+	    ['유효 셀', String(f.points)], ['R²', fmt(f.r2, 3)], ['RMS 편차', `${fmt(f.rms_dev_um, 2)} µm`],
+	    ['RMS 미설명 잔차', `${fmt(f.rms_residual_um, 2)} µm`], ['최대 |편차|', `${fmt(f.max_abs_dev_um, 1)} µm`],
+	  ]) + pvTable([
+	    { t: '성분', k: 'label' },
+	    { t: '추정 ± 표준오차', f: c => c.identifiable ? `${fmt(c.value, 2)} ± ${fmt(c.stderr, 2)}` : '식별 불가' },
+	    { t: '물리 예측', f: c => fmt(c.predicted, 2) },
+	    { t: '측정/예측', f: c => fmt(c.ratio, 2) },
+	  ], f.coefficients) : `<div style="font-size:0.7rem;color:var(--text-muted);">${esc((last && last.fit_error) || '측정 높이맵과 공칭(시뮬레이션) 높이맵이 모두 있어야 분해합니다')}</div>`;
+	  pvLogLines('pv-mold-notes', [
+	    ...((f && f.notes) || []),
+	    ...(last && last.fit_error ? ['분해 불가: ' + last.fit_error] : []),
+	    ...((last && last.sds) || []).map(l => 'SDS ' + l),
+	  ], true);
+	}
+
+	function pvRenderWall() {
+	  const w = PV.wall;
+	  if (!w) return;
+	  document.getElementById('pv-mold-wall').innerHTML = pvKv([
+	    ['측정점 / 매칭', `${w.fit.points} / ${w.fit.matched}`], ['R²', fmt(w.fit.r2, 3)], ['RMS 잔차', `${fmt(w.fit.rms_residual_um, 2)} µm`],
+	  ]) + pvTable([
+	    { t: '성분', k: 'label' },
+	    { t: '값 ± 표준오차', f: c => c.identifiable ? `${fmt(c.value, 3)} ± ${fmt(c.stderr, 3)}` : '식별 불가' },
+	  ], w.fit.coefficients);
+	  pvLogLines('pv-mold-notes', [...w.fit.notes, ...w.sds.map(l => 'SDS ' + l)]);
+	}
+
+	function pvRenderMoldSurface() {
+	  const t = PV.moldImage;
+	  if (!t) return;
+	  const c = t.comparison;
+	  document.getElementById('pv-mold-surface').innerHTML = c ? `<div class="pv-row">${pvStateBadge(c.state)} <span style="font-size:0.72rem;">유형: <b>${esc(c.wear_type_label)}</b> · ${esc(t.type_confidence || '-')}</span></div>` + pvTable([
+	    { t: '영역', f: z => esc(z.label) },
+	    { t: '상위 거리', f: z => fmt(z.top_distance, 3) },
+	    { t: 'z', f: z => fmt(z.z, 1) },
+	  ], c.zones) + pvTable([
+	    { t: '표면 프롬프트', f: p => esc(p[1]) },
+	    { t: '변화', f: p => `${p[4] >= 0 ? '+' : ''}${fmt(p[4], 3)}` },
+	  ], c.global_prompt_delta) : `<div style="font-size:0.72rem;">기준 표면 등록: ${esc(t.image.key)}</div>`;
+	  pvLogLines('pv-mold-notes', [...(c ? c.state_reasons.map(r => '표면 판정: ' + r) : []), ...t.sds.map(l => 'SDS ' + l)]);
+	}
+
+	function pvRenderCalib(list) {
+	  document.getElementById('pv-calib').innerHTML = (list && list.length)
+	    ? list.map(c => `<span class="pv-chip"><span class="k">보정 · ${esc(c.axis)}</span><span class="v">×${fmt(c.factor, 3)} (n=${c.n}${Math.abs(c.drift_z) > 2 ? `, 드리프트 z=${fmt(c.drift_z, 1)}` : ''})</span></span>`).join('')
+	    : '<span style="font-size:0.7rem;color:var(--text-muted);">보정 원장 관측이 부족해 물리 기본값으로 계산했습니다 (냉간 시작)</span>';
+	}
+
+	async function pvRunProcess() {
+	  setStatus('busy', 'SIMULATING...');
+	  pvStatus('공정 해석·부하 시뮬레이션 실행 중...');
+	  const out = await pvCall('ws_run_process');
+	  setStatus('ready', 'READY');
+	  if (!out) return;
+	  PV.process = out;
+	  if (out.nominal_mold) {
+	    PV.moldNom = out.nominal_mold;
+	    if (out.refit) PV.moldFit = out.refit;
+	    pvRenderMold(out.nominal_mold);
+	  }
+	  pvRenderProcess();
+	  pvRefresh();
+	}
+
+	function pvRenderProcess() {
+	  const p = PV.process;
+	  if (!p) return;
+	  const a = p.analysis, th = a.thermal, w = a.wear, co = a.coeffs, fo = a.forces, eb = a.error_budget_um, sim = p.sim;
+	  document.getElementById('pv-proc-source').textContent =
+	    `${p.source} · ${p.purpose === 'finishing' ? '정삭' : '황삭'} · 예상 ${fmt(p.metadata.estimated_time_min, 2)}분 (절삭 ${fmt(p.metadata.cutting_time_min, 2)} / 급이송 ${fmt(p.metadata.rapid_time_min, 2)})`;
+	  pvRenderCalib(p.calibration);
+	  const card = (title, pairs) => `<div class="pv-card"><h4>${esc(title)}</h4>${pvKv(pairs)}</div>`;
+	  document.getElementById('pv-proc-cards').innerHTML = [
+	    card('절삭 조건 · 칩', [
+	      ['Vc (공칭/유효)', `${fmt(a.vc_m_min, 1)} / ${fmt(a.vc_effective_m_min, 1)} m/min`],
+	      ['회전수 · 이송', `${fmt(a.rpm, 0)} rpm · ${fmt(a.feed_mm_min, 0)} mm/min`],
+	      ['fz (프로그램)', `${fmt(a.fz_mm, 4)} mm`],
+	      ['ap · ae', `${fmt(a.ap_mm, 2)} · ${fmt(a.ae_mm, 2)} mm`],
+	      ['절삭 방식 · 맞물림', `${({ Up: '상향', Down: '하향', Slot: '슬롯', Center: '중앙' })[a.mode] || a.mode} · ${fmt(a.engage_angle_deg, 1)}°`],
+	      ['칩 얇아짐 계수', fmt(a.chip_thinning_factor, 2)],
+	      ['최대/평균 칩두께', `${fmt(fo.h_max_mm, 4)} / ${fmt(fo.h_mean_mm, 4)} mm`],
+	      ['MRR', `${fmt(a.mrr_cm3_min, 2)} cm³/min`],
+	    ]),
+	    card('마찰 (Merchant · 코팅 × 피삭재 × 냉각 윤활)', [
+	      ['마찰계수 μ', fmt(co.mu, 3)],
+	      ['마찰각 β · 전단각 φ', `${fmt(co.beta_deg, 1)}° · ${fmt(co.shear_angle_deg, 1)}°`],
+	      ['반경력비 Kr = tan(β−α)', fmt(co.kr, 3)],
+	      ['비절삭저항 kc1.1 (유효)', `${fmt(co.kc11, 0)} N/mm²`],
+	      ['마찰 보정 계수', fmt(co.friction_factor, 3)],
+	      ['마찰 동력 비중', `${fmt(co.friction_power_share * 100, 1)} %`],
+	      ['날끝 힘 Kte · Kre', `${fmt(co.kte, 1)} · ${fmt(co.kre, 1)} N/mm`],
+	    ]),
+	    card('냉각 · 열', [
+	      ['날끝 온도 (건식 → 현재)', `${fmt(th.interface_dry_c, 0)} → ${fmt(th.interface_c, 0)} °C`],
+	      ['냉각 저감', `${fmt(th.coolant_reduction_pct, 1)} %`],
+	      ['공구 몸체 온도', `${fmt(th.tool_body_c, 1)} °C`],
+	      ['공구 열팽창 (반경/축)', `${fmt(th.tool_radial_growth_um, 2)} / ${fmt(th.tool_axial_growth_um, 2)} µm`],
+	      ['맞물림 시간 · 과도 계수', `${fmt(th.engagement_time_ms, 2)} ms · ${fmt(th.transient_factor, 2)}`],
+	      ['소재 입열 · 정상 상승', `${fmt(th.workpiece_heat_w, 0)} W · ${fmt(th.workpiece_steady_rise_c, 1)} K`],
+	      ['열균열 위험 · 구성인선 위험', `${fmt(th.thermal_crack_risk, 2)} · ${fmt(th.bue_risk, 2)}`],
+	    ]),
+	    card('마모 (Usui형 + 마찰·열·냉각 계수)', [
+	      ['VB 증가율', `${fmt(w.vb_rate_mm_per_min, 5)} mm/min`],
+	      ['수명 (VB 한계)', `${fmt(w.tool_life_min, 1)} min (VB ${fmt(w.vb_limit_mm, 2)} mm)`],
+	      ['반경 손실률', `${fmt(w.radial_loss_rate_um_per_min, 3)} µm/min`],
+	      ['온도 · 응력 계수', `${fmt(w.temperature_factor, 2)} · ${fmt(w.stress_factor, 2)}`],
+	      ['속도 · 코팅 · 런아웃 계수', `${fmt(w.speed_factor, 2)} · ${fmt(w.coating_factor, 2)} · ${fmt(w.runout_factor, 2)}`],
+	    ]),
+	    card('힘 · 휨 · 치수 오차 예산', [
+	      ['합력 (평균/피크)', `${fmt(fo.f_res_mean, 0)} / ${fmt(fo.f_res_peak, 0)} N`],
+	      ['토크 피크', `${fmt(fo.torque_peak_nm, 2)} N·m`],
+	      ['스핀들 동력 / 가용', `${fmt(a.spindle_power_kw, 2)} / ${fmt(a.available_power_kw, 2)} kW`],
+	      ['공구계 강성 · 휨 피크', `${fmt(a.stiffness_n_per_um, 2)} N/µm · ${fmt(a.deflection_peak_um, 1)} µm`],
+	      ['벽면 휨 (상/하)', `${fmt(a.wall.deflection_top_um, 1)} / ${fmt(a.wall.deflection_bottom_um, 1)} µm`],
+	      ['오차 예산 합계 / 공차', `${fmt(eb.total_um, 1)} / ${fmt(eb.tolerance_um, 0)} µm (${fmt(eb.utilization * 100, 0)}%)`],
+	      ['면조도 Ra · 스캘럽', `${fmt(a.surface.wall_ra_um, 2)} · ${fmt(a.surface.scallop_um, 2)} µm`],
+	    ]),
+	    card('경로 시뮬레이션 요약', [
+	      ['시간 (전체/절삭/급이송)', `${fmt(sim.total_time_min, 2)} / ${fmt(sim.cut_time_min, 2)} / ${fmt(sim.rapid_time_min, 2)} min`],
+	      ['제거 체적', `${fmt(sim.removed_volume_cm3, 2)} cm³`],
+	      ['경로 종료 VB · 반경 손실', `${fmt(sim.vb_end_mm, 4)} mm · ${fmt(sim.radial_loss_end_um, 2)} µm`],
+	      ['벽 휨 최대 · 벽 오차 평균/최대', `${fmt(sim.max_wall_defl_um, 1)} · ${fmt(sim.mean_wall_error_um, 1)} / ${fmt(sim.max_wall_error_um, 1)} µm`],
+	      ['바닥 Z 오차 평균', `${fmt(sim.floor_error_mean_um, 2)} µm`],
+	      ['최대 동력 · 힘 · 온도', `${fmt(sim.max_power_kw, 2)} kW · ${fmt(sim.max_force_n, 0)} N · ${fmt(sim.max_temp_c, 0)} °C`],
+	      ['소재 종료 온도 · 플런지', `${fmt(sim.wp_temp_end_c, 1)} °C · ${sim.plunge_count}회`],
+	    ]),
+	  ].join('');
+	  document.getElementById('pv-coolant').innerHTML = pvTable([
+	    { t: '냉각', f: r => `${esc(r.label)}${r.current ? ' <span class="badge badge-low">현재</span>' : ''}${r.recommended ? ' <span class="badge badge-high">추천</span>' : ''}` },
+	    { t: 'μ', f: r => fmt(r.friction_mu, 3) },
+	    { t: '날끝 °C', f: r => fmt(r.interface_c, 0) },
+	    { t: '저감 %', f: r => fmt(r.reduction_pct, 1) },
+	    { t: '공구 몸체 °C', f: r => fmt(r.tool_body_c, 1) },
+	    { t: '열균열', f: r => fmt(r.crack_risk, 2) },
+	    { t: '구성인선', f: r => fmt(r.bue_risk, 2) },
+	    { t: '수명 min', f: r => fmt(r.tool_life_min, 1) },
+	    { t: '오차 예산 µm', f: r => fmt(r.wall_error_um, 1) },
+	    { t: '제약', f: r => r.feasible ? '<span class="sev-0">통과</span>' : r.reasons.map(x => `<div class="sev-2">${esc(x)}</div>`).join('') },
+	  ], p.coolant_matrix);
+	  document.getElementById('pv-episodes').innerHTML = pvTable([
+	    { t: '시간 (s)', f: e => `${fmt(e.t_start_s, 1)} – ${fmt(e.t_end_s, 1)}` },
+	    { t: '세그먼트', f: e => `${e.seg_from}–${e.seg_to}` },
+	    { t: '평균 동력 kW', f: e => fmt(e.mean_power_kw, 2) },
+	    { t: '피크 힘 N', f: e => fmt(e.peak_force_n, 0) },
+	    { t: '피크 휨 µm', f: e => fmt(e.peak_defl_um, 1) },
+	    { t: '평균 온도 °C', f: e => fmt(e.mean_temp_c, 0) },
+	    { t: '맞물림 °', f: e => fmt(e.mean_engage_deg, 0) },
+	    { t: '이송 배율', f: e => `<span class="${e.feed_scale < 0.999 ? 'sev-2' : 'sev-0'}">${fmt(e.feed_scale, 2)}</span>` },
+	    { t: '제한 요인', f: e => esc(e.limiting) },
+	  ], sim.episodes);
+	  pvLogLines('pv-proc-notes', [...a.notes, ...sim.warnings.map(x => '⚠ ' + x)], true);
+	  pvDrawSim();
+	}
+
+	function pvDrawSim() {
+	  const p = PV.process;
+	  const cv = document.getElementById('pv-sim-chart');
+	  if (!p || !p.sim || !p.sim.samples.length) { pvBlank(cv, '공정 해석을 실행하세요'); return; }
+	  const key = document.getElementById('pv-sim-metric').value;
+	  const ss = p.sim.samples;
+	  const lines = [{ x: ss.map(s => s.t_s), y: ss.map(s => s[key]), color: '#00d4ff', label: document.getElementById('pv-sim-metric').selectedOptions[0].textContent }];
+	  const hl = [];
+	  if (key === 'power_kw') hl.push({ y: p.analysis.available_power_kw, color: '#ff6b6b', label: '가용 동력' });
+	  if (key === 'vb_mm') hl.push({ y: p.analysis.wear.vb_limit_mm, color: '#ff6b6b', label: 'VB 한계' });
+	  pvChart(cv, { lines, hlines: hl, vlines: p.sim.episodes.slice(1).map(e => ({ x: e.t_start_s, color: '#334' })) });
+	}
+
+	async function pvRecommend(apply) {
+	  const r = await pvCall('ws_recommend', { apply });
+	  if (!r) return;
+	  const c = r.conditions;
+	  pvLogLines('pv-proc-notes', [
+	    `${apply ? '추천 조건을 적용했습니다' : '추천 조건'} (${r.purpose === 'Finishing' ? '정삭' : '황삭'}): S${c.spindle_rpm} · F${fmt(c.feed_rate_mm_min, 0)} · fz ${fmt(c.feed_per_tooth_mm, 4)} (목표 칩두께 ${fmt(r.fz_target_mm, 4)}, 얇아짐 ${fmt(r.chip_thinning_factor, 2)}) · ap ${fmt(c.axial_doc_mm, 2)} · ae ${fmt(c.radial_doc_mm, 2)}`,
+	    `  휨 예산 ${fmt(r.deflection_budget_um, 1)} µm · 예측 벽 오차 ${fmt(r.predicted_wall_error_um, 1)} µm · 예측 수명 ${fmt(r.predicted_tool_life_min, 1)} 분`,
+	    ...r.notes.map(n => '  ' + n),
+	  ]);
+	  if (apply) {
+	    pvRefresh();
+	    renderToolpath2D();
+	  }
+	}
+
+	async function pvAdaptive() {
+	  const ad = await pvCall('ws_adaptive_program');
+	  if (!ad) return;
+	  const gcOut = document.getElementById('gcode-output');
+	  gcOut.innerHTML = ad.text.split('\n').map(l => `<div class="gc-line${l.includes('(') ? ' gc-comment' : ''}">${esc(l)}</div>`).join('');
+	  pvLogLines('pv-proc-notes', [`적응 이송: ${ad.scaled_segments}개 이동 감속 · 최소 배율 ${fmt(ad.min_scale, 2)} · 예상 시간 ${fmt(ad.time_base_min, 2)} → ${fmt(ad.time_adapted_min, 2)} 분`]);
+	  const outputPath = ad.program_name.replace(/[^\w.-]+/g, '_') + '.nc';
+	  const r = await pvCall('save_text_file', { outputPath, text: ad.text });
+	  if (r) appendLog(r);
+	}
+
+	async function pvForecast() {
+	  const key = document.getElementById('pv-ts-key').value;
+	  if (!key) { pvStatus('예측할 시계열이 없습니다 (측정 로그 또는 누적 절삭 시간이 있는 현재 공구 이미지를 입력하세요)'); return; }
+	  const horizon = parseInt(document.getElementById('pv-ts-h').value) || 16;
+	  setStatus('busy', 'FORECAST...');
+	  const f = await pvCall('ws_forecast', { key, horizon });
+	  setStatus('ready', 'READY');
+	  if (!f) return;
+	  PV.forecast = f;
+	  pvRenderForecast();
+	  pvRefresh();
+	}
+
+	function pvRenderForecast() {
+	  const f = PV.forecast;
+	  const cv = document.getElementById('pv-ts-chart');
+	  if (!f) { pvBlank(cv, '예측을 실행하세요'); return; }
+	  const k = f.t_unit === 's' ? 1 / 60 : 1;
+	  const unitLabel = { s: '분', min: '분', h: '시간', part: '개', row: '행' }[f.t_unit] || '';
+	  const hx = f.history_t.map(t => t * k), fx = f.t_future.map(t => t * k);
+	  const lines = [
+	    { x: hx, y: f.history_y, color: '#e0e0e0', dots: true, label: `측정 ${f.key} (${f.unit})` },
+	    { x: [hx[hx.length - 1], ...fx], y: [f.history_y[f.history_y.length - 1], ...f.point], color: '#00d4ff', width: 2, label: `예측 (${f.method})` },
+	  ];
+	  if (f.prior_future && f.prior_future.length) lines.push({ x: fx, y: f.prior_future, color: '#888', dash: [4, 4], label: '물리 사전식' });
+	  const qn = f.quantiles.length;
+	  const band = qn >= 2 ? { x: fx, lo: f.quantiles[0], hi: f.quantiles[qn - 1], color: 'rgba(0,212,255,0.14)' } : null;
+	  const hl = f.threshold ? [{ y: f.threshold.limit, color: '#ff6b6b', label: `한계 ${pvShort(f.threshold.limit)}` }] : [];
+	  pvChart(cv, { lines, band, hlines: hl });
+	  const tLast = hx.length ? hx[hx.length - 1] : 0;
+	  const cross = f.threshold
+	    ? (f.threshold.already_exceeded ? '이미 한계 초과'
+	      : `중앙값 도달 ${f.threshold.p50_t !== null && f.threshold.p50_t !== undefined ? fmt(f.threshold.p50_t * k - tLast, 1) + ' ' + unitLabel + ' 후' : '구간 내 없음'} · 상단 분위 도달 ${f.threshold.p90_t !== null && f.threshold.p90_t !== undefined ? fmt(f.threshold.p90_t * k - tLast, 1) + ' ' + unitLabel + ' 후' : '구간 내 없음'}`)
+	    : '한계 없음';
+	  document.getElementById('pv-ts-method').innerHTML = `<span class="badge ${f.method === 'ttm-r3' ? 'badge-low' : 'badge-mid'}">${esc(f.method)}</span> 분위 ${f.quantile_levels.map(q => fmt(q, 2)).join('/')} · ${esc(cross)}`;
+	  pvLogLines('pv-ts-notes', [`시간축: ${unitLabel} · 구간 ${f.episodes} · 물리 잔차 방식 ${f.physics_residual ? '사용' : '미사용'}`, ...f.notes], true);
+	}
+
+	async function pvDecide() {
+	  setStatus('busy', 'DECIDING...');
+	  const rep = await pvCall('ws_decide', { useAdvisor: document.getElementById('pv-use-adv').checked });
+	  setStatus('ready', 'READY');
+	  if (!rep) return;
+	  PV.decision = rep;
+	  pvRenderDecision();
+	  pvSdsStatus();
+	  pvRefresh();
+	}
+
+	function pvRenderDecision() {
+	  const r = PV.decision;
+	  if (!r) return;
+	  const sevOf = a => ({ Continue: 0, ReduceFeed: 1, ReduceSpeed: 1, ChangeCoolant: 1, InspectTool: 2, ReplaceTool: 3, Stop: 3 }[a] ?? 0);
+	  document.getElementById('pv-decision-head').innerHTML = `<div class="pv-row">
+	    <span class="pv-chip"><span class="k">규칙 판단</span><span class="v sev-${sevOf(r.rule_action)}">${esc(r.rule_action_label)}</span></span>
+	    <span class="pv-chip"><span class="k">최종 판단</span><span class="v sev-${sevOf(r.final_action)}">${esc(r.final_action_label)}${r.escalated_by_advisor ? ' (조언으로 상향)' : ''}</span></span>
+	    <span class="pv-chip"><span class="k">이송 배율</span><span class="v">${fmt(r.feed_scale, 2)}</span></span>
+	    <span class="pv-chip"><span class="k">회전수 배율</span><span class="v">${fmt(r.speed_scale, 2)}</span></span>
+	    <span class="pv-chip"><span class="k">냉각 제안</span><span class="v">${esc(r.coolant_suggestion || '-')}</span></span>
+	    <span class="pv-chip"><span class="k">이 상태 → 교체 전이 (SDS)</span><span class="v">${r.transition_to_replace === null || r.transition_to_replace === undefined ? '이력 부족' : fmt(r.transition_to_replace * 100, 0) + ' %'}</span></span>
+	  </div>`;
+	  document.getElementById('pv-gates').innerHTML = pvTable([
+	    { t: '게이트', f: g => esc(g.label) },
+	    { t: '값', f: g => `${fmt(g.value, 3)} ${esc(g.unit)}` },
+	    { t: '한계', f: g => `${fmt(g.limit, 3)} ${esc(g.unit)}` },
+	    { t: '심각도', f: g => `<span class="sev-${g.severity}">${['통과', '관찰', '초과', '위험'][Math.min(3, g.severity)]}</span>` },
+	    { t: '조치', f: g => esc(PV_ACTION[{ Continue: 'continue', ReduceFeed: 'reduce_feed', ReduceSpeed: 'reduce_speed', ChangeCoolant: 'change_coolant', InspectTool: 'inspect_tool', ReplaceTool: 'replace_tool', Stop: 'stop' }[g.action]] || g.action) },
+	    { t: '근거', f: g => esc(g.message) },
+	  ], r.gates.slice().sort((a, b) => b.severity - a.severity));
+	  const adv = r.advisor;
+	  document.getElementById('pv-advisor').innerHTML = adv ? pvKv([
+	    ['조언 1위', `${PV_ACTION[adv.top] || adv.top} (${fmt(adv.top_probability * 100, 1)}%)`],
+	    ['행동(escalate 아님) 확률', fmt(adv.act_probability, 3)],
+	    ['온도 보정', fmt(adv.temperature, 3)],
+	    ['상태 토큰 사용/절단', `${adv.state_tokens_used} / ${adv.state_tokens_dropped}`],
+	    ['규칙과 일치', r.agreement === null || r.agreement === undefined ? '-' : (r.agreement ? '예' : '아니오')],
+	    ['상향 허용', r.advisor_allowed ? '예 (최대 공구 점검까지)' : '아니오'],
+	  ]) + pvTable([
+	    { t: '조치', f: x => esc(PV_ACTION[x.k] || x.k) },
+	    { t: '확률', f: x => `<div class="pv-bar"><span style="width:${Math.round(x.p * 100)}%"></span></div>${fmt(x.p * 100, 1)}%` },
+	  ], adv.labels.map((k, i) => ({ k, p: adv.probabilities[i] }))) : `<div style="font-size:0.72rem;color:var(--text-muted);">${esc(r.advisor_error || '조언 미사용')}</div>`;
+	  pvLogLines('pv-decision-notes', [...r.rule_reasons, ...r.notes, ...(r.advisor_error ? [r.advisor_error] : [])], true);
+	}
+
+	async function pvApplyDecision() {
+	  const ch = await pvCall('ws_apply_decision');
+	  if (!ch) return;
+	  pvLogLines('pv-decision-notes', ['조건 반영:', ...ch.map(c => '  ' + c), '반영 후에는 ④ 탭에서 공정 해석을 다시 실행하세요']);
+	  pvRefresh();
+	  renderToolpath2D();
+	}
+
+	async function pvSdsStatus() {
+	  const st = await pvCall('sds_status');
+	  if (!st) return;
+	  document.getElementById('pv-sds-ledgers').innerHTML = `<div style="font-size:0.68rem;color:var(--text-muted);margin-bottom:4px;">${esc(st.dir)} · ${esc(st.recipe)}</div>` + pvTable([
+	    { t: '원장', k: 'ledger' }, { t: '스코프', k: 'scopes' }, { t: '관측 합계', k: 'observations' }, { t: '이번 실행', k: 'run_observations' },
+	  ], st.ledgers);
+	  document.getElementById('pv-sds-axes').innerHTML = pvTable([
+	    { t: '스코프', f: a => esc(a.scope) }, { t: '축', f: a => esc(a.axis) }, { t: '종류', f: a => esc(a.kind) }, { t: 'n', k: 'n' },
+	    { t: '평균', f: a => fmt(a.mean, 4) }, { t: '표준편차', f: a => fmt(a.sd, 4) }, { t: '최근', f: a => fmt(a.recent, 4) },
+	    { t: '드리프트 z', f: a => `<span class="${Math.abs(a.drift_z) > 2 ? 'sev-2' : ''}">${fmt(a.drift_z, 2)}</span>` },
+	  ], st.axes);
+	  document.getElementById('pv-sds-conf').innerHTML = st.confusions.length ? pvTable([
+	    { t: '스코프', f: c => esc(c.scope) }, { t: '혼동 쌍', f: c => esc(c.pair) }, { t: '건수', k: 'ties' },
+	    { t: '앞/뒤 우세', f: c => `${c.a_wins} / ${c.b_wins}` }, { t: '평균 차이', f: c => fmt(c.mean_margin, 3) },
+	  ], st.confusions) : '';
+	  pvLogLines('pv-sds-log', st.log, true);
+	}
+
+	async function pvSdsFlush() {
+	  const lines = await pvCall('sds_flush');
+	  if (lines) pvLogLines('pv-sds-log', lines.length ? lines : ['저장할 변경이 없습니다']);
+	}
+
+	let pvPurgeArmed = 0;
+	async function pvSdsPurge(btn) {
+	  const now = Date.now();
+	  if (now - pvPurgeArmed > 4000) {
+	    pvPurgeArmed = now;
+	    btn.textContent = '한 번 더 누르면 삭제';
+	    setTimeout(() => { btn.textContent = '원장 초기화'; }, 4000);
+	    return;
+	  }
+	  pvPurgeArmed = 0;
+	  btn.textContent = '원장 초기화';
+	  const st = await pvCall('sds_purge');
+	  if (st) pvSdsStatus();
+	}
 
 	window.addEventListener("DOMContentLoaded", () => {
 	  loadLeftPanel();

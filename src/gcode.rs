@@ -72,6 +72,155 @@ pub enum ToolPathSegment {
     Plunge { x: f64, y: f64, z_start: f64, z_end: f64, feed: f64 },
 }
 
+impl ToolPathSegment {
+    pub fn end_point(&self) -> (f64, f64, f64) {
+        match self {
+            Self::Linear { x, y, z, .. } | Self::ArcCW { x, y, z, .. } | Self::ArcCCW { x, y, z, .. } | Self::Rapid { x, y, z } => (*x, *y, *z),
+            Self::Plunge { x, y, z_end, .. } => (*x, *y, *z_end),
+        }
+    }
+
+    pub fn feed(&self) -> Option<f64> {
+        match self {
+            Self::Linear { feed, .. } | Self::ArcCW { feed, .. } | Self::ArcCCW { feed, .. } | Self::Plunge { feed, .. } => Some(*feed),
+            Self::Rapid { .. } => None,
+        }
+    }
+
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Linear { .. } => "Linear",
+            Self::ArcCW { .. } => "ArcCW",
+            Self::ArcCCW { .. } => "ArcCCW",
+            Self::Rapid { .. } => "Rapid",
+            Self::Plunge { .. } => "Plunge",
+        }
+    }
+
+    pub fn arc_center(&self, start: (f64, f64, f64)) -> Option<(f64, f64, bool)> {
+        match self {
+            Self::ArcCW { i, j, .. } => Some((start.0 + i, start.1 + j, true)),
+            Self::ArcCCW { i, j, .. } => Some((start.0 + i, start.1 + j, false)),
+            _ => None,
+        }
+    }
+
+    pub fn arc_sweep(&self, start: (f64, f64, f64)) -> Option<(f64, f64, f64, f64)> {
+        let (cx, cy, cw) = self.arc_center(start)?;
+        let (ex, ey, _) = self.end_point();
+        let r = ((start.0 - cx).powi(2) + (start.1 - cy).powi(2)).sqrt();
+        let a0 = (start.1 - cy).atan2(start.0 - cx);
+        let a1 = (ey - cy).atan2(ex - cx);
+        let two_pi = 2.0 * std::f64::consts::PI;
+        let mut sweep = if cw { a0 - a1 } else { a1 - a0 };
+        sweep = sweep.rem_euclid(two_pi);
+        if sweep < 1e-9 {
+            sweep = two_pi;
+        }
+        Some((cx, cy, r, if cw { -sweep } else { sweep }))
+    }
+
+    pub fn length_from(&self, start: (f64, f64, f64)) -> f64 {
+        let (ex, ey, ez) = self.end_point();
+        match self.arc_sweep(start) {
+            Some((_, _, r, sweep)) => {
+                let planar = r * sweep.abs();
+                (planar * planar + (ez - start.2).powi(2)).sqrt()
+            }
+            None => ((ex - start.0).powi(2) + (ey - start.1).powi(2) + (ez - start.2).powi(2)).sqrt(),
+        }
+    }
+
+    pub fn polyline_from(&self, start: (f64, f64, f64), max_step: f64) -> Vec<(f64, f64, f64)> {
+        let end = self.end_point();
+        let step = max_step.max(1e-3);
+        match self.arc_sweep(start) {
+            Some((cx, cy, r, sweep)) => {
+                let a0 = (start.1 - cy).atan2(start.0 - cx);
+                let n = ((r * sweep.abs()) / step).ceil().max(2.0) as usize;
+                (1..=n)
+                    .map(|k| {
+                        let t = k as f64 / n as f64;
+                        let a = a0 + sweep * t;
+                        (cx + r * a.cos(), cy + r * a.sin(), start.2 + (end.2 - start.2) * t)
+                    })
+                    .collect()
+            }
+            None => {
+                let len = ((end.0 - start.0).powi(2) + (end.1 - start.1).powi(2) + (end.2 - start.2).powi(2)).sqrt();
+                let n = (len / step).ceil().max(1.0) as usize;
+                (1..=n)
+                    .map(|k| {
+                        let t = k as f64 / n as f64;
+                        (start.0 + (end.0 - start.0) * t, start.1 + (end.1 - start.1) * t, start.2 + (end.2 - start.2) * t)
+                    })
+                    .collect()
+            }
+        }
+    }
+}
+
+impl ToolPathPattern {
+    pub fn key(&self) -> &'static str {
+        match self {
+            Self::RectangularProfile => "rect_profile",
+            Self::PocketZigZag => "pocket_zigzag",
+            Self::CircularProfile { .. } => "circular",
+            Self::HelicalPocket { .. } => "helical_pocket",
+            Self::ContourMultiPass { .. } => "contour_multi",
+            Self::Slot { .. } => "slot",
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::RectangularProfile => "사각형 프로파일",
+            Self::PocketZigZag => "포켓 지그재그",
+            Self::CircularProfile { .. } => "원형 프로파일",
+            Self::HelicalPocket { .. } => "헬리컬 포켓",
+            Self::ContourMultiPass { .. } => "등고선 다중 패스",
+            Self::Slot { .. } => "슬롯 가공",
+        }
+    }
+
+    pub fn from_key(key: &str, profile: &MachiningProfile) -> Result<Self, String> {
+        let w = profile.workpiece_setup.width_mm;
+        let h = profile.workpiece_setup.height_mm;
+        let d = profile.endmill_setting.diameter_mm;
+        match key.trim() {
+            "rect_profile" => Ok(Self::RectangularProfile),
+            "pocket_zigzag" => Ok(Self::PocketZigZag),
+            "circular" => Ok(Self::CircularProfile {
+                center_x: w / 2.0,
+                center_y: h / 2.0,
+                radius: w.min(h) * 0.35,
+            }),
+            "helical_pocket" => Ok(Self::HelicalPocket {
+                center_x: w / 2.0,
+                center_y: h / 2.0,
+                radius: w.min(h) * 0.3,
+                depth_per_rev: 0.5,
+            }),
+            "contour_multi" => Ok(Self::ContourMultiPass {
+                offset_count: 4,
+                step_over_mm: d * 0.4,
+            }),
+            "slot" => Ok(Self::Slot {
+                start_x: 10.0,
+                start_y: h / 2.0,
+                end_x: w - 10.0,
+                end_y: h / 2.0,
+                width: d,
+            }),
+            other => Err(format!("지원하지 않는 패턴: {}", other)),
+        }
+    }
+
+    pub fn all_keys() -> [&'static str; 6] {
+        ["pocket_zigzag", "rect_profile", "circular", "helical_pocket", "contour_multi", "slot"]
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GCodeMetadata {
     pub generated_at: String,
@@ -82,6 +231,12 @@ pub struct GCodeMetadata {
     pub estimated_time_min: f64,
     pub total_distance_mm: f64,
     pub warnings: Vec<String>,
+    #[serde(default)]
+    pub cutting_time_min: f64,
+    #[serde(default)]
+    pub rapid_time_min: f64,
+    #[serde(default)]
+    pub cutting_distance_mm: f64,
 }
 
 pub struct GCodeGenerator;
@@ -105,15 +260,17 @@ impl GCodeGenerator {
 
         match pattern {
             ToolPathPattern::RectangularProfile => {
-                segments.push(ToolPathSegment::Rapid { x: -dia / 2.0, y: -dia / 2.0, z: safe_z });
+                let allowance = profile.workpiece_setup.stock_allowance_mm.max(0.0).min(dia / 2.0);
+                let off = dia / 2.0 - allowance;
+                segments.push(ToolPathSegment::Rapid { x: -off - dia, y: -off, z: safe_z });
                 segments.push(ToolPathSegment::Plunge {
-                    x: -dia / 2.0, y: -dia / 2.0,
+                    x: -off - dia, y: -off,
                     z_start: safe_z, z_end: cut_z, feed: plunge_feed,
                 });
-                segments.push(ToolPathSegment::Linear { x: w + dia / 2.0, y: -dia / 2.0, z: cut_z, feed });
-                segments.push(ToolPathSegment::Linear { x: w + dia / 2.0, y: h + dia / 2.0, z: cut_z, feed });
-                segments.push(ToolPathSegment::Linear { x: -dia / 2.0, y: h + dia / 2.0, z: cut_z, feed });
-                segments.push(ToolPathSegment::Linear { x: -dia / 2.0, y: -dia / 2.0, z: cut_z, feed });
+                segments.push(ToolPathSegment::Linear { x: w + off, y: -off, z: cut_z, feed });
+                segments.push(ToolPathSegment::Linear { x: w + off, y: h + off, z: cut_z, feed });
+                segments.push(ToolPathSegment::Linear { x: -off, y: h + off, z: cut_z, feed });
+                segments.push(ToolPathSegment::Linear { x: -off, y: -off - dia, z: cut_z, feed });
             }
 
             ToolPathPattern::PocketZigZag => {
@@ -149,15 +306,15 @@ impl GCodeGenerator {
                     x: start_x, y: start_y,
                     z_start: safe_z, z_end: cut_z, feed: plunge_feed,
                 });
-                let steps = 36;
-                for i in 1..=steps {
-                    let angle = (i as f64 / steps as f64) * 2.0 * std::f64::consts::PI;
-                    let px = center_x + radius * angle.cos();
-                    let py = center_y + radius * angle.sin();
+                for q in 0..4 {
+                    let a0 = -(q as f64) * std::f64::consts::FRAC_PI_2;
+                    let a1 = a0 - std::f64::consts::FRAC_PI_2;
                     segments.push(ToolPathSegment::ArcCW {
-                        x: px, y: py, z: cut_z,
-                        i: -radius * ((i as f64 - 1.0) / steps as f64 * 2.0 * std::f64::consts::PI).cos(),
-                        j: -radius * ((i as f64 - 1.0) / steps as f64 * 2.0 * std::f64::consts::PI).sin(),
+                        x: center_x + radius * a1.cos(),
+                        y: center_y + radius * a1.sin(),
+                        z: cut_z,
+                        i: -radius * a0.cos(),
+                        j: -radius * a0.sin(),
                         feed,
                     });
                 }
@@ -165,36 +322,44 @@ impl GCodeGenerator {
 
             ToolPathPattern::HelicalPocket { center_x, center_y, radius, depth_per_rev } => {
                 let total_depth = profile.conditions.axial_doc_mm;
-                let revolutions = (total_depth / depth_per_rev).ceil() as usize;
+                let pitch = depth_per_rev.max(0.01);
+                let revolutions = (total_depth / pitch).ceil().max(1.0) as usize;
                 let start_x = center_x + radius;
                 let start_y = *center_y;
 
                 segments.push(ToolPathSegment::Rapid { x: start_x, y: start_y, z: safe_z });
+                segments.push(ToolPathSegment::Plunge {
+                    x: start_x, y: start_y, z_start: safe_z, z_end: 0.0, feed: plunge_feed,
+                });
 
                 for rev in 0..revolutions {
-                    let steps_per_rev = 24;
-                    for i in 0..=steps_per_rev {
-                        let angle = (i as f64 / steps_per_rev as f64) * 2.0 * std::f64::consts::PI;
-                        let px = center_x + radius * angle.cos();
-                        let py = center_y + radius * angle.sin();
-                        let pz = -(rev as f64 * depth_per_rev) - (i as f64 / steps_per_rev as f64) * depth_per_rev;
-                        let pz = pz.max(cut_z);
-                        if rev == 0 && i == 0 {
-                            segments.push(ToolPathSegment::Plunge {
-                                x: px, y: py, z_start: safe_z, z_end: pz, feed: plunge_feed,
-                            });
-                        } else {
-                            segments.push(ToolPathSegment::Linear { x: px, y: py, z: pz, feed });
-                        }
+                    for q in 0..4 {
+                        let a0 = q as f64 * std::f64::consts::FRAC_PI_2;
+                        let a1 = a0 + std::f64::consts::FRAC_PI_2;
+                        let frac = (rev as f64 + (q + 1) as f64 / 4.0) * pitch;
+                        let pz = (-frac).max(cut_z);
+                        segments.push(ToolPathSegment::ArcCCW {
+                            x: center_x + radius * a1.cos(),
+                            y: center_y + radius * a1.sin(),
+                            z: pz,
+                            i: -radius * a0.cos(),
+                            j: -radius * a0.sin(),
+                            feed,
+                        });
                     }
                 }
 
-                let finish_steps = 36;
-                for i in 1..=finish_steps {
-                    let angle = (i as f64 / finish_steps as f64) * 2.0 * std::f64::consts::PI;
-                    let px = center_x + radius * angle.cos();
-                    let py = center_y + radius * angle.sin();
-                    segments.push(ToolPathSegment::Linear { x: px, y: py, z: cut_z, feed });
+                for q in 0..4 {
+                    let a0 = q as f64 * std::f64::consts::FRAC_PI_2;
+                    let a1 = a0 + std::f64::consts::FRAC_PI_2;
+                    segments.push(ToolPathSegment::ArcCCW {
+                        x: center_x + radius * a1.cos(),
+                        y: center_y + radius * a1.sin(),
+                        z: cut_z,
+                        i: -radius * a0.cos(),
+                        j: -radius * a0.sin(),
+                        feed,
+                    });
                 }
             }
 
@@ -234,7 +399,7 @@ impl GCodeGenerator {
                 let len = (dx * dx + dy * dy).sqrt();
                 if len < 0.001 {
                     segments.push(ToolPathSegment::Rapid { x: 0.0, y: 0.0, z: safe_z });
-                    return segments;
+                    return Self::insert_safe_retracts(segments, safe_z);
                 }
                 let nx = -dy / len * half_w;
                 let ny = dx / len * half_w;
@@ -252,7 +417,23 @@ impl GCodeGenerator {
         }
 
         segments.push(ToolPathSegment::Rapid { x: 0.0, y: 0.0, z: safe_z });
-        segments
+        Self::insert_safe_retracts(segments, safe_z)
+    }
+
+    pub fn insert_safe_retracts(segments: Vec<ToolPathSegment>, safe_z: f64) -> Vec<ToolPathSegment> {
+        let mut out: Vec<ToolPathSegment> = Vec::with_capacity(segments.len() + 8);
+        let mut prev: Option<(f64, f64, f64)> = None;
+        for seg in segments.into_iter() {
+            if let (ToolPathSegment::Rapid { x, y, .. }, Some((px, py, pz))) = (&seg, prev) {
+                let lateral = (x - px).abs() > 1e-9 || (y - py).abs() > 1e-9;
+                if lateral && pz < safe_z - 1e-6 {
+                    out.push(ToolPathSegment::Rapid { x: px, y: py, z: safe_z });
+                }
+            }
+            prev = Some(seg.end_point());
+            out.push(seg);
+        }
+        out
     }
 
     pub fn generate_gcode_with_pattern(
@@ -260,6 +441,15 @@ impl GCodeGenerator {
         pattern: &ToolPathPattern,
     ) -> GCodeProgram {
         let segments = Self::generate_synthetic_segments_with_pattern(profile, pattern);
+        let name = format!("{}_{}", profile.name, format!("{:?}", pattern).split('{').next().unwrap_or("").trim());
+        Self::program_from_segments(profile, &segments, &name)
+    }
+
+    pub fn program_from_segments(
+        profile: &MachiningProfile,
+        segments: &[ToolPathSegment],
+        program_name: &str,
+    ) -> GCodeProgram {
         let mut line_num: u32 = 10;
         let mut header = Vec::new();
         let mut body = Vec::new();
@@ -314,7 +504,7 @@ impl GCodeGenerator {
         });
         line_num += 10;
 
-        for seg in &segments {
+        for seg in segments {
             match seg {
                 ToolPathSegment::Rapid { x, y, z } => {
                     body.push(GCodeLine {
@@ -366,7 +556,7 @@ impl GCodeGenerator {
         footer.push(GCodeLine { line_number: line_num, code: "M30".into(), comment: Some("종료".into()) });
 
         GCodeProgram {
-            program_name: format!("{}_{}", profile.name, format!("{:?}", pattern).split('{').next().unwrap_or("").trim()),
+            program_name: program_name.to_string(),
             header,
             body,
             footer,
@@ -378,32 +568,47 @@ impl GCodeGenerator {
         pattern: &ToolPathPattern,
     ) -> GCodeMetadata {
         let segments = Self::generate_synthetic_segments_with_pattern(profile, pattern);
+        Self::metadata_for_segments(profile, &segments, profile.machine.rapid_mm_min)
+    }
+
+    pub fn metadata_for_segments(
+        profile: &MachiningProfile,
+        segments: &[ToolPathSegment],
+        rapid_mm_min: f64,
+    ) -> GCodeMetadata {
         let mut total_dist = 0.0;
         let mut cutting_dist = 0.0;
+        let mut cutting_time = 0.0;
+        let mut rapid_time = 0.0;
         let mut prev: Option<(f64, f64, f64)> = None;
         let mut warnings = Vec::new();
 
-        let safe_z_threshold = 0.0; // 소재 상단을 Z=0.0으로 가정
+        let safe_z_threshold = 0.0;
         let loc_limit = profile.endmill_setting.loc_mm;
 
-        for seg in &segments {
-            let (x, y, z) = match seg {
-                ToolPathSegment::Linear { x, y, z, .. } => (*x, *y, *z),
-                ToolPathSegment::Rapid { x, y, z } => (*x, *y, *z),
-                ToolPathSegment::Plunge { x, y, z_end, .. } => (*x, *y, *z_end),
-                ToolPathSegment::ArcCW { x, y, z, .. } => (*x, *y, *z),
-                ToolPathSegment::ArcCCW { x, y, z, .. } => (*x, *y, *z),
-            };
-            if let Some((px, py, pz)) = prev {
-                let d = ((x - px).powi(2) + (y - py).powi(2) + (z - pz).powi(2)).sqrt();
+        for seg in segments {
+            let (x, y, z) = seg.end_point();
+            if let Some(start) = prev {
+                let d = seg.length_from(start);
                 total_dist += d;
-                if !matches!(seg, ToolPathSegment::Rapid { .. }) {
-                    cutting_dist += d;
+                match seg.feed() {
+                    Some(f) if f > 0.0 => {
+                        cutting_dist += d;
+                        cutting_time += d / f;
+                    }
+                    Some(_) => {
+                        let msg = "이송 속도가 0 인 절삭 이동이 있습니다".to_string();
+                        if !warnings.contains(&msg) {
+                            warnings.push(msg);
+                        }
+                    }
+                    None => {
+                        rapid_time += d / rapid_mm_min.max(1.0);
+                    }
                 }
             }
             prev = Some((x, y, z));
 
-            // 안전성 충돌 검사 로직
             match seg {
                 ToolPathSegment::Rapid { z, .. } => {
                     if *z < safe_z_threshold {
@@ -432,11 +637,7 @@ impl GCodeGenerator {
             }
         }
 
-        let est_time = if profile.conditions.feed_rate_mm_min > 0.0 {
-            cutting_dist / profile.conditions.feed_rate_mm_min
-        } else {
-            0.0
-        };
+        let est_time = cutting_time + rapid_time;
 
         GCodeMetadata {
             generated_at: format!("{}", std::time::SystemTime::now()
@@ -450,6 +651,9 @@ impl GCodeGenerator {
             estimated_time_min: est_time,
             total_distance_mm: total_dist,
             warnings,
+            cutting_time_min: cutting_time,
+            rapid_time_min: rapid_time,
+            cutting_distance_mm: cutting_dist,
         }
     }
 

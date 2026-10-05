@@ -1,6 +1,6 @@
 [package]
 name = "endmill_sandbox"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "End Mill specification, coating, and cutting condition data model"
 
@@ -8,6 +8,12 @@ description = "End Mill specification, coating, and cutting condition data model
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1"
+candle-core = "0.11.0"
+candle-nn = "0.11.0"
+tokenizers = { version = "0.22", default-features = false, features = ["fancy-regex"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff", "bmp"] }
+base64 = "0.22"
+regex = "1"
 
 [lib]
 name = "endmill_model"

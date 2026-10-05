@@ -12,6 +12,27 @@ pub enum CoolantMethod {
 }
 
 impl CoolantMethod {
+    pub fn key(&self) -> &'static str {
+        match self {
+            Self::AirBlast => "air_blast",
+            Self::Flood => "flood",
+            Self::Mist => "mist",
+            Self::ThroughTool => "through_tool",
+            Self::Dry => "dry",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Self> {
+        match key.trim().to_lowercase().replace(['-', ' '], "_").as_str() {
+            "air_blast" | "air" | "airblast" | "에어" | "에어블로우" | "에어_블로우" => Some(Self::AirBlast),
+            "flood" | "wet" | "emulsion" | "플러드" | "수용성" => Some(Self::Flood),
+            "mist" | "mql" | "미스트" => Some(Self::Mist),
+            "through_tool" | "throughtool" | "tsc" | "through_spindle" | "내부급유" | "내부_급유" => Some(Self::ThroughTool),
+            "dry" | "none" | "건식" => Some(Self::Dry),
+            _ => None,
+        }
+    }
+
     pub fn label(&self) -> String {
         match self {
             Self::AirBlast => "에어 블로우".into(),
@@ -45,6 +66,20 @@ pub struct CoolantConfig {
 }
 
 impl CoolantConfig {
+    pub fn from_method(method: &CoolantMethod) -> Self {
+        match method {
+            CoolantMethod::AirBlast => Self::air_blast(),
+            CoolantMethod::Flood => Self::flood(),
+            CoolantMethod::Mist => Self::mist(),
+            CoolantMethod::ThroughTool => Self::through_tool(),
+            CoolantMethod::Dry => Self::dry(),
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Self> {
+        CoolantMethod::from_key(key).map(|m| Self::from_method(&m))
+    }
+
     pub fn air_blast() -> Self {
         Self {
             method: CoolantMethod::AirBlast,
@@ -106,6 +141,40 @@ impl CoolantConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+pub enum ToolNose {
+    #[default]
+    Square,
+    Ball,
+    CornerRadius { radius_mm: f64 },
+}
+
+impl ToolNose {
+    pub fn key(&self) -> String {
+        match self {
+            Self::Square => "square".into(),
+            Self::Ball => "ball".into(),
+            Self::CornerRadius { radius_mm } => format!("cr{:.2}", radius_mm),
+        }
+    }
+
+    pub fn label(&self) -> String {
+        match self {
+            Self::Square => "스퀘어".into(),
+            Self::Ball => "볼노즈".into(),
+            Self::CornerRadius { radius_mm } => format!("코너R {:.2}", radius_mm),
+        }
+    }
+
+    pub fn corner_radius(&self, diameter_mm: f64) -> f64 {
+        match self {
+            Self::Square => 0.0,
+            Self::Ball => diameter_mm / 2.0,
+            Self::CornerRadius { radius_mm } => radius_mm.min(diameter_mm / 2.0).max(0.0),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EndMillMockupSetting {
     pub name: String,
@@ -118,6 +187,14 @@ pub struct EndMillMockupSetting {
     pub helix_angle_deg: f64,
     pub coating_name: Option<String>,
     pub is_high_end: bool,
+    #[serde(default)]
+    pub nose: ToolNose,
+    #[serde(default)]
+    pub stickout_mm: Option<f64>,
+    #[serde(default)]
+    pub runout_um: Option<f64>,
+    #[serde(default)]
+    pub variable_pitch: bool,
 }
 
 impl EndMillMockupSetting {
@@ -144,6 +221,42 @@ impl EndMillMockupSetting {
             helix_angle_deg,
             coating_name,
             is_high_end,
+            nose: ToolNose::Square,
+            stickout_mm: None,
+            runout_um: None,
+            variable_pitch: false,
+        }
+    }
+
+    pub fn with_nose(mut self, nose: ToolNose) -> Self {
+        self.nose = nose;
+        self
+    }
+
+    pub fn with_stickout(mut self, stickout_mm: Option<f64>) -> Self {
+        self.stickout_mm = stickout_mm.filter(|v| *v > 0.0);
+        self
+    }
+
+    pub fn signature(&self) -> String {
+        format!(
+            "D{:.1}Z{}-{}-{}",
+            self.diameter_mm,
+            self.flute_count,
+            self.nose.key(),
+            self.coating_name.clone().unwrap_or_else(|| "bare".into()).to_lowercase().replace(' ', "_")
+        )
+    }
+
+    pub fn effective_stickout_mm(&self) -> f64 {
+        if let Some(s) = self.stickout_mm.filter(|v| *v > 0.0) {
+            return s.max(self.loc_mm);
+        }
+        let grip = (self.oal_mm - self.loc_mm - 0.2 * self.diameter_mm).min(4.0 * self.shank_diameter_mm);
+        if grip > 0.0 {
+            (self.oal_mm - grip).max(self.loc_mm + 0.5 * self.diameter_mm)
+        } else {
+            self.loc_mm + 10.0
         }
     }
 
@@ -166,6 +279,24 @@ impl EndMillMockupSetting {
         if self.helix_angle_deg < 0.0 || self.helix_angle_deg > 60.0 {
             return Err("헬릭스 각도는 0~60° 범위여야 합니다".into());
         }
+        if let ToolNose::CornerRadius { radius_mm } = self.nose {
+            if radius_mm <= 0.0 || radius_mm > self.diameter_mm / 2.0 {
+                return Err("코너 R 은 0 보다 크고 반경 이하여야 합니다".into());
+            }
+        }
+        if let Some(s) = self.stickout_mm {
+            if s < self.loc_mm {
+                return Err("돌출 길이는 유효 절삭 길이 이상이어야 합니다".into());
+            }
+            if s > self.oal_mm {
+                return Err("돌출 길이는 전체 길이 이하여야 합니다".into());
+            }
+        }
+        if let Some(r) = self.runout_um {
+            if !(0.0..=200.0).contains(&r) {
+                return Err("런아웃은 0~200 µm 범위여야 합니다".into());
+            }
+        }
         Ok(())
     }
     
@@ -181,6 +312,10 @@ impl EndMillMockupSetting {
             helix_angle_deg: 40.0,
             coating_name: Some("nACo HiPIMS".into()),
             is_high_end: true,
+            nose: ToolNose::Square,
+            stickout_mm: None,
+            runout_um: None,
+            variable_pitch: true,
         }
     }
 
@@ -196,6 +331,10 @@ impl EndMillMockupSetting {
             helix_angle_deg: 35.0,
             coating_name: Some("TiAlN".into()),
             is_high_end: false,
+            nose: ToolNose::Square,
+            stickout_mm: None,
+            runout_um: None,
+            variable_pitch: false,
         }
     }
 
@@ -211,6 +350,10 @@ impl EndMillMockupSetting {
             helix_angle_deg: 30.0,
             coating_name: Some("AlTiN".into()),
             is_high_end: true,
+            nose: ToolNose::Ball,
+            stickout_mm: None,
+            runout_um: None,
+            variable_pitch: false,
         }
     }
 }
@@ -309,6 +452,46 @@ impl MachiningPreset {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MachineLimits {
+    pub max_rpm: f64,
+    pub base_rpm: f64,
+    pub max_power_kw: f64,
+    pub max_feed_mm_min: f64,
+    pub rapid_mm_min: f64,
+    pub efficiency: f64,
+    pub holder_stiffness_n_per_um: f64,
+    pub spindle_drift_um_per_hr: f64,
+}
+
+impl Default for MachineLimits {
+    fn default() -> Self {
+        Self {
+            max_rpm: 12000.0,
+            base_rpm: 1500.0,
+            max_power_kw: 7.5,
+            max_feed_mm_min: 10000.0,
+            rapid_mm_min: 15000.0,
+            efficiency: 0.8,
+            holder_stiffness_n_per_um: 50.0,
+            spindle_drift_um_per_hr: 0.0,
+        }
+    }
+}
+
+impl MachineLimits {
+    pub fn available_power_kw(&self, rpm: f64) -> f64 {
+        if self.base_rpm <= 0.0 {
+            return self.max_power_kw;
+        }
+        self.max_power_kw * (rpm / self.base_rpm).clamp(0.0, 1.0)
+    }
+
+    pub fn max_torque_nm(&self) -> f64 {
+        self.max_power_kw * 1000.0 * 60.0 / (2.0 * std::f64::consts::PI * self.base_rpm.max(1.0))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MachiningProfile {
     pub name: String,
     pub description: String,
@@ -320,6 +503,8 @@ pub struct MachiningProfile {
     pub created_at: String,
     pub modified_at: String,
     pub tags: Vec<String>,
+    #[serde(default)]
+    pub machine: MachineLimits,
 }
 
 impl MachiningProfile {
@@ -336,6 +521,7 @@ impl MachiningProfile {
             created_at: now.clone(),
             modified_at: now,
             tags: Vec::new(),
+            machine: MachineLimits::default(),
         }
     }
 }
@@ -374,6 +560,13 @@ impl ProfileStore {
 
     pub fn get_by_name(&self, name: &str) -> Option<&MachiningProfile> {
         self.profiles.iter().find(|p| p.name == name)
+    }
+
+    pub fn upsert_profile(&mut self, profile: MachiningProfile) {
+        match self.profiles.iter_mut().find(|p| p.name == profile.name) {
+            Some(slot) => *slot = profile,
+            None => self.profiles.push(profile),
+        }
     }
 
     pub fn remove_by_name(&mut self, name: &str) -> bool {
@@ -438,8 +631,9 @@ impl ProfileStore {
             created_at: now.clone(),
             modified_at: now,
             tags,
+            machine: MachineLimits::default(),
         };
-        self.profiles.push(profile);
-        Ok(self.profiles.last().unwrap())
+        self.upsert_profile(profile.clone());
+        Ok(self.profiles.iter().find(|p| p.name == profile.name).unwrap())
     }
 }

@@ -7,6 +7,17 @@ pub mod spec;
 pub mod gcode;
 pub mod profile;
 pub mod workpiece_setup;
+pub mod ml;
+pub mod physics;
+pub mod timeseries;
+pub mod loadsim;
+pub mod toolimage;
+pub mod mold;
+pub mod wear;
+pub mod sds;
+pub mod decision;
+pub mod ingest;
+pub mod pipeline;
 
 pub use application::*;
 pub use metadata::*;
