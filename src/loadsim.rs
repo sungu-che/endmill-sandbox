@@ -208,6 +208,10 @@ pub struct SimSample {
     pub vb_mm: f64,
     pub radial_loss_um: f64,
     pub wp_temp_c: f64,
+    #[serde(default)]
+    pub chatter_margin: f64,
+    #[serde(default)]
+    pub workpiece_um: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -240,6 +244,8 @@ pub struct WallErrorSample {
     pub thermal_tool_um: f64,
     pub thermal_wp_um: f64,
     pub total_um: f64,
+    #[serde(default)]
+    pub workpiece_um: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -267,6 +273,14 @@ pub struct LoadSimReport {
     pub plunge_count: usize,
     pub cell_mm: f64,
     pub warnings: Vec<String>,
+    #[serde(default)]
+    pub max_workpiece_defl_um: f64,
+    #[serde(default)]
+    pub min_chatter_margin: f64,
+    #[serde(default)]
+    pub chatter_fraction: f64,
+    #[serde(default)]
+    pub thin_wall_mm: Option<f64>,
 }
 
 #[derive(Clone)]
@@ -276,6 +290,31 @@ struct CacheEntry {
 
 fn quant(v: f64, step: f64) -> i64 {
     (v / step).round() as i64
+}
+
+#[allow(clippy::too_many_arguments)]
+fn thin_wall_um(grid: &StockGrid, wx: f64, wy: f64, side: (f64, f64), z_tip: f64, z_mid: f64, ap: f64, force_n: f64, e_n_mm2: f64) -> Option<(f64, f64)> {
+    if force_n.abs() < 1e-9 || ap <= 0.0 {
+        return None;
+    }
+    let step = grid.cell.max(0.02);
+    let mut t = 0.5 * step;
+    while t <= 15.0 {
+        let h = grid.height_at(wx + side.0 * t, wy + side.1 * t);
+        if h == NO_MATERIAL || (h as f64) <= z_tip + 0.5 * step {
+            let other = if h == NO_MATERIAL { grid.bottom as f64 } else { h as f64 };
+            let root = z_tip.max(other);
+            let a = z_mid - root;
+            if a <= 0.05 {
+                return None;
+            }
+            let l_eff = (ap + 2.0 * a).max(1.0);
+            let k = e_n_mm2 * l_eff * t.powi(3) / (4.0 * a.powi(3));
+            return Some((force_n / k.max(1e-9) * 1000.0, t));
+        }
+        t += step;
+    }
+    None
 }
 
 pub fn simulate(profile: &MachiningProfile, pattern: &ToolPathPattern, ctx: &CutContext) -> LoadSimReport {
@@ -290,10 +329,22 @@ pub fn simulate_segments(profile: &MachiningProfile, segments: &[ToolPathSegment
     let r = tool.radius();
     let z = tool.flutes.max(1) as f64;
     let rpm = profile.conditions.spindle_rpm.max(1) as f64;
-    let co = physics::cutting_coeffs(ctx);
-    let reference = physics::reference_state(ctx);
     let body = ThermalBody::of_setup(&profile.workpiece_setup, &ctx.wp);
-    let mut cache: HashMap<(i64, i64, i64, i64), CacheEntry> = HashMap::new();
+    let nominal = physics::analyze_cut(ctx, &profile.conditions, true, body);
+    let co = physics::cutting_coeffs_at(ctx, nominal.vc_effective_m_min, (nominal.fz_mm * 0.64).max(1e-4));
+    let kappa = nominal.trajectory.kappa.max(1e-6);
+    let vb_break = nominal.trajectory.break_in_vb_mm;
+    let tau_break = nominal.trajectory.break_in_tau_min.max(1e-6);
+    let e_wp = ctx.wp.elastic_gpa * 1000.0 / (1.0 - ctx.wp.poisson.powi(2)).max(0.5);
+    let reference = physics::reference_state(ctx);
+    let mut wtool = tool.clone();
+    let mut cache: HashMap<(i64, i64, i64, i64, i64), CacheEntry> = HashMap::new();
+    let mut chatter_cache: HashMap<(i64, i64, i64), f64> = HashMap::new();
+    let mut min_margin = f64::INFINITY;
+    let mut chatter_samples = 0usize;
+    let mut cut_samples = 0usize;
+    let mut max_wp_defl = 0.0f64;
+    let mut thin_wall: Option<f64> = None;
     let step = (grid.cell * 0.5).max(0.025);
     let total_len: f64 = {
         let mut prev = (0.0, 0.0, 0.0);
@@ -391,12 +442,19 @@ pub fn simulate_segments(profile: &MachiningProfile, segments: &[ToolPathSegment
             let mut ap_eff = 0.0;
             let mut defl_wall = 0.0;
             let mut temp = ctx.coolant.temperature_c;
+            let mut margin = f64::INFINITY;
+            let mut wp_defl = 0.0;
             if cutting && dt > 0.0 {
                 cut_time += dt;
-                let mut wall: Option<(f64, (f64, f64))> = None;
+                cut_samples += 1;
+                let vbq = (vb / 0.01).round() * 0.01;
+                if (wtool.flank_wear_mm - vbq).abs() > 1e-9 {
+                    wtool.flank_wear_mm = vbq;
+                }
+                let mut wall: Option<(f64, (f64, f64), f64)> = None;
                 if plunge_like {
                     plunges += usize::from(is_plunge && first_cut_of_seg);
-                    sample_force = physics::plunge_forces(tool, &co, fz_nom, rpm);
+                    sample_force = physics::plunge_forces(&wtool, &co, fz_nom, rpm);
                     mode = "plunge";
                     eng_deg = 360.0;
                     ap_eff = rem.max_depth.min(tool.loc_mm);
@@ -431,18 +489,46 @@ pub fn simulate_segments(profile: &MachiningProfile, segments: &[ToolPathSegment
                             fz *= if concave { (ra + r) / ra } else { ((ra - r) / ra).max(0.2) };
                         }
                     }
-                    let key = (quant(ap_eff, 0.02), quant(eng.phi_st, 0.035), quant(eng.phi_ex, 0.035), quant(fz, fz_nom.max(1e-6) * 0.02));
+                    let key = (
+                        quant(ap_eff, 0.02),
+                        quant(eng.phi_st, 0.035),
+                        quant(eng.phi_ex, 0.035),
+                        quant(fz, fz_nom.max(1e-6) * 0.02),
+                        quant(vbq, 0.01),
+                    );
                     let entry = cache.entry(key).or_insert_with(|| CacheEntry {
-                        f: physics::mechanistic_forces(tool, &co, fz, rpm, &eng, 48, 10),
+                        f: physics::mechanistic_forces(&wtool, &co, fz, rpm, &eng, 48, 10),
                     });
                     sample_force = entry.f.clone();
                     eng_deg = eng.span().to_degrees();
+                    let ckey = (quant(ap_eff, 0.1), quant(eng.phi_st, 0.07), quant(eng.phi_ex, 0.07));
+                    let h_mean = sample_force.h_mean_mm;
+                    margin = *chatter_cache.entry(ckey).or_insert_with(|| {
+                        crate::dynamics::stability_margin(
+                            tool,
+                            &co,
+                            &eng,
+                            h_mean,
+                            rpm,
+                            ap_eff,
+                            ctx.calib.deflection,
+                            nominal.vc_effective_m_min,
+                            ctx.wp.process_damping,
+                        )
+                    });
+                    if margin.is_finite() {
+                        min_margin = min_margin.min(margin);
+                        if margin < 1.0 {
+                            chatter_samples += 1;
+                        }
+                    }
                     if let Some(wall_angle) = eng.wall_angle() {
                         let comp = physics::tool_compliance(tool, ap_eff, ctx.calib.deflection);
                         let holder = 1.0 / (tool.holder_stiffness_n_per_um * 1000.0) * ctx.calib.deflection;
                         let steps = sample_force.fy_series.len().max(1);
                         let tan_h = tool.helix_deg.to_radians().tan();
                         let mut acc = 0.0;
+                        let mut force_acc = 0.0;
                         let slices = 4;
                         for k in 0..slices {
                             let zk = (k as f64 + 0.5) * ap_eff / slices as f64;
@@ -451,10 +537,11 @@ pub fn simulate_segments(profile: &MachiningProfile, segments: &[ToolPathSegment
                             let fy = sample_force.fy_series.get(idx).cloned().unwrap_or(0.0);
                             let away = if eng.mode == MillMode::Down { fy } else { -fy };
                             acc += physics::deflection_at(&comp, away, (tool.stickout_mm - zk).max(0.0), holder) / slices as f64;
+                            force_acc += away / slices as f64;
                         }
                         defl_wall = acc;
                         let side = if eng.mode == MillMode::Up { (-dir.1, dir.0) } else { (dir.1, -dir.0) };
-                        wall = Some((p.2 + ap_eff / 2.0, side));
+                        wall = Some((p.2 + ap_eff / 2.0, side, force_acc));
                     }
                 }
                 let vce = physics::effective_vc(tool, rpm, ap_eff);
@@ -467,16 +554,25 @@ pub fn simulate_segments(profile: &MachiningProfile, segments: &[ToolPathSegment
                 };
                 let th = physics::thermal(ctx, &co, &sample_force, vce, rpm, &eng_for_heat, body.mass_kg, body.area_m2);
                 let wr = physics::wear(ctx, &sample_force, &th, vce, fz_nom.max(1e-6), &eng_for_heat, reference);
-                vb += wr.vb_rate_mm_per_min * dt / 60.0;
+                let t_cut_min = cut_time / 60.0;
+                let rate = kappa * wr.vb_rate_mm_per_min + vb_break / tau_break * (-t_cut_min / tau_break).exp();
+                vb += rate * dt / 60.0;
                 temp = th.interface_c;
                 wp_rise += ((th.workpiece_heat_w - wp_rise * ha) / mc_wp.max(1e-6)) * dt;
-                if let Some((z_mid, side)) = wall {
+                if let Some((z_mid, side, away_force)) = wall {
                     let wear_um = vb * tan_clear * 1000.0;
                     let th_tool = -th.tool_radial_growth_um;
                     let wx = p.0 + side.0 * r;
                     let wy = p.1 + side.1 * r;
                     let dist_datum = ((wx - datum.0) * side.0 + (wy - datum.1) * side.1).abs();
                     let thermal_wp = -ctx.wp.expansion * dist_datum * wp_rise * 1000.0;
+                    if let Some((um, thick)) = thin_wall_um(&grid, wx, wy, side, p.2, z_mid, ap_eff, away_force, e_wp) {
+                        wp_defl = um;
+                        max_wp_defl = max_wp_defl.max(um.abs());
+                        if um.abs() > 1.0 {
+                            thin_wall = Some(thin_wall.map(|t: f64| t.min(thick)).unwrap_or(thick));
+                        }
+                    }
                     if wall_errors.len() < 200_000 {
                         wall_errors.push(WallErrorSample {
                             x: wx,
@@ -489,7 +585,8 @@ pub fn simulate_segments(profile: &MachiningProfile, segments: &[ToolPathSegment
                             wear_um,
                             thermal_tool_um: th_tool,
                             thermal_wp_um: thermal_wp,
-                            total_um: defl_wall + wear_um + th_tool + thermal_wp,
+                            total_um: defl_wall + wp_defl + wear_um + th_tool + thermal_wp,
+                            workpiece_um: wp_defl,
                         });
                     }
                 }
@@ -523,6 +620,8 @@ pub fn simulate_segments(profile: &MachiningProfile, segments: &[ToolPathSegment
                 vb_mm: vb,
                 radial_loss_um: vb * tan_clear * 1000.0,
                 wp_temp_c: 22.0 + wp_rise,
+                chatter_margin: if margin.is_finite() { margin } else { 0.0 },
+                workpiece_um: wp_defl,
             });
             last = *p;
         }
@@ -536,6 +635,21 @@ pub fn simulate_segments(profile: &MachiningProfile, segments: &[ToolPathSegment
     }
     if plunges > 0 && tool.nose == ToolNose::Square {
         warnings.push(format!("수직 플런지 {}회: 램핑/헬리컬 진입으로 바꾸면 날끝 부하와 치핑 위험이 줄어듭니다", plunges));
+    }
+    let chatter_fraction = if cut_samples > 0 { chatter_samples as f64 / cut_samples as f64 } else { 0.0 };
+    if chatter_samples > 0 {
+        warnings.push(format!(
+            "경로의 {:.0}% 구간이 재생 채터 한계를 넘습니다 (최소 여유 {:.2}배, {}) — 회전수를 안정 로브로 옮기거나 ap 를 낮추세요",
+            chatter_fraction * 100.0,
+            min_margin,
+            if tool.measured_fn_hz.is_some() && tool.measured_k_n_per_um.is_some() { "실측 FRF" } else { "모델 추정 FRF · 탭 테스트로 확정" }
+        ));
+    }
+    if let Some(tw) = thin_wall {
+        warnings.push(format!(
+            "얇은 벽(두께 약 {:.1} mm)이 절삭력으로 최대 {:.1} µm 휘어 벽면 오차에 더해집니다",
+            tw, max_wp_defl
+        ));
     }
     let episodes = build_episodes(&samples, ctx, profile);
     let (mean_wall, max_wall) = if wall_errors.is_empty() {
@@ -595,6 +709,10 @@ pub fn simulate_segments(profile: &MachiningProfile, segments: &[ToolPathSegment
         cell_mm: grid.cell,
         samples: samples_ds,
         warnings,
+        max_workpiece_defl_um: max_wp_defl,
+        min_chatter_margin: if min_margin.is_finite() { min_margin } else { 0.0 },
+        chatter_fraction,
+        thin_wall_mm: thin_wall,
     }
 }
 
@@ -748,4 +866,37 @@ pub fn adaptive_segments(segments: &[ToolPathSegment], episodes: &[Episode]) -> 
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn thin_wall_compliance_grows_as_wall_thins() {
+        let mut g = StockGrid {
+            x0: 0.0,
+            y0: 0.0,
+            cell: 0.1,
+            nx: 200,
+            ny: 10,
+            h: vec![0.0; 2000],
+            top: 0.0,
+            bottom: -20.0,
+        };
+        for j in 0..10 {
+            for i in 60..200 {
+                g.h[j * 200 + i] = -10.0;
+            }
+        }
+        let thick = thin_wall_um(&g, 3.0, 0.5, (1.0, 0.0), -10.0, -5.0, 10.0, 100.0, 69000.0).unwrap();
+        let thin = thin_wall_um(&g, 5.0, 0.5, (1.0, 0.0), -10.0, -5.0, 10.0, 100.0, 69000.0).unwrap();
+        assert!(thin.0 > 10.0 * thick.0, "{:?} {:?}", thin, thick);
+        assert!((thick.1 - 3.0).abs() < 0.2);
+        let mut solid = g.clone();
+        for v in solid.h.iter_mut() {
+            *v = 0.0;
+        }
+        assert!(thin_wall_um(&solid, 3.0, 0.5, (1.0, 0.0), -10.0, -5.0, 10.0, 100.0, 69000.0).is_none());
+    }
 }

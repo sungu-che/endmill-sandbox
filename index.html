@@ -640,6 +640,19 @@
     .pv-kv { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(80px, auto); gap: 2px 8px; font-size: 0.72rem; }
     .pv-kv .k { color: var(--text-dim); }
     .pv-kv .v { font-weight: 600; text-align: right; }
+    .lib-cand { border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 8px; background: var(--bg-input); }
+    .lib-cand.cur { border-color: var(--accent); }
+    .lib-cand-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 0.76rem; }
+    .lib-rank { display: inline-block; min-width: 20px; text-align: center; font-weight: 700; color: var(--accent); }
+    .lib-score { display: flex; align-items: center; gap: 6px; margin-left: auto; font-size: 0.7rem; }
+    .lib-alias { font-size: 0.64rem; color: var(--text-muted); margin: 2px 0 4px 28px; }
+    .lib-ev { font-size: 0.68rem; color: var(--text-dim); margin-left: 28px; padding: 1px 0; }
+    .lib-ev span { display: inline-block; min-width: 76px; font-weight: 600; color: var(--accent); }
+    .lib-ev em { color: var(--text-muted); font-style: normal; }
+    .lib-ev-direct span { color: var(--success); }
+    .lib-ev-relay_workpiece span, .lib-ev-relay_endmill span { color: var(--warning); }
+    .lib-ev-relay_regime span { color: #a29bfe; }
+    .pv-frf { font-size: 0.7rem; color: var(--text-dim); display: flex; align-items: center; gap: 4px; }
 
     @media (max-width: 1100px) {
       :root { --left-w: 200px; --right-w: 240px; }
@@ -808,6 +821,7 @@
 	        <div class="pv-tab" onclick="pvTab('proc', this)">④ 마찰·냉각·마모</div>
 	        <div class="pv-tab" onclick="pvTab('ts', this)">⑤ 시계열 예측</div>
 	        <div class="pv-tab" onclick="pvTab('decide', this)">⑥ 판단·SDS</div>
+	        <div class="pv-tab" onclick="pvTab('lib', this)">⑦ 라이브러리·큐레이션</div>
 	      </div>
 
 	      <div class="pv-pane active" id="pv-pane-input">
@@ -913,8 +927,21 @@
 	          <button class="btn btn-sm btn-outline" onclick="pvAdaptive()">적응 이송 G-code 생성·저장</button>
 	          <span id="pv-proc-source" style="font-size:0.7rem;color:var(--text-muted);"></span>
 	        </div>
+	        <div class="pv-row">
+	          <span style="font-size:0.72rem;color:var(--text-muted);">탭 테스트 FRF (공구 끝)</span>
+	          <label class="pv-frf">고유진동수 Hz <input type="number" id="pv-frf-fn" step="10" min="100" style="width:96px;" /></label>
+	          <label class="pv-frf">강성 N/µm <input type="number" id="pv-frf-k" step="0.1" min="0.05" style="width:80px;" /></label>
+	          <label class="pv-frf">감쇠 % <input type="number" id="pv-frf-zeta" step="0.1" min="0.5" max="20" style="width:64px;" /></label>
+	          <button class="btn btn-sm btn-outline" onclick="pvSetFrf(false)">FRF 적용</button>
+	          <button class="btn btn-sm btn-outline" onclick="pvSetFrf(true)">실측 해제</button>
+	          <span id="pv-frf-state" style="font-size:0.7rem;color:var(--text-muted);"></span>
+	        </div>
 	        <div class="pv-row" id="pv-calib"></div>
 	        <div class="pv-grid" id="pv-proc-cards"></div>
+	        <div class="pv-grid" style="margin-top:10px;">
+	          <div class="pv-card"><h4>재생 채터 안정 로브 (가로: 회전수 rpm · 세로: 한계 ap mm · 점: 현재 조건)</h4><canvas class="pv-canvas" id="pv-lobe-chart" width="440" height="240"></canvas></div>
+	          <div class="pv-card"><h4>3단계 마모 궤적 (플랭크 마모 ↔ 절삭력 ↔ 온도 결합 · 가로: 분)</h4><canvas class="pv-canvas" id="pv-traj-chart" width="440" height="240"></canvas></div>
+	        </div>
 	        <div class="pv-card" style="margin-top:10px;"><h4>냉각 방식 비교 (마찰 · 날끝 온도 · 열균열 · 구성인선 · 수명 · 치수)</h4><div id="pv-coolant"></div></div>
 	        <div class="pv-card" style="margin-top:10px;">
 	          <h4>경로 부하 타임라인 (높이맵 제거 시뮬레이션)</h4>
@@ -927,6 +954,8 @@
 	              <option value="vb_mm">플랭크 마모 VB (mm)</option>
 	              <option value="engage_deg">맞물림 각 (°)</option>
 	              <option value="wp_temp_c">소재 온도 (°C)</option>
+	              <option value="chatter_margin">채터 여유 (배)</option>
+	              <option value="workpiece_um">얇은 벽 휨 (µm)</option>
 	            </select>
 	          </div>
 	          <canvas class="pv-canvas" id="pv-sim-chart" width="900" height="220"></canvas>
@@ -970,6 +999,41 @@
 	          <div id="pv-sds-conf" style="margin-top:8px;"></div>
 	          <div class="pv-log" id="pv-sds-log" style="margin-top:8px;"></div>
 	        </div>
+	      </div>
+	      <div class="pv-pane" id="pv-pane-lib">
+	        <div class="pv-row">
+	          <select id="lib-project"></select>
+	          <button class="btn btn-sm btn-outline" onclick="libUseProject()">프로젝트 전환</button>
+	          <input type="text" id="lib-new-project" placeholder="새 프로젝트 이름" />
+	          <button class="btn btn-sm btn-outline" onclick="libCreateProject()">프로젝트 생성</button>
+	          <button class="btn btn-sm" onclick="libSaveProfile()">현재 프로필을 프로젝트에 저장</button>
+	          <input type="text" id="lib-preset-name" placeholder="프리셋 이름" />
+	          <button class="btn btn-sm btn-outline" onclick="libSavePreset()">프리셋으로 저장</button>
+	          <button class="btn btn-sm btn-outline" onclick="libFlush()">인덱스 반영·압축</button>
+	          <button class="btn btn-sm btn-outline" onclick="libReindex()">속성 재색인</button>
+	        </div>
+	        <div class="pv-card"><h4>저장소 (SQLite 질의 · LanceDB 벡터 + 시계열 통합)</h4><div id="lib-status"></div></div>
+	        <div class="pv-grid" style="margin-top:10px;">
+	          <div class="pv-card"><h4>프리셋 (프로젝트 간 공유 · 연결된 프로필/실행 수)</h4><div id="lib-presets"></div></div>
+	          <div class="pv-card"><h4>활성 프로젝트의 프로필</h4><div id="lib-profiles"></div></div>
+	        </div>
+	        <div class="pv-card" style="margin-top:10px;">
+	          <h4>큐레이션 — 현재 공작물에 맞는 앤드밀 (물리 사전 + 직접 이력 + 유사 공작물·앤드밀 relay)</h4>
+	          <div class="pv-row">
+	            <label class="pv-check"><input type="checkbox" id="lib-all" checked /> 모든 프로젝트 이력 사용</label>
+	            <button class="btn btn-sm" onclick="libCurate()">큐레이션 실행</button>
+	          </div>
+	          <div id="lib-curation"></div>
+	        </div>
+	        <div class="pv-grid" style="margin-top:10px;">
+	          <div class="pv-card"><h4>앤드밀 라이브러리 (브랜드가 아닌 속성 키 · A/B 선택 후 비교)</h4>
+	            <div class="pv-row"><button class="btn btn-sm btn-outline" onclick="libCompare()">A ↔ B 비교</button></div>
+	            <div id="lib-endmills"></div>
+	          </div>
+	          <div class="pv-card"><h4>공작물 라이브러리 (별도 저장 · relay 기준)</h4><div id="lib-workpieces"></div></div>
+	        </div>
+	        <div class="pv-card" style="margin-top:10px;"><h4>비교 · relay · 실행 기록</h4><div id="lib-detail"></div></div>
+	        <div class="pv-card" style="margin-top:10px;"><h4>저장 기록</h4><div class="pv-log" id="lib-log"></div></div>
 	      </div>
 	    </div>
 	  </main>
@@ -2462,9 +2526,14 @@
 	function pvTab(name, el) {
 	  document.querySelectorAll('.pv-tab').forEach(t => t.classList.toggle('active', t === el));
 	  document.querySelectorAll('.pv-pane').forEach(p => p.classList.toggle('active', p.id === 'pv-pane-' + name));
-	  if (name === 'proc') pvDrawSim();
+	  if (name === 'proc') {
+	    pvDrawSim();
+	    pvDrawLobes();
+	    pvDrawTraj();
+	  }
 	  if (name === 'ts') pvRenderForecast();
 	  if (name === 'decide') pvSdsStatus();
+	  if (name === 'lib') libEnter();
 	}
 
 	async function pvEnter() {
@@ -2524,6 +2593,7 @@
 	  if (pick) sel.value = pick;
 	  pvRenderDocs(s.docs);
 	  if (s.calibration && s.calibration.length) pvRenderCalib(s.calibration);
+	  pvRenderFrf(s.frf);
 	}
 
 	function pvRenderDocs(docs) {
@@ -2561,7 +2631,7 @@
 	  if (!st) return;
 	  const root = document.getElementById('pv-model-root');
 	  if (!root.value) root.value = st.root;
-	  document.getElementById('pv-models').innerHTML = pvTable([
+	  document.getElementById('pv-models').innerHTML = `<div style="font-size:0.7rem;margin-bottom:4px;">연산 장치: <b>${esc(st.device || 'CPU')}</b></div>` + pvTable([
 	    { t: '모델', f: m => esc(m.label) },
 	    { t: '상태', nw: true, f: m => m.loaded ? '<span class="sev-0">✓ 로드</span>' : '<span class="sev-1">미로드</span>' },
 	    { t: '상세', f: m => `${esc(m.detail)}${m.dir ? `<div style="color:var(--text-muted)">${esc(m.dir)}</div>` : ''}${m.error ? `<div class="sev-3">${esc(m.error)}</div>` : ''}` },
@@ -2616,6 +2686,7 @@
 	      ...out.doc.applied.map(a => '  ✓ ' + a),
 	      ...out.doc.issues.map(i => `  ${i.level === 'error' ? '✗' : i.level === 'warn' ? '!' : '·'} [${i.field}] ${i.message}`),
 	      ...out.sds.map(l => '  SDS ' + l),
+	      ...(out.library || []).map(l => '  DB ' + l),
 	    ]);
 	    if (out.tool_image) { PV.tool = out.tool_image; pvRenderTool(); }
 	    if (out.mold_image) { PV.moldImage = out.mold_image; pvRenderMoldSurface(); }
@@ -2794,6 +2865,7 @@
 	    pvRenderMold(out.nominal_mold);
 	  }
 	  pvRenderProcess();
+	  if (out.library && out.library.length) pvLogLines('pv-proc-notes', out.library.map(l => 'DB ' + l));
 	  pvRefresh();
 	}
 
@@ -2801,6 +2873,8 @@
 	  const p = PV.process;
 	  if (!p) return;
 	  const a = p.analysis, th = a.thermal, w = a.wear, co = a.coeffs, fo = a.forces, eb = a.error_budget_um, sim = p.sim;
+	  const tb = a.tribology || {}, cl = th.cooling || {}, sh = th.shock || {};
+	  const st = a.stability, fv = a.forced, tr = a.trajectory;
 	  document.getElementById('pv-proc-source').textContent =
 	    `${p.source} · ${p.purpose === 'finishing' ? '정삭' : '황삭'} · 예상 ${fmt(p.metadata.estimated_time_min, 2)}분 (절삭 ${fmt(p.metadata.cutting_time_min, 2)} / 급이송 ${fmt(p.metadata.rapid_time_min, 2)})`;
 	  pvRenderCalib(p.calibration);
@@ -2817,7 +2891,7 @@
 	      ['MRR', `${fmt(a.mrr_cm3_min, 2)} cm³/min`],
 	    ]),
 	    card('마찰 (Merchant · 코팅 × 피삭재 × 냉각 윤활)', [
-	      ['마찰계수 μ', fmt(co.mu, 3)],
+	      ['마찰계수 μ (평가 온도)', `${fmt(co.mu, 3)} (${fmt(co.friction_temp_c, 0)} °C)`],
 	      ['마찰각 β · 전단각 φ', `${fmt(co.beta_deg, 1)}° · ${fmt(co.shear_angle_deg, 1)}°`],
 	      ['반경력비 Kr = tan(β−α)', fmt(co.kr, 3)],
 	      ['비절삭저항 kc1.1 (유효)', `${fmt(co.kc11, 0)} N/mm²`],
@@ -2834,12 +2908,33 @@
 	      ['소재 입열 · 정상 상승', `${fmt(th.workpiece_heat_w, 0)} W · ${fmt(th.workpiece_steady_rise_c, 1)} K`],
 	      ['열균열 위험 · 구성인선 위험', `${fmt(th.thermal_crack_risk, 2)} · ${fmt(th.bue_risk, 2)}`],
 	    ]),
-	    card('마모 (Usui형 + 마찰·열·냉각 계수)', [
+	    card('마모 (연삭·응착·확산·산화 메커니즘 분해 · 기준 상태 정규화)', [
 	      ['VB 증가율', `${fmt(w.vb_rate_mm_per_min, 5)} mm/min`],
 	      ['수명 (VB 한계)', `${fmt(w.tool_life_min, 1)} min (VB ${fmt(w.vb_limit_mm, 2)} mm)`],
 	      ['반경 손실률', `${fmt(w.radial_loss_rate_um_per_min, 3)} µm/min`],
-	      ['온도 · 응력 계수', `${fmt(w.temperature_factor, 2)} · ${fmt(w.stress_factor, 2)}`],
-	      ['속도 · 코팅 · 런아웃 계수', `${fmt(w.speed_factor, 2)} · ${fmt(w.coating_factor, 2)} · ${fmt(w.runout_factor, 2)}`],
+	      ['열활성(확산·산화) · 응력 계수', `${fmt(w.temperature_factor, 2)} · ${fmt(w.stress_factor, 2)}`],
+	      ['속도 · 코팅궁합 · 런아웃 계수', `${fmt(w.speed_factor, 2)} · ${fmt(w.coating_factor, 2)} · ${fmt(w.runout_factor, 2)}`],
+	      ['메커니즘 합 배율', `×${fmt(w.mechanism_factor, 2)}`],
+	      ...(w.mechanisms || []).map(m => [m.label, `${fmt(m.share * 100, 0)} % (기준 대비 ×${fmt(m.ratio, 2)})${m.key === w.dominant ? ' · 지배' : ''}`]),
+	    ]),
+	    card('상호작용 (코팅 × 피삭재 × 냉각 · 마찰·열·화학)', [
+	      ['조합', `${tb.coating_family || '-'} × ${tb.workpiece_chem || '-'} × ${tb.coolant_medium || '-'}`],
+	      ['μ 쌍 → 열 → 유효', `${fmt(tb.mu_pair, 3)} → ${fmt(tb.mu_thermal, 3)} → ${fmt(tb.mu_eff, 3)}`],
+	      ['고착 비율 · 윤활 침투 · 접근', `${fmt(tb.sticking, 2)} · ${fmt(tb.penetration, 2)} · ${fmt(tb.lubricant_access, 2)}`],
+	      ['칩 리프트 (고압 제트)', `${fmt((tb.chip_lift || 0) * 100, 1)} %`],
+	      ['응착 · 확산 · 용해', `${fmt(tb.adhesion, 2)} · ${fmt(tb.diffusion, 2)} · ${fmt(tb.dissolution, 2)}`],
+	      ['연삭 지수(AlTiN 대비) · 산화 활성', `×${fmt(tb.abrasion_ratio, 2)} · ${fmt(tb.oxidation_activity, 2)}`],
+	      ['유효 표면 경도 (고온)', `${fmt(tb.hot_hardness_hv, 0)} HV`],
+	      ['전단 변형률 속도 · JC 속도 계수', `${fmt(tb.strain_rate, 0)} /s · ×${fmt(tb.rate_factor, 3)}`],
+	      ['유동 응력 (JC)', `${fmt(tb.flow_stress_mpa, 0)} MPa`],
+	      ['제트 속도 · 막 열전달', `${fmt(cl.jet_velocity_m_s, 1)} m/s · ${fmt(cl.h_film, 0)} W/m²K`],
+	      ['비등 상태 · 유효 열전달', `${cl.boiling_state || '-'} (×${fmt(cl.boiling_factor, 2)}) · ${fmt(cl.h_eff, 0)} W/m²K`],
+	      ['칩 측 전도 · 냉각 유효도', `${fmt(cl.conduction, 0)} W/m²K · ${fmt((cl.effectiveness || 0) * 100, 1)} %`],
+	      ['접촉 길이 · 공구 몸체 냉각', `${fmt(cl.contact_length_mm, 3)} mm · ${fmt((cl.body_effectiveness || 0) * 100, 0)} %`],
+	      ['코팅 열차단 (공구 입열 · 계면 온도)', `×${fmt(tb.coating_barrier ? tb.coating_barrier.tool_heat : 1, 2)} · ×${fmt(tb.coating_barrier ? tb.coating_barrier.interface : 1, 3)}`],
+	      ['급랭 강도 · 진폭 · 열응력', `${fmt(sh.quench, 2)} · ${fmt(sh.amplitude_c, 0)} K · ${fmt(sh.stress_mpa, 0)} MPa`],
+	      ['코팅/모재 열팽창 불일치 응력', `${fmt(sh.mismatch_mpa, 0)} MPa`],
+	      ['소재 궁합', (tb.compat && tb.compat.messages.length) ? tb.compat.messages.join(' / ') : '문제 없음'],
 	    ]),
 	    card('힘 · 휨 · 치수 오차 예산', [
 	      ['합력 (평균/피크)', `${fmt(fo.f_res_mean, 0)} / ${fmt(fo.f_res_peak, 0)} N`],
@@ -2848,7 +2943,33 @@
 	      ['공구계 강성 · 휨 피크', `${fmt(a.stiffness_n_per_um, 2)} N/µm · ${fmt(a.deflection_peak_um, 1)} µm`],
 	      ['벽면 휨 (상/하)', `${fmt(a.wall.deflection_top_um, 1)} / ${fmt(a.wall.deflection_bottom_um, 1)} µm`],
 	      ['오차 예산 합계 / 공차', `${fmt(eb.total_um, 1)} / ${fmt(eb.tolerance_um, 0)} µm (${fmt(eb.utilization * 100, 0)}%)`],
+	      ['예산 구성 (고정구 / 동적 SLE)', `${fmt(eb.fixture_um, 2)} / ${fmt(eb.dynamic_um, 2)} µm`],
 	      ['면조도 Ra · 스캘럽', `${fmt(a.surface.wall_ra_um, 2)} · ${fmt(a.surface.scallop_um, 2)} µm`],
+	    ]),
+	    card('동특성 · 재생 채터 (공구 끝 FRF · 안정 로브)', [
+	      ['고유진동수 · 강성 · 감쇠', `${fmt(st.fn_hz, 0)} Hz · ${fmt(st.k_n_per_um, 1)} N/µm · ζ ${fmt(st.zeta, 3)} (${st.measured ? (st.stickout_scaled ? '실측 · 돌출 보정' : '실측') : '모델 추정'})`],
+	      ['한계 ap (현재 회전수) / 절대 한계', `${fmt(st.ap_lim_mm, 2)} / ${fmt(st.ap_crit_mm, 2)} mm`],
+	      ['채터 여유', `${fmt(st.margin, 2)} 배 ${st.stable ? '(안정)' : '(채터)'}`],
+	      ['채터 주파수 · 공정감쇠 · 부등분할', `${fmt(st.chatter_hz, 0)} Hz · ×${fmt(st.process_damping_gain, 2)} · ×${fmt(st.pitch_gain, 2)}`],
+	      ['안정 로브 회전수 (±2% 강건)', (st.suggested_rpm || []).length ? st.suggested_rpm.map(n => 'S' + n).join(', ') : '-'],
+	      ['날 통과 주파수 · 강제진동', `${fmt(fv.tooth_hz, 0)} Hz · ${fmt(fv.amplitude_um, 2)} µm (확대 ${fmt(fv.magnification, 2)})`],
+	      ['동적 표면 위치 오차 (SLE)', `${fmt(fv.sle_um, 2)} µm${fv.near_resonance ? ' · 공진 근접' : ''}`],
+	    ]),
+	    card('마모 궤적 (3단계 · 플랭크 마모 ↔ 절삭력 ↔ 온도 결합)', [
+	      ['비선형 수명 / 초기율 선형 수명', `${fmt(tr.life_min, 1)} / ${fmt(tr.linear_life_min, 1)} min`],
+	      ['초기 마모 (break-in)', `VB ${fmt(tr.break_in_vb_mm, 3)} mm · τ ${fmt(tr.break_in_tau_min, 2)} min`],
+	      ['가속 마모 진입', tr.phase3_min === null || tr.phase3_min === undefined ? '-' : `${fmt(tr.phase3_min, 1)} min`],
+	      ['수명 말기 마모율 배수', `×${fmt(tr.acceleration, 2)}`],
+	      ['기준 정규화 κ · 보정 계수', `${fmt(tr.kappa, 3)} · ${fmt(tr.calib_wear, 2)}`],
+	    ]),
+	    card('접촉 정밀 (최소 칩두께 · 가공경화 · 열연화 · 입열 · 고정구)', [
+	      ['최소 칩두께 · 밀림 비율', `${fmt(co.h_min_mm * 1000, 2)} µm · ${fmt(a.ploughing_share * 100, 1)} %`],
+	      ['가공경화 계수 · 경화층', `${fmt(co.work_hardening, 2)} · ${fmt(co.hardened_depth_mm * 1000, 0)} µm`],
+	      ['열연화 kc 배율', `×${fmt(a.softening, 3)}`],
+	      ['소재 입열 비율 (Boothroyd)', `${fmt(th.heat_to_workpiece_share * 100, 1)} %`],
+	      ['고정구 변위', `${fmt(a.fixture_deflection_um, 2)} µm`],
+	      ['Ra 구성 (이송흔 / 최소칩 / 채터 배율)', `${fmt(a.surface.feed_mark_um, 2)} / ${fmt(a.surface.min_chip_um, 2)} µm / ×${fmt(1 + a.surface.chatter_penalty, 2)}`],
+	      ['얇은 벽 최대 휨 (경로)', sim.thin_wall_mm ? `${fmt(sim.max_workpiece_defl_um, 1)} µm (벽 두께 ≈ ${fmt(sim.thin_wall_mm, 1)} mm)` : '-'],
 	    ]),
 	    card('경로 시뮬레이션 요약', [
 	      ['시간 (전체/절삭/급이송)', `${fmt(sim.total_time_min, 2)} / ${fmt(sim.cut_time_min, 2)} / ${fmt(sim.rapid_time_min, 2)} min`],
@@ -2868,6 +2989,9 @@
 	    { t: '공구 몸체 °C', f: r => fmt(r.tool_body_c, 1) },
 	    { t: '열균열', f: r => fmt(r.crack_risk, 2) },
 	    { t: '구성인선', f: r => fmt(r.bue_risk, 2) },
+	    { t: '윤활 접근', f: r => fmt(r.lubricant_access, 2) },
+	    { t: '비등', f: r => esc(r.boiling_state || '-') },
+	    { t: '지배 마모', f: r => esc(r.dominant_wear || '-') },
 	    { t: '수명 min', f: r => fmt(r.tool_life_min, 1) },
 	    { t: '오차 예산 µm', f: r => fmt(r.wall_error_um, 1) },
 	    { t: '제약', f: r => r.feasible ? '<span class="sev-0">통과</span>' : r.reasons.map(x => `<div class="sev-2">${esc(x)}</div>`).join('') },
@@ -2885,6 +3009,8 @@
 	  ], sim.episodes);
 	  pvLogLines('pv-proc-notes', [...a.notes, ...sim.warnings.map(x => '⚠ ' + x)], true);
 	  pvDrawSim();
+	  pvDrawLobes();
+	  pvDrawTraj();
 	}
 
 	function pvDrawSim() {
@@ -3054,6 +3180,332 @@
 	  btn.textContent = '원장 초기화';
 	  const st = await pvCall('sds_purge');
 	  if (st) pvSdsStatus();
+	}
+
+	const LIB = { overview: null, curation: null, pickA: null, pickB: null };
+	const LIB_KIND = { physics: '물리 사전', direct: '직접 이력', relay_workpiece: '공작물 relay', relay_endmill: '앤드밀 relay', relay_regime: '상호작용 레짐 relay' };
+
+	function libDate(ms) {
+	  if (!ms) return '-';
+	  const d = new Date(ms);
+	  const p = n => String(n).padStart(2, '0');
+	  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+	}
+
+	function libAll() {
+	  const el = document.getElementById('lib-all');
+	  return el ? el.checked : true;
+	}
+
+	async function libEnter() {
+	  const ov = await pvCall('lib_overview');
+	  if (ov) libRender(ov);
+	}
+
+	function libRender(ov) {
+	  LIB.overview = ov;
+	  const st = ov.status;
+	  document.getElementById('lib-project').innerHTML = ov.projects.map(p =>
+	    `<option value="${p.id}"${p.id === ov.active_project ? ' selected' : ''}>${esc(p.name)} · 프로필 ${p.profiles} · 실행 ${p.runs}</option>`).join('');
+	  const zv = (st.vectors || []).map(c => `${esc(c.name)} — ${c.index === 'IvfHnswSq' ? `IVF_HNSW_SQ (색인율 ${fmt(c.index_completeness * 100, 0)}%)` : 'Flat 정확 검색'} · ${c.docs}건 · dim ${c.dim} · ${esc(c.metric)}${c.pending ? ` · 정리 대기 ${c.pending}` : ''}`).join('<br>');
+	  document.getElementById('lib-status').innerHTML = pvKv([
+	    ['활성 프로젝트', st.project ? st.project.name : '-'],
+	    ['SQLite', `프로젝트 ${st.sqlite.projects} · 프리셋 ${st.sqlite.presets} · 프로필 ${st.sqlite.profiles} · 앤드밀 ${st.sqlite.endmills} · 공작물 ${st.sqlite.workpieces} · 실행 ${st.sqlite.runs} · 지표 ${st.sqlite.metrics}`],
+	    ['LanceDB 시계열', st.lancedb ? `점 ${st.lancedb.points} · 마모 곡선 창 ${st.lancedb.windows} · ${st.lancedb.path}` : `사용 불가: ${st.lancedb_error || '-'}`],
+	    ['저장 위치', st.root],
+	  ]) + `<div style="font-size:0.7rem;margin-top:6px;"><b>LanceDB 벡터 테이블</b><br>${zv || esc(st.vector_error || '없음')}</div>`
+	    + (st.notes.length ? `<div class="pv-log" style="margin-top:6px;">${st.notes.map(esc).join('\n')}</div>` : '');
+	  const presetName = id => { const p = ov.presets.find(x => x.id === id); return p ? p.name : '-'; };
+	  document.getElementById('lib-presets').innerHTML = pvTable([
+	    { t: '프리셋', f: p => `${esc(p.name)}${p.builtin ? ' <span class="badge badge-low">기본</span>' : ''}<div style="color:var(--text-muted);font-size:0.62rem;">${esc(p.description)}</div>` },
+	    { t: '앤드밀 · 공작물', f: p => `#${p.endmill_id} · #${p.workpiece_id}` },
+	    { t: '프로필', k: 'profiles' },
+	    { t: '실행', k: 'runs' },
+	    { t: '', nw: true, f: p => `<button class="btn btn-sm btn-outline" onclick="libPresetProfiles(${p.id})">사용 프로필</button>` },
+	  ], ov.presets);
+	  document.getElementById('lib-profiles').innerHTML = pvTable([
+	    { t: '프로필', f: r => esc(r.name) },
+	    { t: '프리셋', f: r => esc(r.preset_id ? presetName(r.preset_id) : '-') },
+	    { t: '앤드밀 · 공작물', f: r => `#${r.endmill_id} · #${r.workpiece_id}` },
+	    { t: '실행', k: 'runs' },
+	    { t: '수정', nw: true, f: r => libDate(r.updated_at) },
+	  ], ov.profiles);
+	  document.getElementById('lib-endmills').innerHTML = pvTable([
+	    { t: 'A', f: e => `<input type="radio" name="lib-a"${LIB.pickA === e.id ? ' checked' : ''} onchange="LIB.pickA=${e.id}" />` },
+	    { t: 'B', f: e => `<input type="radio" name="lib-b"${LIB.pickB === e.id ? ' checked' : ''} onchange="LIB.pickB=${e.id}" />` },
+	    { t: '#', k: 'id' },
+	    { t: '속성', f: e => `${esc(e.label)}<div style="color:var(--text-muted);font-size:0.62rem;">${esc(e.attr_key)}</div>` },
+	    { t: '별칭 (이름 · 모델)', f: e => e.aliases.map(a => esc(a.model ? `${a.name} / ${a.model}` : a.name)).join('<br>') },
+	    { t: '실행', k: 'runs' },
+	    { t: '공작물', k: 'workpieces' },
+	    { t: '', nw: true, f: e => `<button class="btn btn-sm btn-outline" onclick="libRelay(${e.id})">relay</button> <button class="btn btn-sm btn-outline" onclick="libApply(${e.id})">적용</button>` },
+	  ], ov.endmills);
+	  document.getElementById('lib-workpieces').innerHTML = pvTable([
+	    { t: '#', k: 'id' },
+	    { t: '속성', f: w => `${esc(w.label)}<div style="color:var(--text-muted);font-size:0.62rem;">${esc(w.attr_key)}</div>` },
+	    { t: '이름', f: w => w.names.map(esc).join('<br>') },
+	    { t: '실행', k: 'runs' },
+	    { t: '앤드밀', k: 'endmills' },
+	    { t: '', nw: true, f: w => `<button class="btn btn-sm btn-outline" onclick="libRuns(null, ${w.id})">실행 기록</button>` },
+	  ], ov.workpieces);
+	}
+
+	async function libUseProject() {
+	  const id = parseInt(document.getElementById('lib-project').value, 10);
+	  if (!isFinite(id)) return;
+	  const ov = await pvCall('lib_use_project', { projectId: id });
+	  if (!ov) return;
+	  libRender(ov);
+	  pvLogLines('lib-log', [`프로젝트 전환 → #${id}`]);
+	  loadLeftPanel();
+	  pvRefresh();
+	}
+
+	async function libCreateProject() {
+	  const name = pvStr('lib-new-project');
+	  if (!name) { pvStatus('새 프로젝트 이름을 입력하세요'); return; }
+	  const ov = await pvCall('lib_create_project', { name, description: '' });
+	  if (!ov) return;
+	  libRender(ov);
+	  pvLogLines('lib-log', [`프로젝트 생성·전환 → ${name}`]);
+	  loadLeftPanel();
+	  pvRefresh();
+	}
+
+	async function libSaveProfile() {
+	  const ov = await pvCall('lib_save_profile', { presetName: pvStr('lib-preset-name') });
+	  if (!ov) return;
+	  libRender(ov);
+	  pvLogLines('lib-log', ['현재 프로필을 활성 프로젝트에 저장했습니다']);
+	}
+
+	async function libSavePreset() {
+	  const name = pvStr('lib-preset-name');
+	  if (!name) { pvStatus('프리셋 이름을 입력하세요'); return; }
+	  const ov = await pvCall('lib_save_preset', { name, description: '' });
+	  if (!ov) return;
+	  libRender(ov);
+	  pvLogLines('lib-log', [`프리셋 '${name}' 저장 · 현재 프로필과 연결`]);
+	  loadLeftPanel();
+	}
+
+	async function libPresetProfiles(id) {
+	  const rows = await pvCall('lib_profiles_by_preset', { presetId: id });
+	  if (!rows) return;
+	  const pname = pid => ((LIB.overview && LIB.overview.projects.find(p => p.id === pid)) || {}).name || `#${pid}`;
+	  document.getElementById('lib-detail').innerHTML = `<h4>프리셋 #${id} 을(를) 쓰는 프로필 (전 프로젝트)</h4>` + pvTable([
+	    { t: '프로젝트', f: r => esc(pname(r.project_id)) },
+	    { t: '프로필', f: r => esc(r.name) },
+	    { t: '앤드밀 · 공작물', f: r => `#${r.endmill_id} · #${r.workpiece_id}` },
+	    { t: '실행', k: 'runs' },
+	    { t: '수정', nw: true, f: r => libDate(r.updated_at) },
+	  ], rows);
+	}
+
+	async function libRuns(endmillId, workpieceId) {
+	  const rows = await pvCall('lib_runs', { endmillId, workpieceId, allProjects: libAll(), limit: 100 });
+	  if (!rows) return;
+	  document.getElementById('lib-detail').innerHTML = `<h4>실행 기록 ${workpieceId ? '공작물 #' + workpieceId : ''}${endmillId ? ' 앤드밀 #' + endmillId : ''}</h4>` + pvTable([
+	    { t: '#', k: 'id' },
+	    { t: '시각', nw: true, f: r => libDate(r.created_at) },
+	    { t: '종류', f: r => esc(r.kind) },
+	    { t: '앤드밀 · 공작물', f: r => `#${r.endmill_id} · #${r.workpiece_id}` },
+	    { t: '공구 개체', f: r => esc(r.tool_key) },
+	    { t: '조건', f: r => `Vc ${fmt(r.vc_m_min, 0)} · fz ${fmt(r.fz_mm, 3)} · ap ${fmt(r.ap_mm, 2)} · ae ${fmt(r.ae_mm, 2)} · ${esc(r.coolant)}` },
+	    { t: '지표', f: r => r.metrics.map(m => `${esc(m.metric)}(${esc(m.source)}) ${fmt(m.value, 3)} ${esc(m.unit)}`).join('<br>') },
+	  ], rows);
+	}
+
+	async function libCurate() {
+	  setStatus('busy', 'CURATING...');
+	  pvStatus('후보 앤드밀마다 권장 조건을 물리 모델로 해석하는 중입니다');
+	  const r = await pvCall('lib_curate', { allProjects: libAll() });
+	  setStatus('ready', 'READY');
+	  if (!r) return;
+	  LIB.curation = r;
+	  const cands = r.candidates.map((c, i) => `<div class="lib-cand${c.is_current ? ' cur' : ''}">
+	    <div class="lib-cand-head"><span class="lib-rank">${i + 1}</span><b>${esc(c.label)}</b>${c.is_current ? ' <span class="badge badge-low">현재</span>' : ''}${c.physics.feasible ? '' : ' <span class="badge badge-high">제약</span>'}
+	      <span class="lib-score"><span class="pv-bar"><span style="width:${Math.round(Math.max(0, Math.min(1, c.score)) * 100)}%"></span></span>${fmt(c.score, 2)} · 신뢰 ${fmt(c.confidence * 100, 0)}%</span>
+	      <button class="btn btn-sm btn-outline" onclick="libApply(${c.endmill_id})">적용</button></div>
+	    <div class="lib-alias">#${c.endmill_id} · ${esc(c.aliases.join(' · ') || c.attr_key)}</div>
+	    ${c.evidence.map(e => `<div class="lib-ev lib-ev-${esc(e.kind)}"><span>${esc(LIB_KIND[e.kind] || e.kind)}</span>${esc(e.text)} <em>(가중 ${fmt(e.weight, 2)} · 점수 ${fmt(e.score, 2)})</em></div>`).join('')}
+	  </div>`).join('');
+	  const sim = r.similar_workpieces.length ? pvTable([
+	    { t: '#', k: 'id' }, { t: '유사 공작물', f: n => esc(n.label) }, { t: '유사도', f: n => fmt(n.similarity, 3) }, { t: '실행', k: 'runs' },
+	  ], r.similar_workpieces) : '';
+	  const curves = r.curves.length ? pvTable([
+	    { t: '시계열', f: c => esc(c.series_id) }, { t: '앤드밀', f: c => esc(c.endmill_label) }, { t: '공작물', f: c => esc(c.workpiece_label) },
+	    { t: '유사도', f: c => fmt(c.similarity, 3) }, { t: '기간', f: c => `${fmt(c.duration_min, 1)} 분` },
+	    { t: '말기 / 한계', f: c => fmt(c.final_ratio, 2) }, { t: '진행률 /h', f: c => fmt(c.rate_per_hour, 3) },
+	  ], r.curves) : '';
+	  document.getElementById('lib-curation').innerHTML =
+	    `<div style="font-size:0.72rem;margin-bottom:6px;">대상 공작물 #${r.workpiece_id} ${esc(r.workpiece_label)} · 목적 ${r.purpose === 'finishing' ? '정삭' : '황삭'}</div>${cands}`
+	    + (sim ? `<h4 style="margin-top:8px;">유사 공작물 (LanceDB 속성 벡터)</h4>${sim}` : '')
+	    + (curves ? `<h4 style="margin-top:8px;">현재 마모 곡선과 비슷한 과거 곡선 (LanceDB)</h4>${curves}` : '')
+	    + (r.notes.length ? `<div class="pv-log" style="margin-top:6px;">${r.notes.map(esc).join('\n')}</div>` : '');
+	}
+
+	function libSide(c) {
+	  return pvKv([
+	    ['속성', c.label],
+	    ['별칭', c.aliases.join(' · ') || '-'],
+	    ['종합 점수', fmt(c.score, 2)],
+	    ['권장 조건', `S${c.physics.rpm} · fz ${fmt(c.physics.fz_mm, 3)} · ap ${fmt(c.physics.ap_mm, 2)} · ae ${fmt(c.physics.ae_mm, 2)}`],
+	    ['예측 수명', `${fmt(c.physics.tool_life_min, 0)} 분`],
+	    ['오차 예산 사용률', `${fmt(c.physics.wall_util * 100, 0)} %`],
+	    ['채터 여유', `${fmt(c.physics.chatter_margin, 2)} 배 (${c.physics.chatter_measured ? '실측 FRF' : '모델 추정'})`],
+	    ['날끝 온도 / 코팅 한계', `${fmt(c.physics.interface_c, 0)} / ${fmt(c.physics.coating_limit_c, 0)} °C`],
+	    ['Ra · MRR', `${fmt(c.physics.ra_um, 2)} µm · ${fmt(c.physics.mrr_cm3_min, 1)} cm³/min`],
+	    ['계면 μ · 지배 마모', `${fmt(c.physics.mu_eff, 3)} · ${c.physics.dominant_wear || '-'} ${fmt((c.physics.dominant_share || 0) * 100, 0)}%`],
+	    ['소재 궁합', (c.physics.compat || []).length ? c.physics.compat.join(' / ') : '문제 없음'],
+	    ['제약', c.physics.reasons.join(', ') || '없음'],
+	  ]);
+	}
+
+	async function libCompare() {
+	  if (!LIB.pickA || !LIB.pickB || LIB.pickA === LIB.pickB) { pvStatus('A·B 에 서로 다른 앤드밀을 선택하세요'); return; }
+	  setStatus('busy', 'COMPARING...');
+	  const r = await pvCall('lib_compare_endmills', { aId: LIB.pickA, bId: LIB.pickB, allProjects: libAll() });
+	  setStatus('ready', 'READY');
+	  if (!r) return;
+	  const hist = h => pvTable([
+	    { t: '공작물', f: x => esc(x.workpiece_label) }, { t: '실행', f: x => x.stats.runs },
+	    { t: '실측/예측 마모', f: x => fmt(x.stats.wear_ratio, 2) }, { t: '실측 수명', f: x => fmt(x.stats.life_meas, 0) },
+	    { t: '점수', f: x => fmt(x.score, 2) },
+	  ], h);
+	  document.getElementById('lib-detail').innerHTML =
+	    `<div class="pv-grid"><div class="pv-card"><h4>A</h4>${libSide(r.a)}${hist(r.history_a)}</div><div class="pv-card"><h4>B</h4>${libSide(r.b)}${hist(r.history_b)}</div></div>`
+	    + `<div style="font-size:0.72rem;margin:6px 0;">속성 유사도 ${fmt(r.attribute_similarity, 3)}</div>`
+	    + pvTable([{ t: '속성', k: 'attribute' }, { t: 'A', k: 'a' }, { t: 'B', k: 'b' }, { t: '차이 비중', f: d => `${fmt(d.share * 100, 0)} %` }], r.diffs)
+	    + (r.head_to_head.length ? `<div class="pv-log" style="margin-top:6px;">${r.head_to_head.map(esc).join('\n')}</div>` : '')
+	    + `<div class="pv-log" style="margin-top:6px;">${r.verdict.map(esc).join('\n')}</div>`;
+	}
+
+	async function libRelay(id) {
+	  const r = await pvCall('lib_relay_endmill', { endmillId: id, allProjects: libAll() });
+	  if (!r) return;
+	  document.getElementById('lib-detail').innerHTML = `<div style="font-size:0.72rem;margin-bottom:6px;"><b>#${r.endmill_id} ${esc(r.label)}</b> ${esc(r.aliases.join(' · '))}</div>`
+	    + `<h4>사용한 공작물</h4>` + pvTable([
+	      { t: '공작물', f: x => esc(x.workpiece_label) }, { t: '실행', f: x => x.stats.runs },
+	      { t: '실측/예측 마모', f: x => fmt(x.stats.wear_ratio, 2) }, { t: '실측 수명', f: x => fmt(x.stats.life_meas, 0) },
+	      { t: '채터 여유', f: x => fmt(x.stats.chatter_margin, 2) }, { t: '점수', f: x => fmt(x.score, 2) },
+	    ], r.workpieces)
+	    + `<h4 style="margin-top:8px;">속성이 비슷한 앤드밀 (LanceDB 속성 벡터)</h4>` + pvTable([
+	      { t: '#', k: 'id' }, { t: '앤드밀', f: n => esc(n.label) }, { t: '유사도', f: n => fmt(n.similarity, 3) }, { t: '실행', k: 'runs' },
+	    ], r.similar_endmills)
+	    + `<h4 style="margin-top:8px;">relay 제안 — 유사 앤드밀의 실적으로 본 후보 공작물</h4>` + pvTable([
+	      { t: '공작물', f: s => esc(s.workpiece_label) }, { t: '경유 앤드밀', f: s => esc(s.via_endmill_label) },
+	      { t: 'relay 점수', f: s => fmt(s.relay_score, 2) }, { t: '설명', f: s => esc(s.text) },
+	    ], r.suggestions)
+	    + (r.notes.length ? `<div class="pv-log" style="margin-top:6px;">${r.notes.map(esc).join('\n')}</div>` : '');
+	}
+
+	async function libApply(id) {
+	  const s = await pvCall('lib_apply_endmill', { endmillId: id });
+	  if (!s) return;
+	  pvRenderSummary(s);
+	  pvLogLines('lib-log', [`앤드밀 #${id} 를 현재 프로필에 적용 → 절삭 조건을 물리 모델로 재산정 (돌출·런아웃은 유지)`]);
+	  loadLeftPanel();
+	}
+
+	async function libFlush() {
+	  const l = await pvCall('lib_flush');
+	  if (l) pvLogLines('lib-log', l.length ? l : ['반영할 변경이 없습니다']);
+	  libEnter();
+	}
+
+	async function libReindex() {
+	  const m = await pvCall('lib_reindex');
+	  if (m) pvLogLines('lib-log', [m]);
+	  libEnter();
+	}
+
+	function pvDrawLobes() {
+	  const p = PV.process;
+	  const cv = document.getElementById('pv-lobe-chart');
+	  if (!cv) return;
+	  const st = p && p.analysis && p.analysis.stability;
+	  if (!st || !st.lobes || !st.lobes.length) { pvBlank(cv, '공정 해석을 실행하세요'); return; }
+	  const a = p.analysis;
+	  const cap = Math.max(1.25 * a.ap_mm, 4 * (st.ap_crit_mm || 0));
+	  const byLobe = {};
+	  for (const q of st.lobes) (byLobe[q.lobe] = byLobe[q.lobe] || []).push(q);
+	  const lines = Object.values(byLobe).map(arr => {
+	    arr.sort((x, y) => x.rpm - y.rpm);
+	    return { x: arr.map(q => q.rpm), y: arr.map(q => q.ap_lim_mm <= cap ? q.ap_lim_mm : null), color: '#2a4a5a', width: 1 };
+	  });
+	  const env = st.envelope || [];
+	  if (env.length) {
+	    const src = st.measured ? (st.stickout_scaled ? '실측 FRF · 돌출 보정' : '실측 FRF') : '모델 추정 FRF';
+	    lines.push({ x: env.map(q => q.rpm), y: env.map(q => Math.min(q.ap_lim_mm, cap)), color: '#00d4ff', width: 2, label: `안정 한계 포락선 (${src})` });
+	  }
+	  lines.push({ x: [a.rpm], y: [a.ap_mm], color: st.stable ? '#6bcb77' : '#ff6b6b', dots: true, width: 0.01, label: `현재 S${fmt(a.rpm, 0)} · ap ${fmt(a.ap_mm, 2)} mm · 여유 ${fmt(st.margin, 2)}배` });
+	  pvChart(cv, {
+	    lines,
+	    hlines: [{ y: st.ap_crit_mm, color: '#ffd93d', label: `절대 한계 ${fmt(st.ap_crit_mm, 2)} mm` }],
+	    vlines: (st.suggested_rpm || []).map(n => ({ x: n, color: '#6bcb77', label: 'S' + n })),
+	  });
+	}
+
+	function pvRenderFrf(f) {
+	  const st = document.getElementById('pv-frf-state');
+	  if (!f || !st) return;
+	  const fnEl = document.getElementById('pv-frf-fn');
+	  const kEl = document.getElementById('pv-frf-k');
+	  const zEl = document.getElementById('pv-frf-zeta');
+	  fnEl.placeholder = `추정 ${fmt(f.estimated_fn_hz, 0)}`;
+	  kEl.placeholder = `추정 ${fmt(f.estimated_k_n_per_um, 1)}`;
+	  if (document.activeElement !== zEl) zEl.value = fmt(f.zeta * 100, 1);
+	  const measured = f.fn_hz != null && f.k_n_per_um != null;
+	  if (document.activeElement !== fnEl) fnEl.value = measured ? f.fn_hz : '';
+	  if (document.activeElement !== kEl) kEl.value = measured ? f.k_n_per_um : '';
+	  if (measured && !f.applies) {
+	    st.textContent = '입력된 실측 FRF 는 다른 공구로 측정한 값입니다 — 현재 공구는 모델 추정으로 해석 (다시 측정해 적용하거나 해제)';
+	  } else if (measured) {
+	    const lm = f.measured_stickout_mm;
+	    const moved = lm != null && Math.abs(lm - f.stickout_mm) > 0.5;
+	    st.textContent = `실측 FRF 사용 · 측정 돌출 ${fmt(lm, 1)} mm${moved ? ` → 현재 ${fmt(f.stickout_mm, 1)} mm (모델 비율 보정)` : ''}`;
+	  } else {
+	    st.textContent = `모델 추정 (돌출 ${fmt(f.stickout_mm, 1)} mm) · 채터 판단은 참고용`;
+	  }
+	}
+
+	async function pvSetFrf(clear) {
+	  const num = id => {
+	    const v = parseFloat(document.getElementById(id).value);
+	    return Number.isFinite(v) ? v : null;
+	  };
+	  const z = num('pv-frf-zeta');
+	  const s = await pvCall('ws_set_frf', {
+	    fnHz: clear ? null : num('pv-frf-fn'),
+	    kNPerUm: clear ? null : num('pv-frf-k'),
+	    zeta: z === null ? null : z / 100,
+	    clear: !!clear,
+	  });
+	  if (!s) return;
+	  pvRenderSummary(s);
+	  const f = s.frf;
+	  pvLogLines('pv-proc-notes', [clear
+	    ? '실측 FRF 를 해제했습니다 (공구·홀더 모델 추정으로 해석)'
+	    : `FRF 적용: ${f.fn_hz ? `${fmt(f.fn_hz, 0)} Hz · ${fmt(f.k_n_per_um, 2)} N/µm · ` : ''}ζ ${fmt(f.zeta * 100, 1)} %`]);
+	  if (PV.process) pvRunProcess();
+	}
+
+	function pvDrawTraj() {
+	  const p = PV.process;
+	  const cv = document.getElementById('pv-traj-chart');
+	  if (!cv) return;
+	  const tr = p && p.analysis && p.analysis.trajectory;
+	  if (!tr || !tr.t_min || !tr.t_min.length) { pvBlank(cv, '공정 해석을 실행하세요'); return; }
+	  const lin = tr.t_min.map(t => Math.min(tr.vb_limit_mm * 1.25, t / Math.max(tr.linear_life_min, 1e-9) * tr.vb_limit_mm));
+	  pvChart(cv, {
+	    lines: [
+	      { x: tr.t_min, y: tr.vb_mm, color: '#00d4ff', label: 'VB (3단계 결합 모델)' },
+	      { x: tr.t_min, y: lin, color: '#778', dash: [4, 3], label: '초기 마모율 선형' },
+	    ],
+	    hlines: [{ y: tr.vb_limit_mm, color: '#ff6b6b', label: `VB 한계 ${fmt(tr.vb_limit_mm, 2)} mm` }],
+	    vlines: [{ x: tr.life_min, color: '#ff6b6b', label: `수명 ${fmt(tr.life_min, 0)}분` }].concat(tr.phase3_min ? [{ x: tr.phase3_min, color: '#ffd93d', label: '가속' }] : []),
+	  });
 	}
 
 	window.addEventListener("DOMContentLoaded", () => {

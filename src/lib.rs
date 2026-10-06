@@ -9,6 +9,7 @@ pub mod profile;
 pub mod workpiece_setup;
 pub mod ml;
 pub mod physics;
+pub mod tribology;
 pub mod timeseries;
 pub mod loadsim;
 pub mod toolimage;
@@ -18,6 +19,9 @@ pub mod sds;
 pub mod decision;
 pub mod ingest;
 pub mod pipeline;
+pub mod dynamics;
+pub mod store;
+pub mod curation;
 
 pub use application::*;
 pub use metadata::*;

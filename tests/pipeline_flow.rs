@@ -185,6 +185,37 @@ fn sds_hierarchy_and_shrinkage() {
 }
 
 #[test]
+fn tap_test_frf_is_stored_with_stickout() {
+    let dir = tmpdir("frf");
+    let mut ws = Workspace::new(&dir, steel_profile());
+    let before = ws.summary().frf;
+    assert!(before.fn_hz.is_none() && before.estimated_fn_hz > 500.0 && before.estimated_k_n_per_um > 0.5);
+    assert!(ws.set_frf(Some(2400.0), None, None, false).is_err());
+    assert!(ws.set_frf(None, None, Some(0.5), false).is_err());
+    ws.set_frf(Some(2400.0), Some(7.5), Some(0.04), false).unwrap();
+    let f = ws.summary().frf;
+    assert_eq!(f.fn_hz, Some(2400.0));
+    assert_eq!(f.k_n_per_um, Some(7.5));
+    assert!((f.zeta - 0.04).abs() < 1e-12);
+    assert_eq!(f.measured_stickout_mm, Some(f.stickout_mm));
+    assert!(f.applies);
+    let sds = SdsStore::open(&dir.join("sds"));
+    let a = ws.ensure_analysis(&sds);
+    assert!(a.stability.measured && (a.stability.fn_hz - 2400.0).abs() < 1e-6);
+    let mut other = ws.profile.clone();
+    other.endmill_setting.diameter_mm = 8.0;
+    other.endmill_setting.shank_diameter_mm = 8.0;
+    ws.set_profile(other);
+    let f2 = ws.summary().frf;
+    assert!(f2.fn_hz.is_some() && !f2.applies);
+    assert!(!ws.ensure_analysis(&sds).stability.measured);
+    ws.set_frf(None, None, None, true).unwrap();
+    assert!(ws.summary().frf.fn_hz.is_none());
+    assert!(!ws.ensure_analysis(&sds).stability.measured);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn tool_silhouette_measures_radial_loss() {
     let px = 20.0;
     let base = ToolDraw { px_per_mm: px, d: 10.0, shank: 10.0, loc: 22.0, corner_r: 0.2, wear_um: 0.0, wear_len: 0.0 };
@@ -281,10 +312,12 @@ fn workspace_end_to_end() {
     assert!(proc1.coolant_matrix.iter().filter(|r| r.recommended).count() <= 1);
     assert!(proc1.nominal_mold.as_ref().unwrap().descriptor.max_depth_mm > 0.0);
     let rate = proc1.analysis.wear.vb_rate_mm_per_min;
+    let traj = proc1.analysis.trajectory.clone();
+    assert!(traj.life_min < traj.linear_life_min, "life {} linear {}", traj.life_min, traj.linear_life_min);
     let mut csv = String::from("time(min),VB(mm),spindle power(kW)\n");
     for i in 0..12 {
         let t = i as f64 * 4.0;
-        let vb = 0.01 + 1.6 * rate * t;
+        let vb = 0.01 + 1.6 * traj.growth_from(0.01, t);
         csv.push_str(&format!("{},{:.5},{:.3}\n", t, vb, proc1.analysis.spindle_power_kw * 1.25));
     }
     let opt = IngestOptions::default();
@@ -299,7 +332,7 @@ fn workspace_end_to_end() {
         let mut csv2 = String::from("time(min),VB(mm)\n");
         for i in 0..12 {
             let t = i as f64 * 5.0 + k as f64 * 0.1;
-            csv2.push_str(&format!("{},{:.5}\n", t, 0.01 + 1.6 * rate * t));
+            csv2.push_str(&format!("{},{:.5}\n", t, 0.01 + 1.6 * traj.growth_from(0.01, t)));
         }
         ws.ingest(&models, &mut sds, &format!("vb_log_{}.csv", k), csv2.as_bytes(), &opt).unwrap();
     }

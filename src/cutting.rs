@@ -275,6 +275,7 @@ impl CuttingCalculator {
             calib: crate::physics::Calibration::default(),
             tolerance_mm: 0.02,
             allowance_mm: 0.5,
+            fixture_stiffness_n_per_um: crate::workpiece_setup::ClampingMethod::Vise.stiffness_n_per_um(),
             wp: props,
             tool,
         };

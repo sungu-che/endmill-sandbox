@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 > nul
 echo ========================================
-echo   End Mill Sandbox - CUDA Dev Run
+echo   End Mill Sandbox - CUDA Release Build
 echo ========================================
 echo.
 
@@ -34,16 +34,17 @@ if not exist "node_modules" (
 cd src-tauri
 
 set "PATH=%CD%\dlls;%PATH%"
+if exist "%CD%\dlls\zvec_c_api.lib" set "ZVEC_LIB_DIR=%CD%\dlls"
 
 set "TAURI_CMD=npm"
 for /f "tokens=2" %%v in ('cargo tauri --version 2^>nul') do set "TAURI_VER=%%v"
 if defined TAURI_VER if "%TAURI_VER:~0,2%"=="1." set "TAURI_CMD=cargo"
 
-echo [DEV] Starting Tauri application (Development Mode, CUDA)...
+echo [BUILD] Compiling and bundling Tauri application (Release and UTF-8 Mode, CUDA)...
 
 if "%TAURI_CMD%"=="cargo" (
-    cargo tauri dev -- --features cuda
+    cargo tauri build -- --features cuda
 ) else (
-    call "%~dp0node_modules\.bin\tauri.cmd" dev -- --features cuda
+    call "%~dp0node_modules\.bin\tauri.cmd" build -- --features cuda
 )
 pause

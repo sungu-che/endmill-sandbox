@@ -454,7 +454,7 @@ impl MoldPrediction {
         let defl = if r.wall_errors.is_empty() {
             r.max_wall_defl_um
         } else {
-            r.wall_errors.iter().map(|w| w.deflection_um.abs()).sum::<f64>() / r.wall_errors.len() as f64
+            r.wall_errors.iter().map(|w| (w.deflection_um + w.workpiece_um).abs()).sum::<f64>() / r.wall_errors.len() as f64
         };
         let wear = if r.wall_errors.is_empty() {
             r.radial_loss_end_um
@@ -641,7 +641,7 @@ pub fn wall_fit(points: &[WallPoint], predicted: &[WallErrorSample], tol_mm: f64
             .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
         if let Some((d2, w)) = best {
             if d2.sqrt() <= tol_mm {
-                xs.push(vec![1.0, w.deflection_um, w.wear_um, w.thermal_tool_um + w.thermal_wp_um]);
+                xs.push(vec![1.0, w.deflection_um + w.workpiece_um, w.wear_um, w.thermal_tool_um + w.thermal_wp_um]);
                 ys.push(p.deviation_um);
             }
         }

@@ -17,6 +17,18 @@ pub enum ClampingMethod {
     SoftJaw,
 }
 
+impl ClampingMethod {
+    pub fn stiffness_n_per_um(&self) -> f64 {
+        match self {
+            ClampingMethod::Vise => 80.0,
+            ClampingMethod::FixturePlate => 120.0,
+            ClampingMethod::SoftJaw => 60.0,
+            ClampingMethod::MagneticChuck => 40.0,
+            ClampingMethod::VacuumChuck => 20.0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkpieceSetup {
     pub name: String,

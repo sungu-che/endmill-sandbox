@@ -194,6 +194,10 @@ use endmill_model::decision::DecisionReport;
 use endmill_model::physics::Recommendation;
 use endmill_model::workpiece_setup::{ClampingMethod, StockShape, WorkpieceSetup};
 use endmill_model::cutting::WorkpieceMaterial;
+use endmill_model::curation::{self, CurationReport, EndMillComparison, EndMillRelay};
+use endmill_model::store::rdb::{EndMillRow, ProjectRow, RunRow, WorkpieceRow};
+use endmill_model::store::series::{series_id, window_features};
+use endmill_model::store::{Store, StoreStatus};
 
 pub struct Shared {
     pub data_dir: PathBuf,
@@ -201,6 +205,8 @@ pub struct Shared {
     pub ws: Mutex<Workspace>,
     pub models: Mutex<Models>,
     pub sds: Mutex<SdsStore>,
+    pub library: Mutex<Store>,
+    pub library_fallback: bool,
 }
 
 pub struct AppState {
@@ -217,11 +223,28 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 impl AppState {
     pub fn new(data_dir: PathBuf) -> Self {
         let _ = fs::create_dir_all(&data_dir);
-        let store_path = data_dir.join("profiles.json");
-        let store = ProfileStore::load_from_file(&store_path.display().to_string())
-            .ok()
-            .filter(|s| !s.profiles.is_empty())
-            .unwrap_or_else(build_demo_profile_store);
+        let (mut library, library_fallback) = match Store::open(&data_dir.join("library")) {
+            Ok(s) => (s, false),
+            Err(e) => {
+                let tmp = std::env::temp_dir().join("endmill-sandbox-library");
+                let mut s = Store::open_with_memory_rdb(&tmp).expect("임시 라이브러리를 열 수 없습니다");
+                s.notes.push(format!("라이브러리 SQLite 를 열 수 없어 임시 메모리 저장소로 동작합니다: {}", e));
+                (s, true)
+            }
+        };
+        if let Ok(log) = library.import_legacy(&data_dir) {
+            library.notes.extend(log);
+        }
+        let store = match library.profile_store() {
+            Ok(s) if !s.profiles.is_empty() => s,
+            _ => {
+                let demo = build_demo_profile_store();
+                for p in demo.profiles.iter() {
+                    let _ = library.save_profile(p, Some(&p.name));
+                }
+                library.profile_store().ok().filter(|s| !s.profiles.is_empty()).unwrap_or(demo)
+            }
+        };
         let first = store
             .profiles
             .first()
@@ -230,12 +253,19 @@ impl AppState {
         let models_root = fs::read_to_string(data_dir.join("models_root.txt"))
             .map(|s| PathBuf::from(s.trim()))
             .unwrap_or_else(|_| data_dir.join("models"));
+        let mut ws = Workspace::new(&data_dir, first);
+        if let Ok(seen) = library.rdb.seen_all() {
+            ws.extend_seen(seen);
+        }
+        let _ = library.restore_series(&mut ws);
         Self {
             shared: Arc::new(Shared {
                 store: Mutex::new(store),
-                ws: Mutex::new(Workspace::new(&data_dir, first)),
+                ws: Mutex::new(ws),
                 models: Mutex::new(Models::new(&models_root)),
                 sds: Mutex::new(SdsStore::open(&data_dir.join("sds"))),
+                library: Mutex::new(library),
+                library_fallback,
                 data_dir,
             }),
         }
@@ -244,12 +274,21 @@ impl AppState {
     pub fn flush(&self) {
         lock(&self.shared.sds).flush();
         persist_store(&self.shared);
+        lock(&self.shared.library).flush();
     }
 }
 
 fn persist_store(sh: &Shared) {
     let store = lock(&sh.store);
-    let _ = store.save_to_file(&sh.data_dir.join("profiles.json").display().to_string());
+    {
+        let mut lib = lock(&sh.library);
+        for p in store.profiles.iter() {
+            let _ = lib.save_profile(p, None);
+        }
+    }
+    if sh.library_fallback {
+        let _ = store.save_to_file(&sh.data_dir.join("profiles.json").display().to_string());
+    }
 }
 
 fn with_profile<T>(state: &tauri::State<'_, AppState>, name: &str, f: impl FnOnce(&MachiningProfile) -> Result<T, String>) -> Result<T, String> {
@@ -262,7 +301,10 @@ fn with_profile<T>(state: &tauri::State<'_, AppState>, name: &str, f: impl FnOnc
 
 fn sync_profile_to_store(sh: &Shared, profile: &MachiningProfile) {
     lock(&sh.store).upsert_profile(profile.clone());
-    persist_store(sh);
+    let _ = lock(&sh.library).save_profile(profile, None);
+    if sh.library_fallback {
+        persist_store(sh);
+    }
 }
 
 async fn blocking<T, F>(state: &tauri::State<'_, AppState>, f: F) -> Result<T, String>
@@ -510,8 +552,8 @@ pub fn list_mockup_settings() -> Vec<EndMillSettingResponse> {
 }
 
 #[tauri::command]
-pub fn list_presets() -> Vec<PresetResponse> {
-    let store = ProfileStore::new();
+pub fn list_presets(state: tauri::State<'_, AppState>) -> Vec<PresetResponse> {
+    let store = lock(&state.shared.store);
     store
         .presets
         .iter()
@@ -853,6 +895,7 @@ pub async fn ws_select_profile(state: tauri::State<'_, AppState>, profile_name: 
             || serde_json::to_string(&ws.profile).ok() != serde_json::to_string(&profile).ok()
         {
             ws.set_profile(profile);
+            let _ = lock(&sh.library).restore_series(&mut ws);
         }
         Ok(ws.summary())
     })
@@ -871,6 +914,7 @@ pub async fn ws_set_options(
 ) -> Result<WorkspaceSummary, String> {
     blocking(&state, move |sh| {
         let mut ws = lock(&sh.ws);
+        let key_before = ws.tool_key();
         if let Some(p) = purpose {
             ws.set_purpose(&p);
         }
@@ -883,6 +927,9 @@ pub async fn ws_set_options(
             }
         }
         ws.set_ids(tool_id, mold_id, cut_minutes);
+        if ws.tool_key() != key_before {
+            let _ = lock(&sh.library).restore_series(&mut ws);
+        }
         Ok(ws.summary())
     })
     .await
@@ -903,9 +950,27 @@ pub async fn ws_ingest(
         let opt = options.unwrap_or_default();
         let (out, profile) = {
             let mut ws = lock(&sh.ws);
+            if let Some(t) = opt.tool_id.as_ref() {
+                let next = if t.trim().is_empty() { ws.profile.endmill_setting.signature() } else { t.trim().to_string() };
+                if next != ws.tool_key() {
+                    ws.set_ids(Some(t.clone()), None, None);
+                    let _ = lock(&sh.library).restore_series(&mut ws);
+                }
+            }
+            let key_before = ws.tool_key();
             let models = lock(&sh.models);
             let mut sds = lock(&sh.sds);
-            let out = ws.ingest(&models, &mut sds, &name, &bytes, &opt)?;
+            let mut out = ws.ingest(&models, &mut sds, &name, &bytes, &opt)?;
+            drop(sds);
+            drop(models);
+            let mut lib = lock(&sh.library);
+            if ws.tool_key() != key_before {
+                let _ = lib.restore_series(&mut ws);
+            }
+            match lib.record_ingest(&ws, &out) {
+                Ok(log) => out.library = log,
+                Err(e) => out.library.push(format!("라이브러리 기록 실패: {}", e)),
+            }
             (out, ws.profile.clone())
         };
         if !out.doc.applied.is_empty() {
@@ -917,11 +982,37 @@ pub async fn ws_ingest(
 }
 
 #[tauri::command]
+pub async fn ws_set_frf(
+    state: tauri::State<'_, AppState>,
+    fn_hz: Option<f64>,
+    k_n_per_um: Option<f64>,
+    zeta: Option<f64>,
+    clear: Option<bool>,
+) -> Result<WorkspaceSummary, String> {
+    blocking(&state, move |sh| {
+        let (summary, profile) = {
+            let mut ws = lock(&sh.ws);
+            ws.set_frf(fn_hz, k_n_per_um, zeta, clear.unwrap_or(false))?;
+            (ws.summary(), ws.profile.clone())
+        };
+        sync_profile_to_store(sh, &profile);
+        Ok(summary)
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn ws_run_process(state: tauri::State<'_, AppState>) -> Result<ProcessOutcome, String> {
     blocking(&state, |sh| {
         let mut ws = lock(&sh.ws);
         let sds = lock(&sh.sds);
-        ws.run_process(&sds)
+        let mut out = ws.run_process(&sds)?;
+        drop(sds);
+        match lock(&sh.library).record_process(&ws, &out) {
+            Ok(log) => out.library = log,
+            Err(e) => out.library.push(format!("라이브러리 기록 실패: {}", e)),
+        }
+        Ok(out)
     })
     .await
 }
@@ -960,7 +1051,14 @@ pub async fn ws_decide(state: tauri::State<'_, AppState>, use_advisor: bool) -> 
         let mut ws = lock(&sh.ws);
         let models = lock(&sh.models);
         let mut sds = lock(&sh.sds);
-        ws.decide(&models, &mut sds, use_advisor)
+        let mut rep = ws.decide(&models, &mut sds, use_advisor)?;
+        drop(sds);
+        drop(models);
+        match lock(&sh.library).record_decision(&ws, &rep) {
+            Ok(log) => rep.notes.extend(log),
+            Err(e) => rep.notes.push(format!("라이브러리 기록 실패: {}", e)),
+        }
+        Ok(rep)
     })
     .await
 }
@@ -1043,6 +1141,316 @@ pub async fn sds_purge(state: tauri::State<'_, AppState>) -> Result<SdsStatus, S
         let mut sds = lock(&sh.sds);
         sds.purge();
         Ok(sds.status(80))
+    })
+    .await
+}
+
+#[derive(Serialize)]
+pub struct PresetBrief {
+    pub id: i64,
+    pub name: String,
+    pub description: String,
+    pub builtin: bool,
+    pub endmill_id: i64,
+    pub workpiece_id: i64,
+    pub profiles: i64,
+    pub runs: i64,
+}
+
+#[derive(Serialize)]
+pub struct ProfileBrief {
+    pub id: i64,
+    pub project_id: i64,
+    pub name: String,
+    pub preset_id: Option<i64>,
+    pub endmill_id: i64,
+    pub workpiece_id: i64,
+    pub runs: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Serialize)]
+pub struct LibraryOverview {
+    pub status: StoreStatus,
+    pub active_project: i64,
+    pub projects: Vec<ProjectRow>,
+    pub presets: Vec<PresetBrief>,
+    pub profiles: Vec<ProfileBrief>,
+    pub endmills: Vec<EndMillRow>,
+    pub workpieces: Vec<WorkpieceRow>,
+}
+
+fn profile_brief(r: endmill_model::store::rdb::ProfileRow) -> ProfileBrief {
+    ProfileBrief {
+        id: r.id,
+        project_id: r.project_id,
+        name: r.name,
+        preset_id: r.preset_id,
+        endmill_id: r.endmill_id,
+        workpiece_id: r.workpiece_id,
+        runs: r.runs,
+        updated_at: r.updated_at,
+    }
+}
+
+fn overview(sh: &Shared) -> Result<LibraryOverview, String> {
+    let lib = lock(&sh.library);
+    Ok(LibraryOverview {
+        status: lib.status(),
+        active_project: lib.project_id,
+        projects: lib.rdb.list_projects()?,
+        presets: lib
+            .rdb
+            .list_presets()?
+            .into_iter()
+            .map(|p| PresetBrief {
+                id: p.id,
+                name: p.name,
+                description: p.description,
+                builtin: p.builtin,
+                endmill_id: p.endmill_id,
+                workpiece_id: p.workpiece_id,
+                profiles: p.profiles,
+                runs: p.runs,
+            })
+            .collect(),
+        profiles: lib.rdb.list_profiles(lib.project_id)?.into_iter().map(profile_brief).collect(),
+        endmills: lib.rdb.list_endmills(500)?,
+        workpieces: lib.rdb.list_workpieces(500)?,
+    })
+}
+
+fn switch_project(sh: &Shared, id: i64) -> Result<(), String> {
+    let ps = {
+        let mut ws = lock(&sh.ws);
+        let mut lib = lock(&sh.library);
+        lib.use_project(id)?;
+        let mut ps = lib.profile_store()?;
+        if ps.profiles.is_empty() {
+            lib.save_profile(&ws.profile, None)?;
+            ps = lib.profile_store()?;
+        }
+        let pick = ps
+            .profiles
+            .iter()
+            .find(|p| p.name == ws.profile.name)
+            .or_else(|| ps.profiles.first())
+            .cloned();
+        if let Some(p) = pick {
+            ws.set_profile(p);
+        }
+        let _ = lib.restore_series(&mut ws);
+        ps
+    };
+    *lock(&sh.store) = ps;
+    Ok(())
+}
+
+fn curve_query(ws: &Workspace, project_id: i64) -> Option<(String, Vec<f32>, String)> {
+    let part = ws.sim.as_ref().map(|s| s.cut_time_min);
+    for key in ["vb_mm", "radial_loss_um"] {
+        if let Some(s) = ws.series.get(key) {
+            let (ep, _) = endmill_model::timeseries::current_episode(s);
+            let thr = ws.threshold(key)?;
+            if let Some((v, _, _, _)) = window_features(&ep.t, &ep.y, thr, ep.minutes_per_t(part)) {
+                return Some((key.to_string(), v, series_id(project_id, &ws.tool_key(), key)));
+            }
+        }
+    }
+    None
+}
+
+fn scope_of(lib: &Store, all_projects: Option<bool>, default_all: bool) -> Option<i64> {
+    if all_projects.unwrap_or(default_all) {
+        None
+    } else {
+        Some(lib.project_id)
+    }
+}
+
+#[tauri::command]
+pub async fn lib_overview(state: tauri::State<'_, AppState>) -> Result<LibraryOverview, String> {
+    blocking(&state, overview).await
+}
+
+#[tauri::command]
+pub async fn lib_create_project(state: tauri::State<'_, AppState>, name: String, description: Option<String>) -> Result<LibraryOverview, String> {
+    blocking(&state, move |sh| {
+        let id = lock(&sh.library).rdb.ensure_project(&name, description.as_deref().unwrap_or(""))?;
+        switch_project(sh, id)?;
+        overview(sh)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn lib_use_project(state: tauri::State<'_, AppState>, project_id: i64) -> Result<LibraryOverview, String> {
+    blocking(&state, move |sh| {
+        switch_project(sh, project_id)?;
+        overview(sh)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn lib_save_profile(state: tauri::State<'_, AppState>, preset_name: Option<String>) -> Result<LibraryOverview, String> {
+    blocking(&state, move |sh| {
+        let profile = lock(&sh.ws).profile.clone();
+        lock(&sh.store).upsert_profile(profile.clone());
+        lock(&sh.library).save_profile(&profile, preset_name.as_deref().map(str::trim).filter(|s| !s.is_empty()))?;
+        overview(sh)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn lib_save_preset(state: tauri::State<'_, AppState>, name: String, description: Option<String>) -> Result<LibraryOverview, String> {
+    blocking(&state, move |sh| {
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            return Err("프리셋 이름을 입력하세요".into());
+        }
+        let p = lock(&sh.ws).profile.clone();
+        let preset = MachiningPreset {
+            name: name.clone(),
+            description: description.filter(|d| !d.trim().is_empty()).unwrap_or_else(|| p.description.clone()),
+            endmill_setting: p.endmill_setting.clone(),
+            conditions: p.conditions.clone(),
+            workpiece_setup: p.workpiece_setup.clone(),
+            coolant_config: p.coolant_config.clone(),
+        };
+        {
+            let mut lib = lock(&sh.library);
+            lib.save_preset(&preset)?;
+            lib.save_profile(&p, Some(&name))?;
+        }
+        {
+            let mut store = lock(&sh.store);
+            store.presets.retain(|x| x.name != preset.name);
+            store.presets.push(preset);
+        }
+        overview(sh)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn lib_profiles_by_preset(state: tauri::State<'_, AppState>, preset_id: i64) -> Result<Vec<ProfileBrief>, String> {
+    blocking(&state, move |sh| {
+        Ok(lock(&sh.library).rdb.profiles_by_preset(preset_id)?.into_iter().map(profile_brief).collect())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn lib_runs(
+    state: tauri::State<'_, AppState>,
+    endmill_id: Option<i64>,
+    workpiece_id: Option<i64>,
+    all_projects: Option<bool>,
+    limit: Option<usize>,
+) -> Result<Vec<RunRow>, String> {
+    blocking(&state, move |sh| {
+        let lib = lock(&sh.library);
+        lib.rdb.runs(scope_of(&lib, all_projects, false), endmill_id, workpiece_id, limit.unwrap_or(100))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn lib_curate(state: tauri::State<'_, AppState>, all_projects: Option<bool>) -> Result<CurationReport, String> {
+    blocking(&state, move |sh| {
+        let ws = lock(&sh.ws);
+        let mut lib = lock(&sh.library);
+        let scope = scope_of(&lib, all_projects, true);
+        let curve = curve_query(&ws, lib.project_id);
+        let curve_ref = curve.as_ref().map(|(m, v, sid)| (m.as_str(), v.as_slice(), Some(sid.as_str())));
+        curation::curate_for_workpiece(
+            &mut lib,
+            &ws.profile.workpiece_setup,
+            Some(&ws.profile.endmill_setting),
+            &ws.profile.machine,
+            &ws.profile.coolant_config,
+            ws.purpose,
+            scope,
+            curve_ref,
+            10,
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn lib_compare_endmills(state: tauri::State<'_, AppState>, a_id: i64, b_id: i64, all_projects: Option<bool>) -> Result<EndMillComparison, String> {
+    blocking(&state, move |sh| {
+        let ws = lock(&sh.ws);
+        let mut lib = lock(&sh.library);
+        let scope = scope_of(&lib, all_projects, true);
+        curation::compare_endmills(
+            &mut lib,
+            a_id,
+            b_id,
+            &ws.profile.workpiece_setup,
+            &ws.profile.machine,
+            &ws.profile.coolant_config,
+            ws.purpose,
+            scope,
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn lib_relay_endmill(state: tauri::State<'_, AppState>, endmill_id: i64, all_projects: Option<bool>) -> Result<EndMillRelay, String> {
+    blocking(&state, move |sh| {
+        let mut lib = lock(&sh.library);
+        let scope = scope_of(&lib, all_projects, true);
+        curation::relay_for_endmill(&mut lib, endmill_id, scope)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn lib_apply_endmill(state: tauri::State<'_, AppState>, endmill_id: i64) -> Result<WorkspaceSummary, String> {
+    blocking(&state, move |sh| {
+        let row = lock(&sh.library)
+            .rdb
+            .endmill(endmill_id)?
+            .ok_or_else(|| format!("앤드밀 #{} 이(가) 라이브러리에 없습니다", endmill_id))?;
+        let (summary, profile) = {
+            let mut ws = lock(&sh.ws);
+            let sds = lock(&sh.sds);
+            let mut setting = row.setting();
+            setting.stickout_mm = ws.profile.endmill_setting.stickout_mm;
+            setting.runout_um = ws.profile.endmill_setting.runout_um;
+            if setting.validate().is_err() {
+                setting.stickout_mm = None;
+            }
+            setting.validate()?;
+            let mut p = ws.profile.clone();
+            p.endmill_setting = setting;
+            ws.set_profile(p);
+            ws.recommend(&sds, true)?;
+            drop(sds);
+            let _ = lock(&sh.library).restore_series(&mut ws);
+            (ws.summary(), ws.profile.clone())
+        };
+        sync_profile_to_store(sh, &profile);
+        Ok(summary)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn lib_flush(state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
+    blocking(&state, |sh| Ok(lock(&sh.library).flush())).await
+}
+
+#[tauri::command]
+pub async fn lib_reindex(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    blocking(&state, |sh| {
+        let n = lock(&sh.library).reindex_attributes()?;
+        Ok(format!("SQLite 기준 속성 벡터 {}건을 LanceDB 에 다시 색인했습니다", n))
     })
     .await
 }

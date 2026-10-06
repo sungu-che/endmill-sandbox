@@ -256,6 +256,45 @@ pub fn evaluate(inp: &DecisionInput) -> DecisionReport {
             format!("날끝 {:.0}°C / 코팅 허용 85% {:.0}°C", temp, lim),
         ));
     }
+    let margin = inp
+        .sim
+        .map(|s| s.min_chatter_margin)
+        .filter(|m| *m > 0.0)
+        .into_iter()
+        .chain(inp.cut.map(|c| c.stability.margin).filter(|m| m.is_finite() && *m > 0.0))
+        .fold(f64::INFINITY, f64::min);
+    if margin.is_finite() {
+        let measured = inp.cut.map(|c| c.stability.measured).unwrap_or(false);
+        let sev = if margin < 0.7 && measured {
+            2
+        } else if margin < 1.0 {
+            1
+        } else {
+            0
+        };
+        let suggested: Vec<f64> = inp.cut.map(|c| c.stability.suggested_rpm.clone()).unwrap_or_default();
+        let lower = suggested.iter().cloned().filter(|n| *n < inp.rpm).fold(None, |acc: Option<f64>, n| Some(acc.map_or(n, |a| a.max(n))));
+        let higher = suggested.iter().cloned().find(|n| *n > inp.rpm);
+        let mut act = Action::Continue;
+        let mut msg = format!(
+            "재생 채터 여유 {:.2}배 (1 미만이면 채터, {})",
+            margin,
+            if measured { "실측 FRF" } else { "모델 추정 FRF · 탭 테스트 입력 시 확정" }
+        );
+        if sev > 0 {
+            match (lower, higher) {
+                (Some(n), _) if measured && n >= 0.7 * inp.rpm => {
+                    speed_scale = Some(speed_scale.unwrap_or(1.0).min(n / inp.rpm.max(1.0)));
+                    act = Action::ReduceSpeed;
+                    msg.push_str(&format!(" → 안정 로브 S{:.0} 로 감속", n));
+                }
+                (Some(n), _) if n >= 0.7 * inp.rpm => msg.push_str(&format!(" → 안정 로브 후보 S{:.0} (탭 테스트로 확인 후 적용)", n)),
+                (_, Some(n)) => msg.push_str(&format!(" → 안정 로브 S{:.0} 로 증속하거나 ap 축소 권장", n)),
+                _ => msg.push_str(" → ap 축소 권장"),
+            }
+        }
+        gates.push(gate("chatter", "채터 안정성", margin, 1.0, "×", sev, act, msg));
+    }
     if let (Some(lim), Some(c)) = (inp.workpiece_temp_limit_c, inp.cut) {
         let t = c.thermal.interface_c;
         let sev = if t > lim { 3 } else { 0 };
@@ -304,6 +343,31 @@ pub fn evaluate(inp: &DecisionInput) -> DecisionReport {
             if sev_b > 0 { Action::ChangeCoolant } else { Action::Continue },
             format!("BUE 지수 {:.2}", bue),
         ));
+        let compat = &c.tribology.compat;
+        if compat.severity > 0 {
+            let sev_c = compat.severity.min(2);
+            let act = if let Some(h) = compat.coolant_hint.as_ref().filter(|_| sev_c >= 2) {
+                if coolant.is_none() {
+                    coolant = Some(h.clone());
+                }
+                Action::ChangeCoolant
+            } else if compat.chemical && sev_c >= 2 {
+                speed_scale = Some(speed_scale.unwrap_or(1.0).min(0.85));
+                Action::ReduceSpeed
+            } else {
+                Action::Continue
+            };
+            gates.push(gate(
+                "pair_compat",
+                "코팅·피삭재·냉각 궁합",
+                compat.severity as f64,
+                1.0,
+                "",
+                sev_c,
+                act,
+                compat.messages.join(" / "),
+            ));
+        }
         let ratio = c.error_budget_um.utilization;
         if inp.finishing {
             let sev_e = if ratio > 1.0 { 2 } else if ratio > 0.8 { 1 } else { 0 };
@@ -568,16 +632,29 @@ fn state_text(inp: &DecisionInput, gates: &[Gate]) -> String {
             "mold_axial" => "mold axial offset",
             "mold_tilt" => "mold setup tilt",
             "mold_surface" => "image-based defect deviation of the machined mold surface",
+            "chatter" => "regenerative chatter stability margin (limit depth divided by actual depth, below 1 means chatter)",
+            "pair_compat" => "coating, workpiece and coolant chemical compatibility severity",
             other => other,
         };
         s.push_str(&format!(
             "{}: {:.3} {} against limit {:.3} ({}). ",
             name,
             g.value,
-            g.unit.replace('µ', "u").replace('°', " deg "),
+            g.unit.replace('µ', "u").replace('°', " deg ").replace('×', "x"),
             g.limit,
             status
         ));
+    }
+    if let Some(c) = inp.cut {
+        if let Some(m) = c.wear.mechanisms.iter().find(|m| m.key == c.wear.dominant) {
+            s.push_str(&format!(
+                "Dominant predicted wear mechanism: {} ({:.0} percent). Effective friction coefficient {:.2}, lubricant access {:.2}. ",
+                m.key,
+                m.share * 100.0,
+                c.tribology.mu_eff,
+                c.tribology.lubricant_access
+            ));
+        }
     }
     if let Some(w) = inp.wear {
         s.push_str(&format!(

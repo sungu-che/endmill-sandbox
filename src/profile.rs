@@ -238,6 +238,19 @@ impl EndMillMockupSetting {
         self
     }
 
+    pub fn dynamic_key(&self) -> String {
+        format!(
+            "D{:.2}Z{}-{}-L{:.1}-O{:.1}-S{:.2}-H{:.0}",
+            self.diameter_mm,
+            self.flute_count,
+            self.nose.key(),
+            self.loc_mm,
+            self.oal_mm,
+            self.shank_diameter_mm,
+            self.helix_angle_deg
+        )
+    }
+
     pub fn signature(&self) -> String {
         format!(
             "D{:.1}Z{}-{}-{}",
@@ -461,6 +474,26 @@ pub struct MachineLimits {
     pub efficiency: f64,
     pub holder_stiffness_n_per_um: f64,
     pub spindle_drift_um_per_hr: f64,
+    #[serde(default = "default_damping_ratio")]
+    pub damping_ratio: f64,
+    #[serde(default = "default_holder_mass_kg")]
+    pub holder_mass_kg: f64,
+    #[serde(default)]
+    pub tip_fn_hz: Option<f64>,
+    #[serde(default)]
+    pub tip_stiffness_n_per_um: Option<f64>,
+    #[serde(default)]
+    pub tip_frf_stickout_mm: Option<f64>,
+    #[serde(default)]
+    pub tip_frf_tool: Option<String>,
+}
+
+fn default_damping_ratio() -> f64 {
+    0.03
+}
+
+fn default_holder_mass_kg() -> f64 {
+    0.3
 }
 
 impl Default for MachineLimits {
@@ -474,6 +507,12 @@ impl Default for MachineLimits {
             efficiency: 0.8,
             holder_stiffness_n_per_um: 50.0,
             spindle_drift_um_per_hr: 0.0,
+            damping_ratio: default_damping_ratio(),
+            holder_mass_kg: default_holder_mass_kg(),
+            tip_fn_hz: None,
+            tip_stiffness_n_per_um: None,
+            tip_frf_stickout_mm: None,
+            tip_frf_tool: None,
         }
     }
 }

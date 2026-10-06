@@ -6,9 +6,36 @@ pub mod ttm;
 use candle_core::{DType, Device};
 use candle_nn::VarBuilder;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 pub fn cpu() -> Device {
     Device::Cpu
+}
+
+static DEVICE: OnceLock<Device> = OnceLock::new();
+
+pub fn device() -> Device {
+    DEVICE
+        .get_or_init(|| {
+            let forced_cpu = std::env::var("ENDMILL_DEVICE")
+                .map(|v| v.trim().eq_ignore_ascii_case("cpu"))
+                .unwrap_or(false);
+            if forced_cpu {
+                return Device::Cpu;
+            }
+            Device::cuda_if_available(0).unwrap_or(Device::Cpu)
+        })
+        .clone()
+}
+
+pub fn device_label(d: &Device) -> String {
+    if d.is_cuda() {
+        "CUDA:0".into()
+    } else if d.is_metal() {
+        "Metal".into()
+    } else {
+        "CPU".into()
+    }
 }
 
 pub fn ensure_safetensors_only(dir: &Path) -> Result<(), String> {

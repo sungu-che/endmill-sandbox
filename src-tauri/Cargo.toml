@@ -13,5 +13,10 @@ endmill_model = { package = "endmill_sandbox", path = ".." }
 [build-dependencies]
 tauri-build = { version = "1", features = [] }
 
+[features]
+default = []
+custom-protocol = ["tauri/custom-protocol"]
+cuda = ["endmill_model/cuda"]
+
 [profile.dev.package."*"]
 opt-level = 3

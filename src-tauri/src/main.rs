@@ -48,6 +48,7 @@ fn main() {
             commands::ws_summary,
             commands::ws_select_profile,
             commands::ws_set_options,
+            commands::ws_set_frf,
             commands::ws_ingest,
             commands::ws_run_process,
             commands::ws_recommend,
@@ -61,6 +62,19 @@ fn main() {
             commands::sds_status,
             commands::sds_flush,
             commands::sds_purge,
+            commands::lib_overview,
+            commands::lib_create_project,
+            commands::lib_use_project,
+            commands::lib_save_profile,
+            commands::lib_save_preset,
+            commands::lib_profiles_by_preset,
+            commands::lib_runs,
+            commands::lib_curate,
+            commands::lib_compare_endmills,
+            commands::lib_relay_endmill,
+            commands::lib_apply_endmill,
+            commands::lib_flush,
+            commands::lib_reindex,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
