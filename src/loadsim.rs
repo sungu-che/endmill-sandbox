@@ -1,5 +1,5 @@
 use crate::gcode::{GCodeGenerator, ToolPathPattern, ToolPathSegment};
-use crate::physics::{self, CutContext, Engagement, ForceResult, MillMode, ThermalBody};
+use crate::physics::{self, CutContext, Engagement, ForceResult, MillMode, ThermalBody, ToolGeometry};
 use crate::profile::{MachiningProfile, ToolNose};
 use crate::timeseries::split_episodes;
 use crate::workpiece_setup::StockShape;
@@ -256,6 +256,215 @@ pub struct WallErrorSample {
     pub total_um: f64,
     #[serde(default)]
     pub workpiece_um: f64,
+    #[serde(default)]
+    pub seg: usize,
+    #[serde(default)]
+    pub final_wall: bool,
+    #[serde(default)]
+    pub ap_mm: f64,
+    #[serde(default)]
+    pub down: bool,
+    #[serde(default)]
+    pub wall_mm: f64,
+    #[serde(default)]
+    pub wall_k_n_mm: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct WallPiece {
+    pub f0: f64,
+    pub f1: f64,
+    pub n: usize,
+    pub mean_um: f64,
+    pub p10_um: f64,
+    pub p50_um: f64,
+    pub p90_um: f64,
+    pub min_um: f64,
+    pub max_um: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SegWallStat {
+    pub seg: usize,
+    pub n: usize,
+    pub nx: f64,
+    pub ny: f64,
+    pub ap_mm: f64,
+    pub z_mid: f64,
+    pub down: bool,
+    pub mean_um: f64,
+    pub sd_um: f64,
+    pub min_um: f64,
+    pub p10_um: f64,
+    pub p50_um: f64,
+    pub p90_um: f64,
+    pub max_um: f64,
+    pub defl_um: f64,
+    pub wear_um: f64,
+    pub thermal_um: f64,
+    pub workpiece_um: f64,
+    pub wall_mm: f64,
+    pub wall_k_n_mm: f64,
+    pub t_s: f64,
+    pub len_mm: f64,
+    #[serde(default)]
+    pub pieces: Vec<WallPiece>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct WearBin {
+    pub t_cut_s: f64,
+    pub t_s: f64,
+    pub dt_s: f64,
+    pub removed_mm3: f64,
+    pub force_n: f64,
+    pub force_peak_n: f64,
+    pub temp_c: f64,
+    pub temp_max_c: f64,
+    pub power_kw: f64,
+    pub h_um: f64,
+    pub engage_deg: f64,
+    pub chatter_min: f64,
+    pub wall_um: f64,
+    pub preheat_c: f64,
+    pub vb_mm: f64,
+    pub radial_loss_um: f64,
+    pub wp_c: f64,
+    pub seg0: usize,
+    pub seg1: usize,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct BinAcc {
+    dt: f64,
+    t_end: f64,
+    t_cut_end: f64,
+    removed: f64,
+    f_dt: f64,
+    f_peak: f64,
+    temp_dt: f64,
+    temp_max: f64,
+    p_dt: f64,
+    h_dt: f64,
+    eng_dt: f64,
+    chat_min: f64,
+    wall_max: f64,
+    pre_max: f64,
+    vb: f64,
+    radial: f64,
+    wp_c: f64,
+    seg0: usize,
+    seg1: usize,
+    used: bool,
+}
+
+impl BinAcc {
+    fn absorb(&mut self, o: &BinAcc) {
+        if !o.used {
+            return;
+        }
+        if !self.used {
+            *self = *o;
+            return;
+        }
+        self.dt += o.dt;
+        self.t_end = self.t_end.max(o.t_end);
+        self.t_cut_end = self.t_cut_end.max(o.t_cut_end);
+        self.removed += o.removed;
+        self.f_dt += o.f_dt;
+        self.f_peak = self.f_peak.max(o.f_peak);
+        self.temp_dt += o.temp_dt;
+        self.temp_max = self.temp_max.max(o.temp_max);
+        self.p_dt += o.p_dt;
+        self.h_dt += o.h_dt;
+        self.eng_dt += o.eng_dt;
+        self.chat_min = self.chat_min.min(o.chat_min);
+        self.wall_max = self.wall_max.max(o.wall_max);
+        self.pre_max = self.pre_max.max(o.pre_max);
+        self.vb = o.vb;
+        self.radial = o.radial;
+        self.wp_c = o.wp_c;
+        self.seg0 = self.seg0.min(o.seg0);
+        self.seg1 = self.seg1.max(o.seg1);
+    }
+
+    fn bin(&self) -> WearBin {
+        let dt = self.dt.max(1e-12);
+        WearBin {
+            t_cut_s: self.t_cut_end,
+            t_s: self.t_end,
+            dt_s: self.dt,
+            removed_mm3: self.removed,
+            force_n: self.f_dt / dt,
+            force_peak_n: self.f_peak,
+            temp_c: self.temp_dt / dt,
+            temp_max_c: self.temp_max,
+            power_kw: self.p_dt / dt,
+            h_um: self.h_dt / dt * 1000.0,
+            engage_deg: self.eng_dt / dt,
+            chatter_min: if self.chat_min.is_finite() { self.chat_min } else { 0.0 },
+            wall_um: self.wall_max,
+            preheat_c: self.pre_max,
+            vb_mm: self.vb,
+            radial_loss_um: self.radial,
+            wp_c: self.wp_c,
+            seg0: self.seg0,
+            seg1: self.seg1,
+        }
+    }
+}
+
+struct WearAcc {
+    bins: Vec<BinAcc>,
+    cur: BinAcc,
+    width: f64,
+    cap: usize,
+}
+
+impl WearAcc {
+    fn new() -> Self {
+        Self {
+            bins: Vec::new(),
+            cur: BinAcc::default(),
+            width: 0.02,
+            cap: 2048,
+        }
+    }
+
+    fn push(&mut self, s: BinAcc) {
+        self.cur.absorb(&s);
+        if self.cur.dt >= self.width {
+            self.bins.push(self.cur);
+            self.cur = BinAcc::default();
+            if self.bins.len() >= self.cap {
+                let mut merged = Vec::with_capacity(self.bins.len() / 2 + 1);
+                for pair in self.bins.chunks(2) {
+                    let mut a = pair[0];
+                    if pair.len() == 2 {
+                        a.absorb(&pair[1]);
+                    }
+                    merged.push(a);
+                }
+                self.bins = merged;
+                self.width *= 2.0;
+            }
+        }
+    }
+
+    fn finish(mut self) -> Vec<WearBin> {
+        if self.cur.used {
+            self.bins.push(self.cur);
+        }
+        self.bins.iter().map(|b| b.bin()).collect()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ThinWall {
+    pub defl_um: f64,
+    pub thickness_mm: f64,
+    pub height_mm: f64,
+    pub k_n_per_mm: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -301,6 +510,14 @@ pub struct LoadSimReport {
     pub max_preheat_c: f64,
     #[serde(default)]
     pub bulk_c: f64,
+    #[serde(default)]
+    pub seg_walls: Vec<SegWallStat>,
+    #[serde(default)]
+    pub wear_log: Vec<WearBin>,
+    #[serde(default)]
+    pub final_wall_count: usize,
+    #[serde(default)]
+    pub transient_wall_count: usize,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -516,28 +733,193 @@ fn quant(v: f64, step: f64) -> i64 {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn thin_wall_um(grid: &StockGrid, wx: f64, wy: f64, side: (f64, f64), z_tip: f64, z_mid: f64, ap: f64, force_n: f64, e_n_mm2: f64) -> Option<(f64, f64)> {
+fn thin_wall_um(grid: &StockGrid, wx: f64, wy: f64, side: (f64, f64), z_tip: f64, z_mid: f64, ap: f64, force_n: f64, e_n_mm2: f64) -> Option<ThinWall> {
     if force_n.abs() < 1e-9 || ap <= 0.0 {
         return None;
     }
     let step = grid.cell.max(0.02);
-    let mut t = 0.5 * step;
-    while t <= 15.0 {
+    let solid = |t: f64| {
         let h = grid.height_at(wx + side.0 * t, wy + side.1 * t);
-        if h == NO_MATERIAL || (h as f64) <= z_tip + 0.5 * step {
-            let other = if h == NO_MATERIAL { grid.bottom as f64 } else { h as f64 };
-            let root = z_tip.max(other);
-            let a = z_mid - root;
-            if a <= 0.05 {
-                return None;
-            }
-            let l_eff = (ap + 2.0 * a).max(1.0);
-            let k = e_n_mm2 * l_eff * t.powi(3) / (4.0 * a.powi(3));
-            return Some((force_n / k.max(1e-9) * 1000.0, t));
-        }
+        h != NO_MATERIAL && (h as f64) > z_tip + 0.5 * step
+    };
+    if !solid(step) {
+        return None;
+    }
+    let mut t = step;
+    while t <= 15.0 {
         t += step;
+        if solid(t) {
+            continue;
+        }
+        let h = grid.height_at(wx + side.0 * t, wy + side.1 * t);
+        let other = if h == NO_MATERIAL { grid.bottom as f64 } else { h as f64 };
+        let root = z_tip.max(other);
+        let a = z_mid - root;
+        if a <= 0.05 {
+            return None;
+        }
+        let thick = (t - 0.5 * step).max(0.5 * step);
+        let l_eff = (ap + 2.0 * a).max(1.0);
+        let k = (e_n_mm2 * l_eff * thick.powi(3) / (4.0 * a.powi(3))).max(1e-9);
+        let um = (force_n / k * 1000.0).clamp(-500.0 * thick, 500.0 * thick);
+        return Some(ThinWall {
+            defl_um: um,
+            thickness_mm: thick,
+            height_mm: a,
+            k_n_per_mm: k,
+        });
     }
     None
+}
+
+pub fn wall_deflection(tool: &ToolGeometry, cal_defl: f64, f: &ForceResult, eng: &Engagement) -> Option<(f64, f64)> {
+    let wall_angle = eng.wall_angle()?;
+    let ap = eng.ap_mm;
+    let r = tool.radius();
+    let comp = physics::tool_compliance(tool, ap, cal_defl);
+    let holder = 1.0 / (tool.holder_stiffness_n_per_um * 1000.0) * cal_defl;
+    let steps = f.fy_series.len().max(1);
+    let tan_h = tool.helix_deg.to_radians().tan();
+    let pitch = f.pitch_rad.max(1e-9);
+    let slices = 4;
+    let mut acc = 0.0;
+    let mut force_acc = 0.0;
+    for k in 0..slices {
+        let zk = (k as f64 + 0.5) * ap / slices as f64;
+        let theta = (wall_angle + zk * tan_h / r).rem_euclid(pitch);
+        let idx = ((theta / pitch) * steps as f64).floor() as usize % steps;
+        let fy = f.fy_series.get(idx).cloned().unwrap_or(0.0);
+        let away = if eng.mode == MillMode::Down { fy } else { -fy };
+        acc += physics::deflection_at(&comp, away, (tool.stickout_mm - zk).max(0.0), holder) / slices as f64;
+        force_acc += away / slices as f64;
+    }
+    Some((acc, force_acc))
+}
+
+fn quantile_sorted(v: &[f64], q: f64) -> f64 {
+    if v.is_empty() {
+        return 0.0;
+    }
+    let pos = q.clamp(0.0, 1.0) * (v.len() - 1) as f64;
+    let i = pos.floor() as usize;
+    let j = (i + 1).min(v.len() - 1);
+    v[i] + (v[j] - v[i]) * (pos - i as f64)
+}
+
+fn flag_final_walls(grid: &StockGrid, walls: &mut [WallErrorSample]) {
+    let probe = 1.5 * grid.cell;
+    let mut latest: HashMap<(i64, i64, i64), usize> = HashMap::new();
+    for (i, w) in walls.iter().enumerate() {
+        let key = (
+            ((w.x) / grid.cell).floor() as i64,
+            ((w.y) / grid.cell).floor() as i64,
+            (w.z_mid / grid.cell.max(0.05)).round() as i64,
+        );
+        latest.insert(key, i);
+    }
+    for (i, w) in walls.iter_mut().enumerate() {
+        let key = (
+            ((w.x) / grid.cell).floor() as i64,
+            ((w.y) / grid.cell).floor() as i64,
+            (w.z_mid / grid.cell.max(0.05)).round() as i64,
+        );
+        let newest = latest.get(&key).map(|j| *j == i).unwrap_or(true);
+        let h = grid.height_at(w.x + w.nx * probe, w.y + w.ny * probe);
+        w.final_wall = newest && h != NO_MATERIAL && (h as f64) > w.z_mid;
+    }
+}
+
+fn wall_pieces(v: &[&WallErrorSample], t0: f64, t1: f64) -> Vec<WallPiece> {
+    let mut sorted: Vec<&&WallErrorSample> = v.iter().collect();
+    sorted.sort_by(|a, b| a.t_s.partial_cmp(&b.t_s).unwrap_or(std::cmp::Ordering::Equal));
+    let k = (sorted.len() / 2).clamp(1, 12);
+    let span = (t1 - t0).max(1e-9);
+    let mut out = Vec::with_capacity(k);
+    for p in 0..k {
+        let a = p * sorted.len() / k;
+        let b = ((p + 1) * sorted.len() / k).max(a + 1).min(sorted.len());
+        let chunk = &sorted[a..b];
+        let mut tot: Vec<f64> = chunk.iter().map(|w| w.total_um).collect();
+        tot.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
+        let f0 = if p == 0 { 0.0 } else { ((chunk[0].t_s - t0) / span).clamp(0.0, 1.0) };
+        let f1 = if p + 1 == k { 1.0 } else { ((sorted[b.min(sorted.len() - 1)].t_s - t0) / span).clamp(0.0, 1.0) };
+        out.push(WallPiece {
+            f0,
+            f1: f1.max(f0),
+            n: chunk.len(),
+            mean_um: tot.iter().sum::<f64>() / tot.len() as f64,
+            p10_um: quantile_sorted(&tot, 0.1),
+            p50_um: quantile_sorted(&tot, 0.5),
+            p90_um: quantile_sorted(&tot, 0.9),
+            min_um: tot[0],
+            max_um: tot[tot.len() - 1],
+        });
+    }
+    for i in 1..out.len() {
+        let mid = 0.5 * (out[i - 1].f1 + out[i].f0);
+        out[i - 1].f1 = mid;
+        out[i].f0 = mid;
+    }
+    out
+}
+
+fn seg_wall_stats(walls: &[WallErrorSample], segments: &[ToolPathSegment], seg_start_s: &[f64], segment_end_s: &[f64]) -> Vec<SegWallStat> {
+    let mut by_seg: HashMap<usize, Vec<&WallErrorSample>> = HashMap::new();
+    for w in walls.iter().filter(|w| w.final_wall) {
+        by_seg.entry(w.seg).or_default().push(w);
+    }
+    let mut ends: Vec<(f64, f64, f64)> = Vec::with_capacity(segments.len());
+    for s in segments.iter() {
+        ends.push(s.end_point());
+    }
+    let mut out: Vec<SegWallStat> = by_seg
+        .into_iter()
+        .filter(|(_, v)| !v.is_empty())
+        .map(|(seg, v)| {
+            let n = v.len() as f64;
+            let mut tot: Vec<f64> = v.iter().map(|w| w.total_um).collect();
+            tot.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let mean = tot.iter().sum::<f64>() / n;
+            let var = tot.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n - 1.0).max(1.0);
+            let (sx, sy) = v.iter().fold((0.0, 0.0), |a, w| (a.0 + w.nx, a.1 + w.ny));
+            let norm = (sx * sx + sy * sy).sqrt().max(1e-12);
+            let thin: Vec<&&WallErrorSample> = v.iter().filter(|w| w.wall_k_n_mm > 0.0).collect();
+            let wall_mm = if thin.is_empty() { 0.0 } else { thin.iter().map(|w| w.wall_mm).fold(f64::INFINITY, f64::min) };
+            let wall_k = if thin.is_empty() { 0.0 } else { thin.iter().map(|w| w.wall_k_n_mm).fold(f64::INFINITY, f64::min) };
+            let start = if seg == 0 { (0.0, 0.0, 0.0) } else { ends.get(seg - 1).cloned().unwrap_or((0.0, 0.0, 0.0)) };
+            let len = segments.get(seg).map(|s| s.length_from(start)).unwrap_or(0.0);
+            let t0 = seg_start_s.get(seg).cloned().unwrap_or(0.0);
+            let t1 = segment_end_s.get(seg).cloned().unwrap_or(t0);
+            let pieces = wall_pieces(&v, t0, t1);
+            SegWallStat {
+                seg,
+                n: v.len(),
+                nx: sx / norm,
+                ny: sy / norm,
+                ap_mm: v.iter().map(|w| w.ap_mm).sum::<f64>() / n,
+                z_mid: v.iter().map(|w| w.z_mid).sum::<f64>() / n,
+                down: v.iter().filter(|w| w.down).count() * 2 >= v.len(),
+                mean_um: mean,
+                sd_um: var.sqrt(),
+                min_um: tot[0],
+                p10_um: quantile_sorted(&tot, 0.1),
+                p50_um: quantile_sorted(&tot, 0.5),
+                p90_um: quantile_sorted(&tot, 0.9),
+                max_um: tot[tot.len() - 1],
+                defl_um: v.iter().map(|w| w.deflection_um).sum::<f64>() / n,
+                wear_um: v.iter().map(|w| w.wear_um).sum::<f64>() / n,
+                thermal_um: v.iter().map(|w| w.thermal_tool_um + w.thermal_wp_um).sum::<f64>() / n,
+                workpiece_um: v.iter().map(|w| w.workpiece_um).sum::<f64>() / n,
+                wall_mm,
+                wall_k_n_mm: wall_k,
+                t_s: v.iter().map(|w| w.t_s).sum::<f64>() / n,
+                len_mm: len,
+                pieces,
+            }
+        })
+        .collect();
+    out.sort_by_key(|s| s.seg);
+    out
 }
 
 pub fn simulate(profile: &MachiningProfile, pattern: &ToolPathPattern, ctx: &CutContext) -> LoadSimReport {
@@ -550,6 +932,17 @@ pub fn simulate_segments(profile: &MachiningProfile, segments: &[ToolPathSegment
 }
 
 pub fn simulate_segments_res(profile: &MachiningProfile, segments: &[ToolPathSegment], label: &str, ctx: &CutContext, max_cells: usize) -> LoadSimReport {
+    simulate_segments_prog(profile, segments, label, ctx, max_cells, &mut |_| true).expect("진행 콜백이 중단하지 않으면 시뮬레이션은 항상 끝납니다")
+}
+
+pub fn simulate_segments_prog(
+    profile: &MachiningProfile,
+    segments: &[ToolPathSegment],
+    label: &str,
+    ctx: &CutContext,
+    max_cells: usize,
+    progress: &mut dyn FnMut(f64) -> bool,
+) -> Result<LoadSimReport, String> {
     let mut grid = StockGrid::from_setup(profile, max_cells.max(10_000));
     let mut floor_err = vec![f32::NAN; grid.nx * grid.ny];
     let tool = &ctx.tool;
@@ -580,8 +973,7 @@ pub fn simulate_segments_res(profile: &MachiningProfile, segments: &[ToolPathSeg
     let mut min_margin = f64::INFINITY;
     let mut chatter_samples = 0usize;
     let mut cut_samples = 0usize;
-    let mut max_wp_defl = 0.0f64;
-    let mut thin_wall: Option<f64> = None;
+    let mut wear_acc = WearAcc::new();
     let step = (grid.cell * 0.5).max(0.025);
     let total_len: f64 = {
         let mut prev = (0.0, 0.0, 0.0);
@@ -615,12 +1007,18 @@ pub fn simulate_segments_res(profile: &MachiningProfile, segments: &[ToolPathSeg
     let drift_um_per_s = profile.machine.spindle_drift_um_per_hr / 3600.0;
     let lead_tan = 7f64.to_radians().tan();
     let datum = (0.0f64, 0.0f64);
+    let mut done_len = 0.0f64;
+    let mut tick = 0usize;
     for (si, seg) in segments.iter().enumerate() {
         seg_start_s[si] = t;
         let start = prev;
         let end = seg.end_point();
         let seg_len = seg.length_from(start);
         prev = end;
+        if !progress((done_len / total_len.max(1e-9)).clamp(0.0, 1.0)) {
+            return Err("시뮬레이션을 취소했습니다".into());
+        }
+        done_len += seg_len;
         if seg_len <= 1e-9 {
             continue;
         }
@@ -653,7 +1051,15 @@ pub fn simulate_segments_res(profile: &MachiningProfile, segments: &[ToolPathSeg
         let mut last = start;
         let mut first = true;
         let mut first_cut_of_seg = true;
-        for p in pts.iter() {
+        let n_pts = pts.len().max(1) as f64;
+        for (pi, p) in pts.iter().enumerate() {
+            tick += 1;
+            if tick >= 2048 {
+                tick = 0;
+                if !progress(((done_len - seg_len + seg_len * pi as f64 / n_pts) / total_len.max(1e-9)).clamp(0.0, 1.0)) {
+                    return Err("시뮬레이션을 취소했습니다".into());
+                }
+            }
             let dx = p.0 - last.0;
             let dy = p.1 - last.1;
             let dzv = p.2 - last.2;
@@ -685,9 +1091,12 @@ pub fn simulate_segments_res(profile: &MachiningProfile, segments: &[ToolPathSeg
             let mut wp_heat = 0.0;
             let mut pre_here = 0.0;
             let mut cdir = (0.0, 0.0);
+            let mut down_here = false;
+            let mut bin_dt = 0.0;
             if cutting && dt > 0.0 {
                 cut_time += dt;
                 cut_samples += 1;
+                bin_dt = dt;
                 let vbq = (vb / 0.01).round() * 0.01;
                 if (wtool.flank_wear_mm - vbq).abs() > 1e-9 {
                     wtool.flank_wear_mm = vbq;
@@ -763,26 +1172,11 @@ pub fn simulate_segments_res(profile: &MachiningProfile, segments: &[ToolPathSeg
                             chatter_samples += 1;
                         }
                     }
-                    if let Some(wall_angle) = eng.wall_angle() {
-                        let comp = physics::tool_compliance(tool, ap_eff, ctx.calib.deflection);
-                        let holder = 1.0 / (tool.holder_stiffness_n_per_um * 1000.0) * ctx.calib.deflection;
-                        let steps = sample_force.fy_series.len().max(1);
-                        let tan_h = tool.helix_deg.to_radians().tan();
-                        let mut acc = 0.0;
-                        let mut force_acc = 0.0;
-                        let slices = 4;
-                        for k in 0..slices {
-                            let zk = (k as f64 + 0.5) * ap_eff / slices as f64;
-                            let theta = (wall_angle + zk * tan_h / r).rem_euclid(sample_force.pitch_rad.max(1e-9));
-                            let idx = ((theta / sample_force.pitch_rad.max(1e-9)) * steps as f64).floor() as usize % steps;
-                            let fy = sample_force.fy_series.get(idx).cloned().unwrap_or(0.0);
-                            let away = if eng.mode == MillMode::Down { fy } else { -fy };
-                            acc += physics::deflection_at(&comp, away, (tool.stickout_mm - zk).max(0.0), holder) / slices as f64;
-                            force_acc += away / slices as f64;
-                        }
+                    if let Some((acc, force_acc)) = wall_deflection(tool, ctx.calib.deflection, &sample_force, &eng) {
                         defl_wall = acc;
                         let side = if eng.mode == MillMode::Up { (-dir.1, dir.0) } else { (dir.1, -dir.0) };
                         wall = Some((p.2 + ap_eff / 2.0, side, force_acc));
+                        down_here = eng.mode == MillMode::Down;
                     }
                 }
                 let vce = physics::effective_vc(tool, rpm, ap_eff);
@@ -830,12 +1224,9 @@ pub fn simulate_segments_res(profile: &MachiningProfile, segments: &[ToolPathSeg
                     let wy = p.1 + side.1 * r;
                     let dist_datum = ((wx - datum.0) * side.0 + (wy - datum.1) * side.1).abs();
                     let thermal_wp = -ctx.wp.expansion * dist_datum * wp_rise * 1000.0;
-                    if let Some((um, thick)) = thin_wall_um(&grid, wx, wy, side, p.2, z_mid, ap_eff, away_force, e_wp) {
-                        wp_defl = um;
-                        max_wp_defl = max_wp_defl.max(um.abs());
-                        if um.abs() > 1.0 {
-                            thin_wall = Some(thin_wall.map(|t: f64| t.min(thick)).unwrap_or(thick));
-                        }
+                    let tw = thin_wall_um(&grid, wx, wy, side, p.2, z_mid, ap_eff, away_force, e_wp);
+                    if let Some(w) = tw {
+                        wp_defl = w.defl_um;
                     }
                     if wall_errors.len() < 200_000 {
                         wall_errors.push(WallErrorSample {
@@ -851,6 +1242,12 @@ pub fn simulate_segments_res(profile: &MachiningProfile, segments: &[ToolPathSeg
                             thermal_wp_um: thermal_wp,
                             total_um: defl_wall + wp_defl + wear_um + th_tool + thermal_wp,
                             workpiece_um: wp_defl,
+                            seg: si,
+                            final_wall: false,
+                            ap_mm: ap_eff,
+                            down: down_here,
+                            wall_mm: tw.map(|w| w.thickness_mm).unwrap_or(0.0),
+                            wall_k_n_mm: tw.map(|w| w.k_n_per_mm).unwrap_or(0.0),
                         });
                     }
                 }
@@ -863,6 +1260,30 @@ pub fn simulate_segments_res(profile: &MachiningProfile, segments: &[ToolPathSeg
             max_force = max_force.max(sample_force.f_res_peak);
             max_temp = max_temp.max(temp);
             max_defl = max_defl.max(defl_wall.abs());
+            if bin_dt > 0.0 {
+                wear_acc.push(BinAcc {
+                    dt: bin_dt,
+                    t_end: t,
+                    t_cut_end: cut_time,
+                    removed: rem.volume,
+                    f_dt: sample_force.f_res_mean * bin_dt,
+                    f_peak: sample_force.f_res_peak,
+                    temp_dt: temp * bin_dt,
+                    temp_max: temp,
+                    p_dt: power * bin_dt,
+                    h_dt: sample_force.h_mean_mm * bin_dt,
+                    eng_dt: eng_deg * bin_dt,
+                    chat_min: margin,
+                    wall_max: defl_wall.abs() + wp_defl.abs(),
+                    pre_max: pre_here,
+                    vb,
+                    radial: vb * tan_clear * 1000.0,
+                    wp_c: bulk + wp_rise,
+                    seg0: si,
+                    seg1: si,
+                    used: true,
+                });
+            }
             samples.push(SimSample {
                 t_s: t,
                 x: p.0,
@@ -914,6 +1335,15 @@ pub fn simulate_segments_res(profile: &MachiningProfile, segments: &[ToolPathSeg
             if tool.measured_fn_hz.is_some() && tool.measured_k_n_per_um.is_some() { "실측 FRF" } else { "모델 추정 FRF · 탭 테스트로 확정" }
         ));
     }
+    flag_final_walls(&grid, &mut wall_errors);
+    let final_count = wall_errors.iter().filter(|w| w.final_wall).count();
+    let transient_count = wall_errors.len() - final_count;
+    let mut seg_end_tmp: Vec<f64> = seg_start_s.iter().skip(1).cloned().collect();
+    seg_end_tmp.push(t);
+    let seg_walls = seg_wall_stats(&wall_errors, segments, &seg_start_s, &seg_end_tmp);
+    let final_thin: Vec<&WallErrorSample> = wall_errors.iter().filter(|w| w.final_wall && w.wall_k_n_mm > 0.0 && w.workpiece_um.abs() > 1.0).collect();
+    let max_wp_defl = final_thin.iter().map(|w| w.workpiece_um.abs()).fold(0.0, f64::max);
+    let thin_wall = if final_thin.is_empty() { None } else { Some(final_thin.iter().map(|w| w.wall_mm).fold(f64::INFINITY, f64::min)) };
     if let Some(tw) = thin_wall {
         warnings.push(format!(
             "얇은 벽(두께 약 {:.1} mm)이 절삭력으로 최대 {:.1} µm 휘어 벽면 오차에 더해집니다",
@@ -933,12 +1363,13 @@ pub fn simulate_segments_res(profile: &MachiningProfile, segments: &[ToolPathSeg
     }
     let (heat_packets, heat_field) = heat.finish(6000);
     let episodes = build_episodes(&samples, ctx, profile);
-    let (mean_wall, max_wall) = if wall_errors.is_empty() {
+    let stat_walls: Vec<&WallErrorSample> = if final_count > 0 { wall_errors.iter().filter(|w| w.final_wall).collect() } else { wall_errors.iter().collect() };
+    let (mean_wall, max_wall) = if stat_walls.is_empty() {
         (0.0, 0.0)
     } else {
         (
-            wall_errors.iter().map(|w| w.total_um).sum::<f64>() / wall_errors.len() as f64,
-            wall_errors.iter().map(|w| w.total_um.abs()).fold(0.0, f64::max),
+            stat_walls.iter().map(|w| w.total_um).sum::<f64>() / stat_walls.len() as f64,
+            stat_walls.iter().map(|w| w.total_um.abs()).fold(0.0, f64::max),
         )
     };
     let floor_vals: Vec<f32> = floor_err.iter().cloned().filter(|v| v.is_finite()).collect();
@@ -964,9 +1395,15 @@ pub fn simulate_segments_res(profile: &MachiningProfile, segments: &[ToolPathSeg
         .filter(|(i, _)| i % stride == 0 || *i + 1 == samples.len())
         .map(|(_, s)| s.clone())
         .collect();
-    let wstride = (wall_errors.len() / 3000).max(1);
-    let walls_ds: Vec<WallErrorSample> = wall_errors.iter().step_by(wstride).cloned().collect();
-    LoadSimReport {
+    let finals: Vec<&WallErrorSample> = wall_errors.iter().filter(|w| w.final_wall).collect();
+    let fstride = (finals.len() / 2400).max(1);
+    let mut walls_ds: Vec<WallErrorSample> = finals.iter().step_by(fstride).map(|w| (*w).clone()).collect();
+    let transients: Vec<&WallErrorSample> = wall_errors.iter().filter(|w| !w.final_wall).collect();
+    let budget = 3000usize.saturating_sub(walls_ds.len()).max(1);
+    let tstride = (transients.len() / budget).max(1);
+    walls_ds.extend(transients.iter().step_by(tstride).map(|w| (*w).clone()));
+    walls_ds.sort_by(|a, b| a.t_s.partial_cmp(&b.t_s).unwrap_or(std::cmp::Ordering::Equal));
+    Ok(LoadSimReport {
         pattern: label.into(),
         episodes,
         wall_errors: walls_ds,
@@ -999,7 +1436,11 @@ pub fn simulate_segments_res(profile: &MachiningProfile, segments: &[ToolPathSeg
         segment_end_s,
         max_preheat_c: max_preheat,
         bulk_c: bulk,
-    }
+        seg_walls,
+        wear_log: wear_acc.finish(),
+        final_wall_count: final_count,
+        transient_wall_count: transient_count,
+    })
 }
 
 fn build_episodes(samples: &[SimSample], ctx: &CutContext, profile: &MachiningProfile) -> Vec<Episode> {
@@ -1177,12 +1618,35 @@ mod tests {
         }
         let thick = thin_wall_um(&g, 3.0, 0.5, (1.0, 0.0), -10.0, -5.0, 10.0, 100.0, 69000.0).unwrap();
         let thin = thin_wall_um(&g, 5.0, 0.5, (1.0, 0.0), -10.0, -5.0, 10.0, 100.0, 69000.0).unwrap();
-        assert!(thin.0 > 10.0 * thick.0, "{:?} {:?}", thin, thick);
-        assert!((thick.1 - 3.0).abs() < 0.2);
+        assert!(thin.defl_um > 10.0 * thick.defl_um, "{:?} {:?}", thin, thick);
+        assert!((thick.thickness_mm - 3.0).abs() < 0.2);
+        assert!(thick.k_n_per_mm > thin.k_n_per_mm && (thick.height_mm - 5.0).abs() < 1e-9);
         let mut solid = g.clone();
         for v in solid.h.iter_mut() {
             *v = 0.0;
         }
         assert!(thin_wall_um(&solid, 3.0, 0.5, (1.0, 0.0), -10.0, -5.0, 10.0, 100.0, 69000.0).is_none());
+    }
+
+    #[test]
+    fn cleared_side_is_not_a_wall_and_deflection_is_bounded() {
+        let mut g = StockGrid {
+            x0: 0.0,
+            y0: 0.0,
+            cell: 0.1,
+            nx: 200,
+            ny: 10,
+            h: vec![-10.0; 2000],
+            top: 0.0,
+            bottom: -20.0,
+        };
+        assert!(thin_wall_um(&g, 2.95, 0.55, (1.0, 0.0), -10.0, -5.0, 10.0, 100.0, 69000.0).is_none());
+        for j in 0..10 {
+            for i in 30..34 {
+                g.h[j * 200 + i] = 0.0;
+            }
+        }
+        let w = thin_wall_um(&g, 2.95, 0.55, (1.0, 0.0), -10.0, -5.0, 10.0, 5000.0, 69000.0).unwrap();
+        assert!(w.thickness_mm < 0.5 && w.defl_um <= 500.0 * w.thickness_mm + 1e-9, "{:?}", w);
     }
 }

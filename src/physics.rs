@@ -681,6 +681,12 @@ fn default_substrate_max_c() -> f64 {
 
 pub const CARBIDE_PROPS: (f64, f64, f64, f64, f64, f64, f64, f64) = (600.0, 80.0, 5.5e-6, 14500.0 * 220.0, 1.0, 14500.0, 0.22, 10.0);
 
+pub const COATING_EDGE_GROWTH: f64 = 0.8;
+
+pub fn coated_edge_um(hone_um: f64, coating_um: f64) -> f64 {
+    hone_um.max(0.0) + COATING_EDGE_GROWTH * coating_um.max(0.0)
+}
+
 impl ToolGeometry {
     pub fn from_setting(s: &EndMillMockupSetting, wp: &WorkpieceProps, machine: &MachineLimits, base: Option<&ToolBaseMaterial>) -> Self {
         let z = s.flute_count.max(1) as u32;
@@ -701,6 +707,8 @@ impl ToolGeometry {
         };
         let frf_ok = machine.tip_frf_tool.as_deref().map(|k| k == s.dynamic_key()).unwrap_or(true);
         let edge_default = if s.is_high_end { wp.edge_radius_um } else { wp.edge_radius_um * 0.7 };
+        let coating = tribology_from_name(s.coating_name.as_deref());
+        let edge_coated = coated_edge_um(edge_default, coating.thickness_um);
         let neck = s.neck();
         Self {
             diameter_mm: s.diameter_mm,
@@ -713,7 +721,7 @@ impl ToolGeometry {
             stickout_mm: s.effective_stickout_mm(),
             rake_deg: s.rake_deg.unwrap_or(wp.rake_deg),
             clearance_deg: s.clearance_deg.unwrap_or(10.0),
-            edge_radius_um: s.edge_radius_um.unwrap_or(edge_default),
+            edge_radius_um: s.edge_radius_um.unwrap_or(edge_coated),
             core_ratio: core,
             runout_um: s.runout_um.unwrap_or(if s.is_high_end { 3.0 } else { 10.0 }),
             variable_pitch: s.variable_pitch,
@@ -722,7 +730,7 @@ impl ToolGeometry {
             tool_expansion: alpha,
             tool_rho_c: rho_c,
             base_wear_factor: wf,
-            coating: tribology_from_name(s.coating_name.as_deref()),
+            coating,
             holder_stiffness_n_per_um: machine.holder_stiffness_n_per_um,
             flank_wear_mm: 0.0,
             tool_density: density,
@@ -758,7 +766,7 @@ impl ToolGeometry {
         self.rake_deg = wp.rake_deg;
         self.clearance_deg = 10.0;
         if self.edge_default_um > 0.0 {
-            self.edge_radius_um = self.edge_default_um;
+            self.edge_radius_um = coated_edge_um(self.edge_default_um, tribology::coating_props("AlTiN").thickness_um);
         }
         self.neck_diameter_mm = 0.0;
         self.reach_mm = 0.0;
@@ -1254,20 +1262,31 @@ pub fn mechanistic_forces(tool: &ToolGeometry, co: &CuttingCoeffs, fz: f64, rpm:
     let mut flank_t = 0.0;
     let mut flank_r = 0.0;
     let mut tot_t = 0.0;
-    for s in 0..steps {
-        let theta = pitch * s as f64 / steps as f64;
-        let mut fx = 0.0;
-        let mut fy = 0.0;
-        let mut torque = 0.0;
-        let mut teeth = vec![false; z];
-        for j in 0..z {
-            let offset = if z > 1 {
+    let offsets: Vec<f64> = (0..z)
+        .map(|j| {
+            if z > 1 {
                 let cur = (2.0 * PI * j as f64 / z as f64).cos();
                 let prev = (2.0 * PI * ((j + z - 1) % z) as f64 / z as f64).cos();
                 runout_mm * (cur - prev)
             } else {
                 0.0
-            };
+            }
+        })
+        .collect();
+    let turns = if z > 1 && runout_mm.abs() > 1e-12 { z } else { 1 };
+    let wt = 1.0 / turns as f64;
+    let mut fx_c = vec![0.0; turns];
+    let mut fy_c = vec![0.0; turns];
+    let mut tq_c = vec![0.0; turns];
+    let mut teeth = vec![false; turns * z];
+    let mut fres_sum = 0.0;
+    for s in 0..steps {
+        let theta = pitch * s as f64 / steps as f64;
+        fx_c.iter_mut().for_each(|v| *v = 0.0);
+        fy_c.iter_mut().for_each(|v| *v = 0.0);
+        tq_c.iter_mut().for_each(|v| *v = 0.0);
+        teeth.iter_mut().for_each(|t| *t = false);
+        for j in 0..z {
             for k in 0..slices {
                 let zk = (k as f64 + 0.5) * dz;
                 let (rl, sin_k) = tool.local_radius(zk);
@@ -1277,47 +1296,58 @@ pub fn mechanistic_forces(tool: &ToolGeometry, co: &CuttingCoeffs, fz: f64, rpm:
                 if phi < eng.phi_st || phi > eng.phi_ex {
                     continue;
                 }
-                let h = ((fz * phi.sin() + offset) * sin_k).max(0.0);
-                if h <= 1e-7 {
-                    continue;
-                }
-                teeth[j] = true;
-                let db = dz / sin_k;
-                let wh = 1.0 + co.work_hardening * co.hardened_depth_mm / (h + co.hardened_depth_mm).max(1e-9);
-                let ramp = if co.h_min_mm > 0.0 {
-                    let q = ((h - 0.5 * co.h_min_mm) / (0.5 * co.h_min_mm)).clamp(0.0, 1.0);
-                    q * q * (3.0 - 2.0 * q)
-                } else {
-                    1.0
-                };
-                let shear = co.kc11 * wh * h.powf(1.0 - co.mc) * db * ramp;
-                let dfr_w = co.sigma_flank * tool.flank_wear_mm * db;
-                let dft_w = mu_flank * dfr_w;
-                let dft = shear + co.kte * db + dft_w;
-                let dfr = co.kr * shear + co.kre * db + dfr_w;
-                if h < co.h_min_mm {
-                    plough_len += db;
-                }
-                rub_t += co.kte * db + dft_w;
-                flank_t += dft_w;
-                flank_r += dfr_w;
-                tot_t += dft;
                 let (sp, cp) = phi.sin_cos();
-                fx += -dft * cp - dfr * sp;
-                fy += dft * sp - dfr * cp;
-                torque += dft * rl;
-                h_sum += h;
-                h_cnt += 1.0;
-                h_max = h_max.max(h);
-                fr_sum += dfr;
-                len_sum += db;
+                let db = dz / sin_k;
+                for c in 0..turns {
+                    let h = ((fz * sp + offsets[(j + z - c) % z]) * sin_k).max(0.0);
+                    if h <= 1e-7 {
+                        continue;
+                    }
+                    teeth[c * z + j] = true;
+                    let wh = 1.0 + co.work_hardening * co.hardened_depth_mm / (h + co.hardened_depth_mm).max(1e-9);
+                    let ramp = if co.h_min_mm > 0.0 {
+                        let q = ((h - 0.5 * co.h_min_mm) / (0.5 * co.h_min_mm)).clamp(0.0, 1.0);
+                        q * q * (3.0 - 2.0 * q)
+                    } else {
+                        1.0
+                    };
+                    let shear = co.kc11 * wh * h.powf(1.0 - co.mc) * db * ramp;
+                    let dfr_w = co.sigma_flank * tool.flank_wear_mm * db;
+                    let dft_w = mu_flank * dfr_w;
+                    let dft = shear + co.kte * db + dft_w;
+                    let dfr = co.kr * shear + co.kre * db + dfr_w;
+                    if h < co.h_min_mm {
+                        plough_len += db * wt;
+                    }
+                    rub_t += (co.kte * db + dft_w) * wt;
+                    flank_t += dft_w * wt;
+                    flank_r += dfr_w * wt;
+                    tot_t += dft * wt;
+                    fx_c[c] += -dft * cp - dfr * sp;
+                    fy_c[c] += dft * sp - dfr * cp;
+                    tq_c[c] += dft * rl;
+                    h_sum += h;
+                    h_cnt += 1.0;
+                    h_max = h_max.max(h);
+                    fr_sum += dfr * wt;
+                    len_sum += db * wt;
+                }
             }
         }
-        teeth_sum += teeth.iter().filter(|t| **t).count() as f64;
-        let fres = (fx * fx + fy * fy).sqrt();
-        fres_peak = fres_peak.max(fres);
-        fn_peak = fn_peak.max(fy.abs());
-        t_peak = t_peak.max(torque);
+        let mut fx = 0.0;
+        let mut fy = 0.0;
+        let mut torque = 0.0;
+        for c in 0..turns {
+            let fres = (fx_c[c] * fx_c[c] + fy_c[c] * fy_c[c]).sqrt();
+            fres_peak = fres_peak.max(fres);
+            fn_peak = fn_peak.max(fy_c[c].abs());
+            t_peak = t_peak.max(tq_c[c]);
+            fres_sum += fres * wt;
+            fx += fx_c[c] * wt;
+            fy += fy_c[c] * wt;
+            torque += tq_c[c] * wt;
+        }
+        teeth_sum += teeth.iter().filter(|t| **t).count() as f64 * wt;
         t_sum += torque;
         fx_s.push(fx);
         fy_s.push(fy);
@@ -1325,7 +1355,7 @@ pub fn mechanistic_forces(tool: &ToolGeometry, co: &CuttingCoeffs, fz: f64, rpm:
     let n = steps as f64;
     out.fx_mean = fx_s.iter().sum::<f64>() / n;
     out.fy_mean = fy_s.iter().sum::<f64>() / n;
-    out.f_res_mean = fx_s.iter().zip(fy_s.iter()).map(|(a, b)| (a * a + b * b).sqrt()).sum::<f64>() / n;
+    out.f_res_mean = fres_sum / n;
     out.f_res_peak = fres_peak;
     out.f_normal_peak = fn_peak;
     out.torque_mean_nm = t_sum / n / 1000.0;

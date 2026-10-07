@@ -10,6 +10,7 @@ pub enum Ledger {
     Mold,
     Process,
     Decision,
+    Wear,
 }
 
 impl Ledger {
@@ -19,6 +20,7 @@ impl Ledger {
             Ledger::Mold => "mold",
             Ledger::Process => "process",
             Ledger::Decision => "decision",
+            Ledger::Wear => "wear",
         }
     }
 
@@ -26,8 +28,8 @@ impl Ledger {
         format!("{}.json", self.as_str())
     }
 
-    pub fn all() -> [Ledger; 4] {
-        [Ledger::Tool, Ledger::Mold, Ledger::Process, Ledger::Decision]
+    pub fn all() -> [Ledger; 5] {
+        [Ledger::Tool, Ledger::Mold, Ledger::Process, Ledger::Decision, Ledger::Wear]
     }
 }
 
@@ -39,6 +41,7 @@ pub enum Track {
     MoldImage,
     Process,
     Decision,
+    Wear,
 }
 
 impl Track {
@@ -50,6 +53,7 @@ impl Track {
             Track::MoldImage => "mold.image",
             Track::Process => "process",
             Track::Decision => "decision",
+            Track::Wear => "wear",
         }
     }
 
@@ -61,6 +65,7 @@ impl Track {
             Track::MoldImage => (5, 4, 8),
             Track::Process => (3, 2, 4),
             Track::Decision => (10, 6, 15),
+            Track::Wear => (3, 2, 4),
         }
     }
 
@@ -74,6 +79,7 @@ impl Track {
             Track::MoldGeom | Track::MoldImage => Ledger::Mold,
             Track::Process => Ledger::Process,
             Track::Decision => Ledger::Decision,
+            Track::Wear => Ledger::Wear,
         }
     }
 }
@@ -263,6 +269,15 @@ pub struct ConfusionStat {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct GateStat {
+    pub evaluated: u64,
+    pub blocked: u64,
+    pub sole: u64,
+    #[serde(default)]
+    pub severity: Welford,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ScopeStat {
     #[serde(default)]
     pub baseline: HashMap<String, Welford>,
@@ -276,6 +291,8 @@ pub struct ScopeStat {
     pub agreement: HashMap<String, Welford>,
     #[serde(default)]
     pub transition: HashMap<String, u64>,
+    #[serde(default)]
+    pub gates: HashMap<String, GateStat>,
     pub updated_at: i64,
 }
 
@@ -307,6 +324,13 @@ impl ScopeStat {
         for (k, v) in other.transition {
             *self.transition.entry(k).or_insert(0) += v;
         }
+        for (k, v) in other.gates {
+            let g = self.gates.entry(k).or_default();
+            g.evaluated += v.evaluated;
+            g.blocked += v.blocked;
+            g.sole += v.sole;
+            g.severity.merge(&v.severity, ring);
+        }
         self.updated_at = now_ms();
     }
 
@@ -314,6 +338,7 @@ impl ScopeStat {
         self.baseline.values().map(|w| w.n).sum::<u64>()
             + self.calibration.values().map(|w| w.n).sum::<u64>()
             + self.confusion.values().map(|c| c.ties).sum::<u64>()
+            + self.gates.values().map(|g| g.evaluated).sum::<u64>()
     }
 }
 
@@ -363,6 +388,16 @@ pub struct AxisStatus {
     pub sd: f64,
     pub recent: f64,
     pub drift_z: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GateRate {
+    pub scope: String,
+    pub gate: String,
+    pub evaluated: u64,
+    pub blocked_rate: f64,
+    pub sole_rate: f64,
+    pub mean_severity: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -428,6 +463,7 @@ fn ring_for_key(key: &str) -> usize {
         "mold.image" => Track::MoldImage.ring_len(),
         "process" => Track::Process.ring_len(),
         "decision" => Track::Decision.ring_len(),
+        "wear" => Track::Wear.ring_len(),
         _ => 6,
     }
 }
@@ -600,6 +636,85 @@ impl SdsStore {
         self.with_scopes(scope, scope.track.as_str(), move |s, _| {
             *s.transition.entry(key.clone()).or_insert(0) += 1;
         });
+    }
+
+    pub fn record_gates(&mut self, scope: &Scope, items: &[(String, u8, bool, bool)]) {
+        if items.is_empty() {
+            return;
+        }
+        let list: Vec<(String, u8, bool, bool)> = items.to_vec();
+        self.with_scopes(scope, "gates", move |s, ring| {
+            for (id, sev, blocked, sole) in list.iter() {
+                let g = s.gates.entry(id.clone()).or_default();
+                g.evaluated += 1;
+                if *blocked {
+                    g.blocked += 1;
+                }
+                if *sole {
+                    g.sole += 1;
+                }
+                g.severity.push(*sev as f64, ring);
+            }
+        });
+    }
+
+    pub fn gate_rates(&self, scope: &Scope) -> Vec<GateRate> {
+        let l = scope.track.ledger();
+        let mut out = Vec::new();
+        for key in [scope.key_secondary(), scope.key_primary(), scope.key_global()] {
+            if let Some(st) = self.merged_scope(l, &key) {
+                if st.gates.is_empty() {
+                    continue;
+                }
+                for (id, g) in st.gates.iter() {
+                    let n = g.evaluated.max(1) as f64;
+                    out.push(GateRate {
+                        scope: key.clone(),
+                        gate: id.clone(),
+                        evaluated: g.evaluated,
+                        blocked_rate: g.blocked as f64 / n,
+                        sole_rate: g.sole as f64 / n,
+                        mean_severity: g.severity.mean,
+                    });
+                }
+                break;
+            }
+        }
+        out.sort_by(|a, b| b.blocked_rate.partial_cmp(&a.blocked_rate).unwrap_or(std::cmp::Ordering::Equal).then(a.gate.cmp(&b.gate)));
+        out
+    }
+
+    pub fn fusion_mse(&self, scope: &Scope, method: &str) -> Option<(f64, u64)> {
+        self.adaptive_baseline(scope, &format!("fusion_mse:{}", method)).map(|(m, _, n)| (m, n))
+    }
+
+    pub fn axes_of(&self, scope: &Scope, prefix: &str) -> Vec<AxisStatus> {
+        let l = scope.track.ledger();
+        for key in [scope.key_secondary(), scope.key_primary(), scope.key_global()] {
+            if let Some(st) = self.merged_scope(l, &key) {
+                let mut v: Vec<AxisStatus> = st
+                    .baseline
+                    .iter()
+                    .filter(|(a, _)| a.starts_with(prefix))
+                    .map(|(a, w)| AxisStatus {
+                        scope: key.clone(),
+                        axis: a.clone(),
+                        kind: "baseline".into(),
+                        n: w.n,
+                        mean: w.mean,
+                        sd: w.sd(),
+                        recent: w.recent_mean(),
+                        drift_z: w.drift_z(),
+                    })
+                    .collect();
+                if v.is_empty() {
+                    continue;
+                }
+                v.sort_by(|a, b| a.axis.cmp(&b.axis));
+                return v;
+            }
+        }
+        Vec::new()
     }
 
     fn merged_scope(&self, l: Ledger, key: &str) -> Option<ScopeStat> {
@@ -862,6 +977,19 @@ impl SdsStore {
                             sd: w.sd(),
                             recent: w.recent_mean(),
                             drift_z: w.drift_z(),
+                        });
+                    }
+                    for (g, gs) in st.gates.iter() {
+                        let n = gs.evaluated.max(1) as f64;
+                        axes.push(AxisStatus {
+                            scope: k.clone(),
+                            axis: g.clone(),
+                            kind: "gate_block".into(),
+                            n: gs.evaluated,
+                            mean: gs.blocked as f64 / n,
+                            sd: gs.severity.sd(),
+                            recent: gs.sole as f64 / n,
+                            drift_z: gs.severity.drift_z(),
                         });
                     }
                     for (pair, c) in st.confusion.iter() {

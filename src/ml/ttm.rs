@@ -1233,12 +1233,22 @@ impl TtmForecaster {
                 residual_context,
                 via_variance,
             } => {
-                let obs = vec![true; series.len()];
-                let (scaled, loc, scale) = scaling.apply(series, &obs);
+                let ctx = self.config.context_length.max(1);
+                let mut past = vec![0f64; ctx];
+                let mut obs = vec![false; ctx];
+                if series.len() >= ctx {
+                    past.copy_from_slice(&series[series.len() - ctx..]);
+                    obs.iter_mut().for_each(|o| *o = true);
+                } else {
+                    let pad = ctx - series.len();
+                    past[pad..].copy_from_slice(series);
+                    obs[pad..].iter_mut().for_each(|o| *o = true);
+                }
+                let (scaled, loc, scale) = scaling.apply(&past, &obs);
                 let tr = robust_lowess_like(&scaled, 0.15, 2);
-                let l_res = residual_context.map(|r| r.min(scaled.len())).unwrap_or(scaled.len());
-                let off = scaled.len() - l_res;
-                let rsig: Vec<f64> = (off..scaled.len()).map(|i| scaled[i] - tr[i]).collect();
+                let l_res = residual_context.map(|r| r.min(ctx)).unwrap_or(ctx);
+                let off = ctx - l_res;
+                let rsig: Vec<f64> = (off..ctx).map(|i| scaled[i] - tr[i]).collect();
                 let (tp, tq) = trend.forward(&scaled).map_err(|e| e.to_string())?;
                 let (rp, rq) = resid.forward(&rsig).map_err(|e| e.to_string())?;
                 let point: Vec<f64> = tp.iter().zip(rp.iter()).map(|(a, b)| (a + b) * scale + loc).collect();

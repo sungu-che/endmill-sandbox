@@ -1,4 +1,4 @@
-use crate::gcode::{GCodeGenerator, ToolPathPattern};
+use crate::gcode::{GCodeGenerator, ToolPathPattern, ToolPathSegment};
 use crate::loadsim::{self, HeatFieldProps, HeatPacket, SimSample};
 use crate::physics::CutContext;
 use crate::pipeline::calibrated_context;
@@ -162,6 +162,23 @@ pub fn build_with_context(profile: &MachiningProfile, pattern_key: &str, ctx: &C
     }
     let rep = loadsim::simulate_segments_res(profile, &segments, pattern.key(), ctx, VIEWPORT_MAX_CELLS);
     Ok(assemble(profile, pattern.key(), ctx, rep))
+}
+
+pub fn build_report_prog(
+    profile: &MachiningProfile,
+    pattern_key: &str,
+    ctx: &CutContext,
+    progress: &mut dyn FnMut(f64) -> bool,
+) -> Result<(ViewportSim, loadsim::LoadSimReport, Vec<ToolPathSegment>), String> {
+    profile.endmill_setting.validate()?;
+    let pattern = ToolPathPattern::from_key(pattern_key, profile)?;
+    let segments = GCodeGenerator::generate_synthetic_segments_with_pattern(profile, &pattern);
+    if segments.is_empty() {
+        return Err("시뮬레이션할 이동 명령이 없습니다".into());
+    }
+    let rep = loadsim::simulate_segments_prog(profile, &segments, pattern.key(), ctx, VIEWPORT_MAX_CELLS, progress)?;
+    let view = assemble(profile, pattern.key(), ctx, rep.clone());
+    Ok((view, rep, segments))
 }
 
 pub fn assemble(profile: &MachiningProfile, pattern: &str, ctx: &CutContext, rep: loadsim::LoadSimReport) -> ViewportSim {

@@ -26,6 +26,8 @@ pub mod curation;
 pub mod calc;
 pub mod modelhub;
 pub mod viewport;
+pub mod wearlog;
+pub mod wearcomp;
 
 pub use application::*;
 pub use metadata::*;

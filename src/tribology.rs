@@ -427,10 +427,19 @@ fn dissolution_onset_c(chem: WpChem, coat: &CoatingTribology) -> f64 {
     }
 }
 
+pub fn tribofilm_factor(coat: &CoatingTribology, chem: WpChem, t_c: f64) -> f64 {
+    if coat.chem.al && coat.protective_oxide && !matches!(chem, WpChem::Aluminum | WpChem::CarbonFiber) {
+        1.0 - 0.3 * sigmoid((t_c - 800.0) / 60.0)
+    } else {
+        1.0
+    }
+}
+
 pub fn pair(tool: &ToolGeometry, wp: &WorkpieceProps, t_c: f64) -> PairTribology {
     let coat = &tool.coating;
     let c = &coat.chem;
     let m_adh = adhesion_modifier(c, wp.chem);
+    let film = tribofilm_factor(coat, wp.chem, t_c);
     let mut dissolution = 0.0;
     let diffusion = if c.carbon {
         match wp.chem {
@@ -463,9 +472,9 @@ pub fn pair(tool: &ToolGeometry, wp: &WorkpieceProps, t_c: f64) -> PairTribology
     };
     PairTribology {
         adhesion_mod: m_adh,
-        adhesion: wp.adhesion * m_adh,
+        adhesion: wp.adhesion * m_adh * film,
         mu_factor: m_adh.sqrt(),
-        diffusion,
+        diffusion: diffusion * film,
         dissolution,
         abrasion: abrasion_index(effective_hardness(coat, t_c), wp, t_c),
         oxidation: coat.oxidation * sigmoid((t_c - coat.oxidation_c) / 45.0),
@@ -516,7 +525,8 @@ pub fn contact_friction(ctx: &CutContext, vc: f64, t_int: f64) -> Friction {
         };
     let penetration = fl.film_strength / (1.0 + (vc.max(0.0) / v_pen.max(1.0)).powi(2));
     let access = penetration * (1.0 - sticking);
-    let mu_lub = mu_thermal - (mu_thermal - fl.boundary_mu).max(0.0) * access;
+    let mu_boundary = fl.boundary_mu * (coat.friction / 0.5).sqrt().clamp(0.4, 1.4) * p.mu_factor;
+    let mu_lub = mu_thermal - (mu_thermal - mu_boundary).max(0.0) * access;
     let lift = chip_lift(ctx);
     Friction {
         mu_pair,
@@ -691,6 +701,8 @@ pub struct ThermalShock {
     pub risk: f64,
     #[serde(default)]
     pub mismatch_mpa: f64,
+    #[serde(default)]
+    pub coating_risk: f64,
 }
 
 pub fn thermal_shock(ctx: &CutContext, wet_c: f64, h_eff: f64, barrier_rel: f64, interrupted: bool) -> ThermalShock {
@@ -705,12 +717,15 @@ pub fn thermal_shock(ctx: &CutContext, wet_c: f64, h_eff: f64, barrier_rel: f64,
     } else {
         0.0
     };
+    let substrate_risk = if interrupted { ((severity - 350.0) / 400.0).clamp(0.0, 1.0) } else { 0.0 };
+    let coating_risk = if interrupted && coat.thickness_um > 0.0 { ((mismatch - 500.0) / 1500.0).clamp(0.0, 1.0) } else { 0.0 };
     ThermalShock {
         quench,
         amplitude_c: amplitude,
         stress_mpa: amplitude * barrier_rel * shock_coefficient(ctx),
-        risk: if interrupted { ((severity - 350.0) / 400.0).clamp(0.0, 1.0) } else { 0.0 },
+        risk: 1.0 - (1.0 - substrate_risk) * (1.0 - 0.5 * coating_risk),
         mismatch_mpa: mismatch,
+        coating_risk,
     }
 }
 

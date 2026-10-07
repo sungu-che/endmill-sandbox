@@ -201,6 +201,9 @@ use endmill_model::store::{Store, StoreStatus};
 use endmill_model::calc::{CalcContext, CalcOutcome, CalcOverrides};
 use endmill_model::modelhub::{DownloadJob, InstallStatus, ModelFile, ModelHub};
 use endmill_model::viewport::{CoolantVisual, ViewportSim};
+use endmill_model::wearcomp::{CompOptions, CompOutcome};
+use endmill_model::wearlog::WearLog;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub struct Shared {
     pub data_dir: PathBuf,
@@ -215,6 +218,8 @@ pub struct Shared {
     pub viewport_cache: Mutex<Option<(String, ViewportSim)>>,
     pub model_snapshot: Mutex<ModelStatus>,
     pub loading_model: Mutex<Option<String>>,
+    pub job: Mutex<JobSlot>,
+    pub job_cache: Mutex<Option<JobCache>>,
 }
 
 fn yes() -> bool {
@@ -279,6 +284,8 @@ pub struct AppSettings {
     pub models: ModelSettings,
     #[serde(default)]
     pub ui: UiSettings,
+    #[serde(default)]
+    pub comp: CompOptions,
 }
 
 fn load_settings(data_dir: &std::path::Path) -> AppSettings {
@@ -381,6 +388,8 @@ impl AppState {
                 viewport_cache: Mutex::new(None),
                 model_snapshot: Mutex::new(snapshot),
                 loading_model: Mutex::new(None),
+                job: Mutex::new(JobSlot::default()),
+                job_cache: Mutex::new(None),
                 data_dir,
             }),
         }
@@ -433,7 +442,7 @@ where
         .map_err(|e| format!("작업 실행 실패: {}", e))?
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct GCodePreviewResponse {
     pub program_name: String,
     pub line_count: usize,
@@ -513,7 +522,7 @@ pub struct CoolantOptionResponse {
     pub nozzle_count: u8,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct ToolPathSegmentResponse {
     pub kind: String,
     pub x: Option<f64>,
@@ -2450,6 +2459,480 @@ pub async fn viewport_sim(state: tauri::State<'_, AppState>, profile_name: Optio
     .await
 }
 
+#[derive(Default)]
+pub struct JobSlot {
+    pub id: u64,
+    pub key: String,
+    pub pct: f64,
+    pub stage: String,
+    pub label: String,
+    pub done: bool,
+    pub error: Option<String>,
+    pub started_ms: i64,
+    pub finished_ms: i64,
+    pub log: Vec<String>,
+    pub cancel: Arc<AtomicBool>,
+    pub result: Option<Arc<JobResult>>,
+}
+
+pub struct JobCache {
+    pub profile: MachiningProfile,
+    pub pattern: String,
+    pub ctx: endmill_model::physics::CutContext,
+    pub report: endmill_model::loadsim::LoadSimReport,
+    pub segments: Vec<ToolPathSegment>,
+    pub result: Arc<JobResult>,
+    pub last_action: Option<String>,
+}
+
+#[derive(Serialize, Clone)]
+pub struct JobStatus {
+    pub id: u64,
+    pub key: String,
+    pub pct: f64,
+    pub stage: String,
+    pub label: String,
+    pub done: bool,
+    pub error: Option<String>,
+    pub elapsed_s: f64,
+    pub log: Vec<String>,
+    pub has_result: bool,
+}
+
+#[derive(Serialize, Clone)]
+pub struct JobModels {
+    pub ttm_used: bool,
+    pub ttm: String,
+    pub laya_used: bool,
+    pub laya: String,
+}
+
+#[derive(Serialize, Clone)]
+pub struct JobResult {
+    pub id: u64,
+    pub key: String,
+    pub profile_name: String,
+    pub pattern: String,
+    pub replan: bool,
+    pub calc: Option<CalcOutcome>,
+    pub calc_error: Option<String>,
+    pub view: ViewportSim,
+    pub segments: Vec<ToolPathSegmentResponse>,
+    pub program1: GCodePreviewResponse,
+    pub log: WearLog,
+    pub comp: CompOutcome,
+    pub segments2: Vec<ToolPathSegmentResponse>,
+    pub models: JobModels,
+    pub files: Vec<String>,
+    pub sds: Vec<String>,
+    pub sds_axes: Vec<endmill_model::sds::AxisStatus>,
+    pub gate_rates: Vec<endmill_model::sds::GateRate>,
+    pub stages: Vec<(String, f64)>,
+    pub csv: String,
+    pub settings: CompOptions,
+    pub stamp: String,
+}
+
+fn job_status(slot: &JobSlot) -> JobStatus {
+    let end = if slot.finished_ms > 0 { slot.finished_ms } else { endmill_model::wearcomp::now_ms() };
+    JobStatus {
+        id: slot.id,
+        key: slot.key.clone(),
+        pct: slot.pct,
+        stage: slot.stage.clone(),
+        label: slot.label.clone(),
+        done: slot.done,
+        error: slot.error.clone(),
+        elapsed_s: ((end - slot.started_ms).max(0) as f64) / 1000.0,
+        log: slot.log.iter().rev().take(12).rev().cloned().collect(),
+        has_result: slot.result.is_some(),
+    }
+}
+
+fn ensure_model(sh: &Shared, key: &str) -> (bool, String) {
+    let mut models = lock(&sh.models);
+    if models.is_loaded(key) {
+        return (true, "이미 로드됨".into());
+    }
+    let own = lock(&sh.hub).status(key);
+    let usable = match own.as_ref() {
+        Some(st) => usable_model_dir(&models, key, st),
+        None => models.detected_dir(key),
+    };
+    if usable.is_some() {
+        *lock(&sh.loading_model) = Some(key.to_string());
+        let r = models.load(key);
+        *lock(&sh.loading_model) = None;
+        *lock(&sh.model_snapshot) = models.status();
+        return match r {
+            Ok(d) => (true, format!("이번 실행에서 로드: {}", d)),
+            Err(e) => (false, format!("로드 실패: {}", e)),
+        };
+    }
+    drop(models);
+    if lock(&sh.settings).models.auto_download {
+        let active = lock(&sh.hub).job(key).map(|j| j.active()).unwrap_or(false);
+        if !active {
+            let _ = lock(&sh.hub).start(key);
+        }
+        return (false, "모델 파일이 없어 백그라운드 다운로드를 시작했습니다 (이번 실행은 대체 방식)".into());
+    }
+    (false, "모델 파일 없음 (설정 > 모델에서 다운로드)".into())
+}
+
+enum JobMode {
+    Full {
+        profile_name: Option<String>,
+        pattern: String,
+        overrides: CalcOverrides,
+    },
+    Replan {
+        measured_radial_um: Option<f64>,
+    },
+}
+
+fn job_set(sh: &Shared, id: u64, pct: f64, stage: &str, label: &str) -> bool {
+    let mut s = lock(&sh.job);
+    if s.id != id || s.cancel.load(Ordering::Relaxed) {
+        return false;
+    }
+    if s.stage != stage {
+        let line = format!("{:>5.1}% {}", pct, label);
+        s.log.push(line);
+    }
+    s.pct = pct.max(s.pct);
+    s.stage = stage.to_string();
+    s.label = label.to_string();
+    true
+}
+
+fn job_finish(sh: &Shared, id: u64, result: Result<JobResult, String>) {
+    let mut s = lock(&sh.job);
+    if s.id != id {
+        return;
+    }
+    s.done = true;
+    s.finished_ms = endmill_model::wearcomp::now_ms();
+    match result {
+        Ok(r) => {
+            s.pct = 100.0;
+            s.stage = "done".into();
+            s.label = "완료".into();
+            s.result = Some(Arc::new(r));
+        }
+        Err(e) => {
+            s.label = if s.cancel.load(Ordering::Relaxed) { "취소됨".into() } else { "실패".into() };
+            s.error = Some(e);
+        }
+    }
+}
+
+fn run_job(sh: Arc<Shared>, id: u64, mode: JobMode) {
+    let t_start = std::time::Instant::now();
+    let res = run_job_inner(&sh, id, mode, t_start);
+    job_finish(&sh, id, res);
+}
+
+fn run_job_inner(sh: &Arc<Shared>, id: u64, mode: JobMode, t_start: std::time::Instant) -> Result<JobResult, String> {
+    let cancelled = || "작업을 취소했습니다".to_string();
+    let mut stages: Vec<(String, f64)> = Vec::new();
+    let mut mark = |name: &str, t0: &mut std::time::Instant| {
+        stages.push((name.to_string(), t0.elapsed().as_secs_f64()));
+        *t0 = std::time::Instant::now();
+    };
+    let mut t0 = std::time::Instant::now();
+    let mut opts = lock(&sh.settings).comp.clone();
+    let replan = matches!(mode, JobMode::Replan { .. });
+    let (p, pattern, ctx, report, segments, view, calc, calc_error, segs1, program1, prev_action) = match mode {
+        JobMode::Full { profile_name, pattern, overrides } => {
+            if !job_set(sh, id, 1.0, "profile", "프로필·환경 확인") {
+                return Err(cancelled());
+            }
+            let p = profile_by_name(sh, profile_name.as_deref())?;
+            p.endmill_setting.validate()?;
+            if !job_set(sh, id, 3.0, "calc", "1. 계산 실행 — 절삭 조건 계산") {
+                return Err(cancelled());
+            }
+            let (calc, calc_error) = {
+                let sds = lock(&sh.sds);
+                match endmill_model::calc::run(&p, &overrides, Some(&sds)) {
+                    Ok((_, o)) => (Some(o), None),
+                    Err(e) => (None, Some(e)),
+                }
+            };
+            mark("calc", &mut t0);
+            let ctx = {
+                let sds = lock(&sh.sds);
+                endmill_model::pipeline::calibrated_context(&p, Some(&sds)).0
+            };
+            if !job_set(sh, id, 8.0, "sim", "1. 계산 실행 — 1차 경로 물리 시뮬레이션") {
+                return Err(cancelled());
+            }
+            let sh2 = sh.clone();
+            let (view, report, segments) = endmill_model::viewport::build_report_prog(&p, &pattern, &ctx, &mut |f| {
+                job_set(&sh2, id, 8.0 + 47.0 * f, "sim", &format!("1. 계산 실행 — 1차 경로 물리 시뮬레이션 {:.0}%", f * 100.0))
+            })
+            .map_err(|e| if lock(&sh.job).cancel.load(Ordering::Relaxed) { cancelled() } else { e })?;
+            mark("sim", &mut t0);
+            let key = format!("{}|{}", serde_json::to_string(&p).unwrap_or_default(), pattern);
+            *lock(&sh.viewport_cache) = Some((key, view.clone()));
+            let pat = ToolPathPattern::from_key(&pattern, &p)?;
+            let program = GCodeGenerator::generate_gcode_with_pattern(&p, &pat);
+            let metadata = GCodeGenerator::generate_metadata_with_pattern(&p, &pat);
+            let program1 = preview_response(&program, metadata);
+            let segs1 = segments_to_response(segments.clone(), p.conditions.spindle_rpm);
+            let prev = lock(&sh.job_cache)
+                .as_ref()
+                .filter(|c| endmill_model::wearcomp::wear_scope(&c.profile).key_secondary() == endmill_model::wearcomp::wear_scope(&p).key_secondary())
+                .and_then(|c| c.last_action.clone());
+            (p, pattern, ctx, report, segments, view, calc, calc_error, segs1, program1, prev)
+        }
+        JobMode::Replan { measured_radial_um } => {
+            if !job_set(sh, id, 2.0, "cache", "재계획 — 직전 1차 시뮬레이션 재사용") {
+                return Err(cancelled());
+            }
+            opts.measured_radial_um = measured_radial_um;
+            let cache = lock(&sh.job_cache);
+            let c = cache.as_ref().ok_or_else(|| "먼저 재생(계산 실행)으로 1차 시뮬레이션을 만드세요".to_string())?;
+            let r = c.result.clone();
+            (
+                c.profile.clone(),
+                c.pattern.clone(),
+                c.ctx.clone(),
+                c.report.clone(),
+                c.segments.clone(),
+                r.view.clone(),
+                r.calc.clone(),
+                r.calc_error.clone(),
+                r.segments.clone(),
+                r.program1.clone(),
+                c.last_action.clone(),
+            )
+        }
+    };
+    let mut models_info = JobModels {
+        ttm_used: false,
+        ttm: "설정에서 끔".into(),
+        laya_used: false,
+        laya: "설정에서 끔".into(),
+    };
+    if !job_set(sh, id, 56.0, "ttm", "2. 마모 로그·분포 집계 · TTM-R3 확인") {
+        return Err(cancelled());
+    }
+    if opts.use_ttm {
+        let (ok, msg) = ensure_model(sh, "ttm");
+        models_info.ttm = msg;
+        models_info.ttm_used = ok;
+    }
+    if !job_set(sh, id, 60.0, "forecast", "2. 시계열 예측 (TTM-R3·Holt·물리 백테스트 융합)") {
+        return Err(cancelled());
+    }
+    let log = {
+        let models = lock(&sh.models);
+        let sds = lock(&sh.sds);
+        endmill_model::wearcomp::analyze_job(&p, &ctx, &report, if opts.use_ttm { models.ttm.as_ref() } else { None }, &sds)
+    };
+    models_info.ttm_used = log.ttm_used;
+    mark("wearlog", &mut t0);
+    if !job_set(sh, id, 66.0, "plan", "3. 2차 보정 계획 — 안전 게이트 평가") {
+        return Err(cancelled());
+    }
+    let tool_image = {
+        let ws = lock(&sh.ws);
+        if ws.profile.name == p.name { ws.tool_wear.clone() } else { None }
+    };
+    let draft = endmill_model::wearcomp::evaluate(&p, &ctx, &report, &log, &opts, tool_image.as_ref());
+    mark("plan", &mut t0);
+    if !job_set(sh, id, 70.0, "laya", "4. laya-typed-decisions 확인") {
+        return Err(cancelled());
+    }
+    let mut laya_ready = false;
+    if opts.use_laya && draft.need && draft.allowed.len() >= 2 {
+        let (ok, msg) = ensure_model(sh, "laya");
+        models_info.laya = msg;
+        laya_ready = ok;
+    } else if opts.use_laya {
+        models_info.laya = "판단할 선택지가 없어 호출하지 않음".into();
+    }
+    if !job_set(sh, id, 74.0, "decide", "4. laya-typed-decisions 판단 중") {
+        return Err(cancelled());
+    }
+    let decision = {
+        let rate = lock(&sh.sds).agreement_rate(&endmill_model::wearcomp::wear_scope(&p), endmill_model::wearcomp::COMP_AGREEMENT_AXIS);
+        let models = lock(&sh.models);
+        endmill_model::wearcomp::consult(&draft, if laya_ready { models.laya.as_ref() } else { None }, rate, opts.use_laya)
+    };
+    models_info.laya_used = decision.laya.is_some();
+    if let Some(e) = decision.laya_error.as_ref() {
+        if laya_ready {
+            models_info.laya = e.clone();
+        }
+    }
+    mark("decide", &mut t0);
+    if !job_set(sh, id, 86.0, "gcode", "5. 2차 보정 G-code·애니메이션 생성") {
+        return Err(cancelled());
+    }
+    let comp = endmill_model::wearcomp::finalize(&p, &ctx, &report, &segments, &log, &draft, &decision, &opts);
+    let segs2 = segments_to_response(comp.segments.clone(), p.conditions.spindle_rpm);
+    mark("gcode", &mut t0);
+    if !job_set(sh, id, 95.0, "record", "6. 로그·분포 기록 (SDS 원장·파일)") {
+        return Err(cancelled());
+    }
+    let scope = endmill_model::wearcomp::wear_scope(&p);
+    let (sds_lines, sds_axes, gate_rates) = {
+        let mut sds = lock(&sh.sds);
+        let lines = endmill_model::wearcomp::record(&mut sds, &p, &log, &comp, prev_action.as_deref());
+        (lines, sds.axes_of(&scope, ""), sds.gate_rates(&scope))
+    };
+    let csv = endmill_model::wearlog::bins_csv(&report.wear_log);
+    let stamp = endmill_model::wearcomp::utc_stamp(endmill_model::wearcomp::now_ms());
+    let summary = serde_json::json!({
+        "stamp": stamp,
+        "profile": p.name,
+        "pattern": pattern,
+        "replan": replan,
+        "report_line": comp.report_line,
+        "decision": comp.decision,
+        "gates": comp.draft.gates,
+        "residual": comp.draft.residual,
+        "zones": comp.draft.zones,
+        "after": { "p50_um": comp.after_p50_um, "min_um": comp.after_min_um, "max_um": comp.after_max_um },
+        "wear_log": log,
+        "models": { "ttm": models_info.ttm, "laya": models_info.laya },
+        "program2": comp.program_text,
+    });
+    let files = endmill_model::wearcomp::save_job_files(&sh.data_dir.join("wear_logs"), &stamp, &p.name, &csv, &summary);
+    mark("record", &mut t0);
+    stages.push(("total".into(), t_start.elapsed().as_secs_f64()));
+    let key = lock(&sh.job).key.clone();
+    let result = JobResult {
+        id,
+        key,
+        profile_name: p.name.clone(),
+        pattern: pattern.clone(),
+        replan,
+        calc,
+        calc_error,
+        view,
+        segments: segs1,
+        program1,
+        log,
+        segments2: segs2,
+        models: models_info,
+        files,
+        sds: sds_lines,
+        sds_axes,
+        gate_rates,
+        stages,
+        csv,
+        settings: opts.clone(),
+        stamp,
+        comp: comp.clone(),
+    };
+    let shared = Arc::new(result.clone());
+    *lock(&sh.job_cache) = Some(JobCache {
+        profile: p,
+        pattern,
+        ctx,
+        report,
+        segments,
+        result: shared,
+        last_action: Some(comp.decision.final_action.key().to_string()),
+    });
+    Ok(result)
+}
+
+fn start_job(sh: &Arc<Shared>, key: String, mode: JobMode) -> JobStatus {
+    let id = {
+        let mut slot = lock(&sh.job);
+        slot.cancel.store(true, Ordering::Relaxed);
+        let id = slot.id + 1;
+        *slot = JobSlot {
+            id,
+            key,
+            pct: 0.0,
+            stage: "queued".into(),
+            label: "준비 중입니다".into(),
+            started_ms: endmill_model::wearcomp::now_ms(),
+            cancel: Arc::new(AtomicBool::new(false)),
+            ..Default::default()
+        };
+        id
+    };
+    let sh2 = sh.clone();
+    std::thread::spawn(move || run_job(sh2, id, mode));
+    job_status(&lock(&sh.job))
+}
+
+#[tauri::command]
+pub fn sim_job_start(
+    state: tauri::State<'_, AppState>,
+    profile_name: Option<String>,
+    pattern_key: String,
+    overrides: Option<CalcOverrides>,
+    key: Option<String>,
+) -> Result<JobStatus, String> {
+    let sh = state.shared.clone();
+    ToolPathPattern::from_key(&pattern_key, &profile_by_name(&sh, profile_name.as_deref())?)?;
+    Ok(start_job(
+        &sh,
+        key.unwrap_or_default(),
+        JobMode::Full {
+            profile_name,
+            pattern: pattern_key,
+            overrides: overrides.unwrap_or_default(),
+        },
+    ))
+}
+
+#[tauri::command]
+pub fn sim_job_replan(state: tauri::State<'_, AppState>, measured_radial_um: Option<f64>) -> Result<JobStatus, String> {
+    let sh = state.shared.clone();
+    let key = match lock(&sh.job_cache).as_ref() {
+        Some(c) => c.result.key.clone(),
+        None => return Err("먼저 재생(계산 실행)으로 1차 시뮬레이션을 만드세요".into()),
+    };
+    if let Some(v) = measured_radial_um {
+        if !v.is_finite() || !(0.0..=2000.0).contains(&v) {
+            return Err("실측 반경 마모는 0 ~ 2000 µm 범위로 입력하세요".into());
+        }
+    }
+    Ok(start_job(&sh, key, JobMode::Replan { measured_radial_um }))
+}
+
+#[tauri::command]
+pub fn sim_job_status(state: tauri::State<'_, AppState>, id: Option<u64>) -> Result<JobStatus, String> {
+    let slot = lock(&state.shared.job);
+    if let Some(i) = id {
+        if i != slot.id {
+            return Err(format!("작업 {} 은 더 새로운 작업 {} 으로 대체되었습니다", i, slot.id));
+        }
+    }
+    Ok(job_status(&slot))
+}
+
+#[tauri::command]
+pub fn sim_job_result(state: tauri::State<'_, AppState>, id: u64) -> Result<JobResult, String> {
+    let slot = lock(&state.shared.job);
+    if slot.id != id {
+        return Err(format!("작업 {} 의 결과가 없습니다 (현재 작업 {})", id, slot.id));
+    }
+    match slot.result.as_ref() {
+        Some(r) => Ok((**r).clone()),
+        None => Err(slot.error.clone().unwrap_or_else(|| "아직 계산 중입니다".into())),
+    }
+}
+
+#[tauri::command]
+pub fn sim_job_cancel(state: tauri::State<'_, AppState>, id: u64) -> Result<JobStatus, String> {
+    let mut slot = lock(&state.shared.job);
+    if slot.id == id && !slot.done {
+        slot.cancel.store(true, Ordering::Relaxed);
+        slot.label = "취소 중".into();
+    }
+    Ok(job_status(&slot))
+}
+
 #[derive(Serialize)]
 pub struct EnvDerived {
     pub label: String,
@@ -2481,6 +2964,7 @@ pub struct SettingsResponse {
     pub derived: EnvDerived,
     pub models: ModelSettingsView,
     pub ui: UiSettings,
+    pub comp: CompOptions,
     pub data_dir: String,
 }
 
@@ -2513,6 +2997,7 @@ fn settings_view(sh: &Shared) -> SettingsResponse {
             token_set: !s.models.token.trim().is_empty(),
         },
         ui: s.ui.clone(),
+        comp: s.comp.clone(),
         data_dir: sh.data_dir.display().to_string(),
     }
 }
@@ -2585,6 +3070,31 @@ pub async fn settings_set_models(
 pub async fn settings_set_ui(state: tauri::State<'_, AppState>, ui: UiSettings) -> Result<SettingsResponse, String> {
     blocking(&state, move |sh| {
         lock(&sh.settings).ui = ui;
+        save_settings(sh)?;
+        Ok(settings_view(sh))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn settings_set_comp(state: tauri::State<'_, AppState>, comp: CompOptions) -> Result<SettingsResponse, String> {
+    blocking(&state, move |sh| {
+        let code = comp.air_blast_code.trim().to_uppercase();
+        let valid = code.len() >= 2 && code.len() <= 5 && code.starts_with('M') && code[1..].chars().all(|c| c.is_ascii_digit());
+        if !valid {
+            return Err("에어 블로우 코드는 M 과 숫자로 입력하세요 (예: M07, M51)".into());
+        }
+        if !(comp.target_fraction.is_finite() && (-0.5..=0.8).contains(&comp.target_fraction)) {
+            return Err("목표 잔여량 비율은 -0.5 ~ 0.8 사이여야 합니다".into());
+        }
+        let mut c = comp;
+        c.air_blast_code = code;
+        c.measured_radial_um = None;
+        c.slow_rpm = c.slow_rpm.clamp(1, 2000);
+        c.ramp_ms = c.ramp_ms.clamp(0, 30_000);
+        c.blow_ms = c.blow_ms.clamp(0, 30_000);
+        c.max_cooldown_s = c.max_cooldown_s.clamp(0.0, 3600.0);
+        lock(&sh.settings).comp = c;
         save_settings(sh)?;
         Ok(settings_view(sh))
     })

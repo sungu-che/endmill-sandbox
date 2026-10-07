@@ -677,6 +677,19 @@
     .vp-legend .lg-scale { display: flex; justify-content: space-between; font-family: monospace; }
     .vp-legend b { color: var(--text); }
     .vp-busy { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); background: rgba(0,0,0,0.75); border: 1px solid var(--border); border-radius: 4px; padding: 4px 10px; font-size: 0.7rem; color: var(--warning); pointer-events: none; }
+    .vp-prep { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); width: min(460px, 86%); background: rgba(8,8,20,0.94); border: 1px solid var(--accent); border-radius: 8px; padding: 14px 18px; z-index: 30; box-shadow: 0 6px 24px rgba(0,0,0,0.55); }
+    .vp-prep .prep-title { font-size: 1.05rem; color: var(--accent); font-weight: 700; margin-bottom: 6px; }
+    .vp-prep .prep-stage { font-size: 0.74rem; color: var(--text); margin-bottom: 8px; min-height: 1.2em; }
+    .vp-prep .prep-bar { height: 8px; background: var(--bg-input); border-radius: 4px; overflow: hidden; border: 1px solid var(--border); }
+    .vp-prep .prep-bar > span { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), #6bcb77); transition: width 0.2s; }
+    .vp-prep .prep-steps { font-family: 'Consolas', monospace; font-size: 0.64rem; color: var(--text-muted); margin-top: 8px; white-space: pre-line; max-height: 130px; overflow-y: auto; }
+    .vp-prep .prep-row { display: flex; gap: 6px; justify-content: flex-end; margin-top: 10px; }
+    .comp-hists { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+    .comp-hist { background: var(--bg-darkest); border: 1px solid var(--border); border-radius: 4px; padding: 4px; }
+    .comp-hist .h-title { font-size: 0.66rem; color: var(--text); margin-bottom: 2px; }
+    .comp-hist .h-meta { font-size: 0.6rem; color: var(--text-muted); }
+    .comp-hist canvas { width: 100%; height: 96px; display: block; }
+    .comp-pre { font-family: 'Consolas', 'Courier New', monospace; font-size: 0.64rem; white-space: pre; max-height: 260px; overflow: auto; background: var(--bg-darkest); border: 1px solid var(--border); border-radius: 4px; padding: 6px; color: var(--text-dim); }
     .ctx-box { background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 0.68rem; color: var(--text-dim); margin-bottom: 8px; line-height: 1.5; }
     .ctx-box b { color: var(--text); }
     .ctx-box .ov { color: var(--warning); }
@@ -838,6 +851,7 @@
 	        <option value="contour_multi">등고선 다중 패스</option>
 	        <option value="slot">슬롯 가공</option>
 	      </select>
+	      <button class="vt-btn" id="vt-comp" onclick="compShow(true)" disabled title="재생(계산 실행) 후 2차 보정 판단·분포·로그 보기">2차 보정</button>
 	      <span class="vt-info" id="vp-info">세그먼트: 0 | 거리: 0mm</span>
 	    </div>
 	    <div class="viewport-canvas-wrap">
@@ -846,6 +860,13 @@
 	        <span id="tp-coolant-label"></span>
 	      </div>
 	      <div class="vp-busy hidden" id="vp-busy"></div>
+	      <div class="vp-prep hidden" id="vp-prep">
+	        <div class="prep-title" id="vp-prep-title">준비 중입니다 0%</div>
+	        <div class="prep-stage" id="vp-prep-stage"></div>
+	        <div class="prep-bar"><span id="vp-prep-bar"></span></div>
+	        <div class="prep-steps" id="vp-prep-steps"></div>
+	        <div class="prep-row"><button class="btn btn-sm btn-outline" onclick="jobCancel()">취소</button></div>
+	      </div>
 	      <div class="vp-legend hidden" id="vp-legend"></div>
 	      <div class="viewport-hint">드래그: 회전 | 스크롤: 기울기 | 더블클릭: 리셋</div>
 	    </div>
@@ -1166,6 +1187,13 @@
 	        <h4>모델 대기 작업 (필요한 모델이 준비될 때까지 일시정지 → 준비되면 자동 재개)</h4>
 	        <div id="mq-list"></div>
 	      </div>
+	    </div>
+	    <div class="precision-overlay" id="comp-view">
+	      <div class="pv-row" style="justify-content:space-between;">
+	        <div class="section-title" id="comp-title" style="margin:0;">2차 보정</div>
+	        <button class="btn btn-sm btn-outline" onclick="compShow(false)">닫기 (뷰포트로)</button>
+	      </div>
+	      <div id="comp-body"><div style="font-size:0.72rem;color:var(--text-muted);">재생(⏵)을 누르면 1. 계산 실행 → 2. 재생 순서로 1차 시뮬레이션과 2차 보정 계획이 만들어집니다.</div></div>
 	    </div>
 	  </main>
 
@@ -1558,6 +1586,7 @@
 	  } else {
 	    precView.classList.remove('visible');
 	  }
+	  document.getElementById('comp-view').classList.remove('visible');
 	  const setView = document.getElementById('settings-view');
 	  if (view === 'settings') {
 	    setView.classList.add('visible');
@@ -1947,6 +1976,11 @@
 	async function renderToolpath2D() {
 	  animPause();
 	  resizeCanvas();
+	  if (JOB.result && JOB.result.key === vpKey()) {
+	    jobApply(JOB.result, { autoplay: false, quiet: true });
+	    return;
+	  }
+	  VP.combinedKey = '';
 	  if (!(await fetchToolpathData())) return;
 	  VP.t = Math.min(VP.t, VP.total);
 	  renderViewport();
@@ -1959,7 +1993,7 @@
 	const VP = {
 	  t: 0, playing: false, speed: 0, lastTs: 0, raf: null,
 	  segStart: [], segEnd: [], segFrom: [], total: 0, timelineFromSim: false,
-	  sim: null, simKey: '', simSeq: 0,
+	  sim: null, simKey: '', simSeq: 0, combinedKey: '', pass2Start: -1, dwellIndex: -1, pass1End: 0, pass2T0: 0,
 	  show: { tool: true, coolant: true, heat: true },
 	  particles: [], spin: 0, partTs: 0,
 	};
@@ -2083,6 +2117,7 @@
 
 	async function vpLoadSim(force) {
 	  const key = vpKey();
+	  if (VP.combinedKey && VP.combinedKey === key) return;
 	  if (!force && VP.sim && VP.simKey === key) return;
 	  const seq = ++VP.simSeq;
 	  const busy = document.getElementById('vp-busy');
@@ -2136,7 +2171,8 @@
 	    if (upto !== null && VP.segStart[i] >= upto) break;
 	    const s = tpData[i];
 	    const from = VP.segFrom[i];
-	    if (!from) continue;
+	    if (!from || s.kind === 'Dwell') continue;
+	    const pass2 = VP.pass2Start >= 0 && i >= VP.pass2Start;
 	    let frac = 1;
 	    if (upto !== null && VP.segEnd[i] > upto) {
 	      const t0 = VP.segStart[i], t1 = VP.segEnd[i];
@@ -2155,6 +2191,9 @@
 	    if (rapid) {
 	      ctx.strokeStyle = style === 'done' ? 'rgba(160,160,180,0.6)' : 'rgba(80,80,100,0.5)';
 	      ctx.lineWidth = 1;
+	    } else if (pass2) {
+	      ctx.strokeStyle = style === 'done' ? 'rgba(255, 92, 214, 0.95)' : 'rgba(255, 92, 214, 0.35)';
+	      ctx.lineWidth = style === 'done' ? Math.max(2, toolRadiusPx * 0.9) : Math.max(1, toolRadiusPx * 0.5);
 	    } else {
 	      const depth = Math.min(Math.max(Math.abs(s.z || 0) / 10, 0.25), 1.0);
 	      ctx.strokeStyle = style === 'done' ? `rgba(0, 212, 255, ${0.55 + 0.45 * depth})` : `rgba(0, 212, 255, ${0.10 + 0.12 * depth})`;
@@ -2469,6 +2508,13 @@
 	  el.classList.remove('hidden');
 	  const cutting = sample && sample.force_n > 0 && !(pose && pose.after);
 	  const lines = [];
+	  const comp = JOB.result && VP.combinedKey === JOB.result.key ? JOB.result.comp : null;
+	  if (comp && pose && pose.seg === VP.dwellIndex) {
+	    const left = Math.max(0, VP.pass2T0 - VP.t);
+	    lines.push(`<b>2차 보정 전 대기</b> · 잔열 냉각 G04 ${fmt(comp.draft.cooldown_s, 0)} s${comp.checkpoint ? ' · Plan B 체크포인트 (M09 → 에어 → 저속 → ' + (comp.decision.operator_confirm ? 'M00' : 'M01') + ')' : (comp.decision.operator_confirm ? ' · M00 작업자 확인' : '')} · 남은 ${fmt(left, 0)} s`);
+	  } else if (comp && pose && VP.pass2Start >= 0 && pose.seg >= VP.pass2Start && !pose.after) {
+	    lines.push(`<b style="color:#ff5cd6">2차 보정 패스</b> · ${esc(COMP_LABEL[comp.decision.final_action] || '')}${cutting ? ` · 반경 절입 ${fmt((sample.ae_mm || 0) * 1000, 1)} µm · 휨 ${fmt(Math.abs(sample.wall_defl_um) + Math.abs(sample.workpiece_um), 1)} µm · 채터 여유 ${fmt(sample.chatter_margin, 2)}` : ' · 진입/이동'}`);
+	  }
 	  if (VP.show.heat) {
 	    lines.push(`<b>소재 표면 과열 (잔류열)</b><div class="lg-bar"></div><div class="lg-scale"><span>0.5 K</span><span>${fmt(scaleMax / 3, 0)} K</span><span>${fmt(scaleMax, 0)} K</span></div>`);
 	  }
@@ -2578,17 +2624,18 @@
 	}
 
 	function animToggle() {
-	  if (VP.playing) animPause(); else animPlay();
+	  if (VP.playing) { animPause(); return; }
+	  if (JOB.running) return;
+	  const key = vpKey();
+	  if (JOB.result && JOB.result.key === key && !JOB.stale) {
+	    if (VP.combinedKey !== key) jobApply(JOB.result, { autoplay: true, quiet: true });
+	    else animPlay();
+	    return;
+	  }
+	  jobRun({ autoplay: true });
 	}
 
 	async function animateToolpath() {
-	  try {
-	    if ((!tpData || tpData.length === 0) && !(await fetchToolpathData())) return;
-	  } catch (e) {
-	    setStatus('error', 'ANIM ERROR');
-	    appendLog(`애니메이션 준비 오류: ${e}`);
-	    return;
-	  }
 	  animToggle();
 	}
 
@@ -2620,6 +2667,411 @@
 
 	function vpSaveUi() {
 	  invoke('settings_set_ui', { ui: { anim_speed: VP.speed, show_tool: VP.show.tool, show_coolant: VP.show.coolant, show_heat: VP.show.heat } }).catch(() => {});
+	}
+
+	const JOB = { id: 0, key: '', result: null, running: false, stale: false };
+	const COMP_LABEL = {
+	  Execute: '2차 보정 1회 실행', ExecuteReduced: '감속 2차 보정', Split: '분할 보정 (보정 + 스프링 패스)',
+	  Skip: '보정 안 함', ToolChange: '공구 교체 후 보정', Hold: '보류 (측정 후 재계획)',
+	};
+	const COMP_KEY = { execute: 'Execute', execute_reduced: 'ExecuteReduced', split: 'Split', skip: 'Skip', tool_change: 'ToolChange', hold: 'Hold' };
+	const COMP_RANK = { Execute: 0, ExecuteReduced: 1, Split: 2, Skip: 3, ToolChange: 3, Hold: 4 };
+
+	function prepShow(st) {
+	  const pct = Math.max(0, Math.min(100, Math.floor(st.pct || 0)));
+	  document.getElementById('vp-prep').classList.remove('hidden');
+	  document.getElementById('vp-prep-title').textContent = `준비 중입니다 ${pct}%`;
+	  document.getElementById('vp-prep-stage').textContent = st.label || '';
+	  document.getElementById('vp-prep-bar').style.width = pct + '%';
+	  document.getElementById('vp-prep-steps').textContent = (st.log || []).join('\n');
+	  document.getElementById('vt-play').textContent = `준비 중 ${pct}%`;
+	  document.getElementById('vt-btn-anim').textContent = `준비 중 ${pct}%`;
+	  setStatus('busy', `PREPARING ${pct}%`);
+	}
+
+	function prepHide() {
+	  document.getElementById('vp-prep').classList.add('hidden');
+	  document.getElementById('vt-play').textContent = VP.playing ? '⏸ 일시정지' : '⏵ 재생';
+	  document.getElementById('vt-btn-anim').textContent = VP.playing ? '⏸ 일시정지' : '⏵ 애니메이션';
+	}
+
+	async function jobRun(opts) {
+	  opts = opts || {};
+	  animPause();
+	  if (!APP.detail) await refreshProfileContext({ recalc: false });
+	  const key = vpKey();
+	  let st;
+	  JOB.running = true;
+	  JOB.stale = false;
+	  prepShow({ pct: 0, label: '1. 계산 실행 준비', log: [] });
+	  try {
+	    st = await invoke('sim_job_start', { profileName: getActiveProfile(), patternKey: document.getElementById('tp-pattern').value, overrides: calcOverrides(), key });
+	  } catch (e) {
+	    JOB.running = false;
+	    prepHide();
+	    setStatus('error', 'PREPARE FAILED');
+	    appendLog(`재생 준비 실패: ${esc(e)}`);
+	    return;
+	  }
+	  if (!st) { JOB.running = false; prepHide(); return; }
+	  JOB.id = st.id;
+	  JOB.key = key;
+	  appendLog(`재생 = 1. 계산 실행 + 2. 재생 · 작업 #${st.id} 시작`);
+	  await jobPoll(st.id, opts);
+	}
+
+	async function jobPoll(id, opts) {
+	  opts = opts || {};
+	  while (JOB.id === id) {
+	    await sleep(250);
+	    let st;
+	    try { st = await invoke('sim_job_status', { id }); } catch (e) { break; }
+	    if (!st || JOB.id !== id) break;
+	    prepShow(st);
+	    if (!st.done) continue;
+	    JOB.running = false;
+	    if (st.error) {
+	      prepHide();
+	      setStatus(st.label === '취소됨' ? 'ready' : 'error', st.label === '취소됨' ? 'CANCELLED' : 'PREPARE FAILED');
+	      appendLog(`재생 준비 ${esc(st.label)}: ${esc(st.error)}`);
+	      return;
+	    }
+	    let r = null;
+	    try { r = await invoke('sim_job_result', { id }); } catch (e) { appendLog(`결과 읽기 실패: ${esc(e)}`); }
+	    prepHide();
+	    if (r) jobApply(r, { autoplay: opts.autoplay !== false });
+	    return;
+	  }
+	  JOB.running = false;
+	  prepHide();
+	}
+
+	async function jobCancel() {
+	  if (!JOB.id) return;
+	  try { await invoke('sim_job_cancel', { id: JOB.id }); } catch (e) { }
+	}
+
+	function jobBounds() {
+	  tpMaxX = 0; tpMaxY = 0; tpMinZ = 0; tpMaxZ = 0;
+	  for (const s of tpData) {
+	    tpMaxX = Math.max(tpMaxX, s.x || 0);
+	    tpMaxY = Math.max(tpMaxY, s.y || 0);
+	    const zv = s.z !== undefined && s.z !== null ? s.z : 0;
+	    tpMinZ = Math.min(tpMinZ, zv);
+	    tpMaxZ = Math.max(tpMaxZ, zv);
+	  }
+	  const canvas = document.getElementById('tp-canvas');
+	  const scaleX = (canvas.width - tpPad * 4) / Math.max(tpMaxX, 1);
+	  const scaleY = (canvas.height - tpPad * 4) / Math.max(tpMaxY, 1);
+	  tpScale = Math.min(scaleX, scaleY) * 0.85;
+	}
+
+	function jobTimeline(r) {
+	  const view = r.view;
+	  const seg1 = r.segments || [];
+	  const seg2 = r.comp && r.comp.segments && r.comp.segments.length ? (r.segments2 || []) : [];
+	  const t1 = view.total_s || 0;
+	  const pre = seg2.length ? (r.comp.pre_s || 0) : 0;
+	  const data = seg1.slice();
+	  const ends = (view.segment_end_s || []).slice(0, seg1.length);
+	  VP.pass2Start = -1;
+	  VP.dwellIndex = -1;
+	  if (seg2.length) {
+	    const last = seg1.length ? seg1[seg1.length - 1] : { x: 0, y: 0, z: 0, rpm: 0 };
+	    VP.dwellIndex = data.length;
+	    data.push({ kind: 'Dwell', x: last.x, y: last.y, z: last.z, feed: 0, z_start: null, i: null, j: null, rpm: last.rpm || 0 });
+	    ends.push(t1 + pre);
+	    VP.pass2Start = data.length;
+	    seg2.forEach(s => data.push(s));
+	    (r.comp.segment_end_s || []).forEach(t => ends.push(t1 + pre + t));
+	  }
+	  tpData = data;
+	  const samples = (view.samples || []).slice();
+	  if (seg2.length) (r.comp.samples || []).forEach(s => samples.push(Object.assign({}, s, { t_s: s.t_s + t1 + pre, seg: s.seg + VP.pass2Start })));
+	  VP.sim = Object.assign({}, view, { samples, segment_end_s: ends.length === tpData.length ? ends : view.segment_end_s, total_s: ends.length ? ends[ends.length - 1] : t1 });
+	  VP.pass1End = t1;
+	  VP.pass2T0 = t1 + pre;
+	  jobBounds();
+	}
+
+	function jobGcode(r) {
+	  const gcOut = document.getElementById('gcode-output');
+	  const line = l => `<div class="gc-line${l.includes('(') ? ' gc-comment' : ''}">${esc(l)}</div>`;
+	  const label = COMP_LABEL[r.comp.decision.final_action] || '';
+	  let html = `<div class="gc-comment">; ===== 1차 가공 — 생성된 G-code 그대로 실행 (${esc(r.program1.program_name)}) =====</div>` + r.program1.text.split('\n').map(line).join('');
+	  if (r.comp.program_text) {
+	    html += `<div class="gc-comment">; ===== 2차 보정 — ${esc(label)} · 1차 종료 후 별도 실행 (${esc(r.comp.program_name)}) =====</div>` + r.comp.program_text.split('\n').map(line).join('');
+	  } else {
+	    html += `<div class="gc-comment">; ===== 2차 보정 — ${esc(label)} · 추가 G-code 없음 =====</div>`;
+	  }
+	  gcOut.innerHTML = html;
+	  renderWarnings((r.view.warnings || []).concat(r.program1.warnings || []));
+	  document.getElementById('sb-profile').textContent = r.program1.program_name + (r.comp.program_name ? ' + ' + r.comp.program_name : '');
+	  document.getElementById('sb-time').textContent = r.program1.estimated_time_min.toFixed(2) + (r.comp.program_text ? ` + ${fmt((r.comp.pre_s + r.comp.time_s) / 60, 2)}` : '') + ' min';
+	  document.getElementById('sb-dist').textContent = r.program1.total_distance_mm.toFixed(1) + ' mm';
+	  document.getElementById('sb-lines').textContent = r.program1.line_count + (r.comp.program_text ? ' + ' + r.comp.program_text.split('\n').length : '');
+	}
+
+	function jobApply(r, opts) {
+	  opts = opts || {};
+	  JOB.result = r;
+	  if (r.calc) {
+	    APP.calc = r.calc;
+	    document.getElementById('calc-result').classList.remove('hidden');
+	    renderCalc(r.calc);
+	  } else if (r.calc_error && !opts.quiet) {
+	    appendLog(`계산 실행 오류: ${esc(r.calc_error)}`);
+	  }
+	  jobTimeline(r);
+	  VP.simKey = r.key;
+	  VP.combinedKey = r.key;
+	  vpTimeline();
+	  vpInitParticles();
+	  jobGcode(r);
+	  compRender(r);
+	  document.getElementById('vt-comp').disabled = false;
+	  document.getElementById('vp-info').textContent = `세그먼트: ${(r.segments || []).length}${VP.pass2Start >= 0 ? ' + 2차 ' + (r.segments2 || []).length : ''} | 가공 시간 ${fmt(VP.total, 1)} s | X:${tpMaxX.toFixed(0)} Y:${tpMaxY.toFixed(0)} Z:${tpMinZ.toFixed(1)}~${tpMaxZ.toFixed(1)}`;
+	  if (!opts.quiet) {
+	    (r.view.warnings || []).forEach(w => appendLog('⚠ ' + esc(w)));
+	    (r.view.checks || []).forEach(c => appendLog('물리 확인: ' + esc(c)));
+	    const m = r.models;
+	    appendLog(`시계열 TTM-R3: ${m.ttm_used ? '사용' : '미사용'} — ${esc(m.ttm)} · 판단 laya: ${m.laya_used ? '사용' : '미사용'} — ${esc(m.laya)}`);
+	    appendLog(esc(r.comp.report_line));
+	    (r.comp.notes || []).forEach(n => appendLog('2차: ' + esc(n)));
+	    if (r.files && r.files.length) appendLog(`마모 로그·분포 저장: ${r.files.map(esc).join(', ')}`);
+	  }
+	  VP.t = Math.min(VP.t, VP.total);
+	  renderViewport();
+	  if (opts.autoplay) {
+	    VP.t = 0;
+	    animPlay();
+	  }
+	}
+
+	function compShow(show) {
+	  const el = document.getElementById('comp-view');
+	  if (show && JOB.result) { compRender(JOB.result); el.classList.add('visible'); }
+	  else el.classList.remove('visible');
+	}
+
+	function compHist(cv, h) {
+	  const ctx = cv.getContext('2d');
+	  const W = cv.width = cv.clientWidth || 220, H = cv.height = 96;
+	  ctx.fillStyle = '#0a0a14';
+	  ctx.fillRect(0, 0, W, H);
+	  if (!h || !h.counts || !h.counts.length) return;
+	  const mx = Math.max(...h.counts, 1e-9);
+	  const n = h.counts.length, bw = (W - 8) / n;
+	  h.counts.forEach((c, i) => {
+	    const bh = (H - 18) * c / mx;
+	    ctx.fillStyle = h.key === 'wall' ? 'rgba(255,92,214,0.75)' : 'rgba(0,212,255,0.7)';
+	    ctx.fillRect(4 + i * bw, H - 14 - bh, Math.max(1, bw - 1), bh);
+	  });
+	  const lo = h.edges[0], hi = h.edges[h.edges.length - 1];
+	  const xp = v => 4 + (v - lo) / Math.max(hi - lo, 1e-12) * (W - 8);
+	  [['p10', h.p10, '#ffd93d'], ['p50', h.p50, '#6bcb77'], ['p90', h.p90, '#ff6b6b']].forEach(([k, v, c]) => {
+	    if (!isFinite(v) || v < lo || v > hi) return;
+	    ctx.strokeStyle = c; ctx.beginPath(); ctx.moveTo(xp(v), 2); ctx.lineTo(xp(v), H - 14); ctx.stroke();
+	  });
+	  ctx.fillStyle = '#778'; ctx.font = '9px Consolas, monospace';
+	  ctx.fillText(pvShort(lo), 2, H - 3);
+	  ctx.fillText(pvShort(hi), W - 40, H - 3);
+	}
+
+	function compRender(r) {
+	  const c = r.comp, d = c.draft, dec = c.decision, lg = r.log;
+	  const label = a => COMP_LABEL[a] || a;
+	  document.getElementById('comp-title').textContent = `2차 보정 — ${r.profile_name} · ${document.querySelector('#tp-pattern option[value="' + r.pattern + '"]')?.textContent || r.pattern} · ${r.stamp}${r.replan ? ' (재계획)' : ''}`;
+	  const chip = (k, v, cls) => `<span class="pv-chip"><span class="k">${esc(k)}</span><span class="v${cls ? ' ' + cls : ''}">${v}</span></span>`;
+	  const sevCls = a => 'sev-' + Math.min(3, COMP_RANK[a] || 0);
+	  const ans = dec.laya;
+	  const layaTop = ans ? `${esc(label(COMP_KEY[ans.top] || ans.top))} ${fmt(ans.top_probability * 100, 0)}%` : esc(dec.laya_error || '미사용');
+	  const head = `<div class="pv-row">${[
+	    chip('보정 필요', d.need ? '예' : '아니오', d.need ? 'sev-1' : 'sev-0'),
+	    chip('규칙 판단 (안전 게이트)', esc(label(dec.rule_action)), sevCls(dec.rule_action)),
+	    chip('laya-typed-decisions', layaTop),
+	    chip('최종 결정', `${esc(label(dec.final_action))} · ${esc(dec.decided_by)}`, sevCls(dec.final_action)),
+	    chip('작업자 확인', dec.operator_confirm ? 'M00 정지 후 시작' : '불필요', dec.operator_confirm ? 'sev-2' : 'sev-0'),
+	    chip('TTM-R3', r.models.ttm_used ? '사용' : '미사용', r.models.ttm_used ? 'sev-0' : 'sev-1'),
+	    chip('laya', r.models.laya_used ? '사용' : '미사용', r.models.laya_used ? 'sev-0' : 'sev-1'),
+	  ].join('')}</div>`;
+	  const models = `<div style="font-size:0.66rem;color:var(--text-muted);margin-bottom:6px;">TTM-R3: ${esc(r.models.ttm)} · laya: ${esc(r.models.laya)}</div>`;
+	  const reasons = `<div class="pv-log">${[c.report_line, ...dec.reasons, ...c.notes].map(esc).join('\n')}</div>`;
+	  const gates = pvTable([
+	    { t: '게이트', f: g => esc(g.label) },
+	    { t: '값', f: g => `${fmt(g.value, 3)} ${esc(g.unit)}`, nw: true },
+	    { t: '한계', f: g => `${fmt(g.limit, 3)} ${esc(g.unit)}`, nw: true },
+	    { t: '심각도', f: g => `<span class="sev-${g.severity}">${['통과', '관찰', '초과', '위험'][Math.min(3, g.severity)]}</span>` },
+	    { t: '막는 선택지', f: g => g.blocks.length ? g.blocks.map(b => esc(label(b))).join(', ') + (g.sole ? ' <b class="sev-2">(단독)</b>' : '') : '-' },
+	    { t: '근거', f: g => esc(g.message) },
+	  ], d.gates.slice().sort((a, b) => b.severity - a.severity));
+	  const laya = ans ? pvKv([
+	    ['허용 선택지', dec.allowed.map(label).join(' · ')],
+	    ['행동(사람 확인 아님) 확률', fmt(ans.act_probability, 3)],
+	    ['온도 보정', fmt(ans.temperature, 3)],
+	    ['1·2위 차 (decay shape)', dec.laya_shape ? fmt(dec.laya_shape.margin, 3) + ' · 엔트로피 ' + fmt(dec.laya_shape.entropy_norm, 2) : '-'],
+	    ['규칙과 일치', dec.agreement === null || dec.agreement === undefined ? '-' : (dec.agreement ? '예' : '아니오')],
+	    ['이 스코프 일치율 (SDS)', dec.agreement_rate ? `${fmt(dec.agreement_rate[0] * 100, 0)}% (${dec.agreement_rate[1]}건)` : '이력 부족'],
+	    ['상태 토큰 사용/절단', `${ans.state_tokens_used} / ${ans.state_tokens_dropped}`],
+	  ]) + pvTable([
+	    { t: '선택지', f: x => esc(label(COMP_KEY[x.k] || x.k)) },
+	    { t: '확률', f: x => `<div class="pv-bar"><span style="width:${Math.round(x.p * 100)}%"></span></div>${fmt(x.p * 100, 1)}%` },
+	  ], ans.labels.map((k, i) => ({ k, p: ans.probabilities[i] }))) : `<div style="font-size:0.7rem;color:var(--text-muted);">${esc(dec.laya_error || '판단할 선택지가 하나뿐이거나 보정이 필요 없어 laya 를 호출하지 않았습니다')}</div>`;
+	  const rs = d.residual;
+	  const resid = pvKv([
+	    ['공차', `±${fmt(rs.tolerance_um, 1)} µm`],
+	    ['1차 최종 벽면 잔여량 P10 / P50 / P90', `${fmt(rs.p10_um, 1)} / ${fmt(rs.p50_um, 1)} / ${fmt(rs.p90_um, 1)} µm`],
+	    ['최소 / 최대', `${fmt(rs.min_um, 1)} / ${fmt(rs.max_um, 1)} µm (${rs.n}점 · ${rs.zones}구간)`],
+	    ['2차 후 예측 (구간 중앙값 최대 / 최소 / 최대 · 과삭 구간 제외)', `${fmt(c.after_p50_um, 1)} / ${fmt(c.after_min_um, 1)} / ${fmt(c.after_max_um, 1)} µm`],
+	    ['반경 마모 출처', `${esc({ simulated: '1차 시뮬레이션', measured: '실측 입력', image: '공구 이미지' }[d.radial_source] || d.radial_source)} ${fmt(d.radial_used_um, 1)} µm (시뮬레이션 ${fmt(d.radial_end1_um, 1)} µm)`],
+	    ['VB 1차 끝 → 2차 끝 (P50 / P90)', `${fmt(d.vb_end1_mm, 4)} → ${fmt(d.vb_end2_p50_mm, 4)} / ${fmt(d.vb_end2_p90_mm, 4)} mm (한계 ${fmt(d.vb_limit_mm, 2)})`],
+	    ['잔열 · 냉각 대기', `${fmt(d.bulk_excess_k, 1)} K · ${fmt(d.thermal_err_um, 1)} → ${fmt(d.thermal_err_after_um, 1)} µm · G04 ${fmt(d.cooldown_s, 0)} s`],
+	    ['최소 칩 두께 · 기준 fz', `${fmt(d.h_min_um, 2)} µm · ${fmt(d.fz_nominal_mm, 4)} mm`],
+	  ]);
+	  const fa = dec.final_action;
+	  const offKey = { ExecuteReduced: 'offset_reduced_um', Split: 'offset_split_um', ToolChange: 'offset_fresh_um' }[fa] || 'offset_um';
+	  const evKey = { ExecuteReduced: 'reduced', Split: 'split_final', ToolChange: 'fresh' }[fa] || 'execute';
+	  const zones = pvTable([
+	    { t: '구간', k: 'seg' },
+	    { t: '길이', f: z => fmt(z.len_mm, 1) },
+	    { t: '방향', f: z => z.down ? '하향' : '상향' },
+	    { t: '잔여 P50/P90', f: z => `${fmt(z.residual_p50_um, 1)} / ${fmt(z.residual_p90_um, 1)}`, nw: true },
+	    { t: '보정량', f: z => z.needs ? fmt(z[offKey], 1) : (z.excluded ? '<span class="sev-2">과삭 제외</span>' : (z.thin ? '<span class="sev-1">최소 절입 미만</span>' : '-')) },
+	    { t: '휨(공구+벽)', f: z => fmt(Math.abs(z[evKey].defl_um) + Math.abs(z[evKey].wall_um), 1) },
+	    { t: '채터', f: z => fmt(z[evKey].chatter, 2) },
+	    { t: '칩 µm', f: z => fmt(z[evKey].h_max_um, 2) },
+	    { t: '얇은 벽', f: z => z.wall_mm > 0 ? fmt(z.wall_mm, 2) + ' mm' : '-' },
+	    { t: '조각', f: z => (z.pieces || []).length + (z.localized ? ' <span class="sev-1">국부</span>' : '') },
+	  ], d.zones.filter(z => z.needs || z.excluded || z.thin).slice(0, 60));
+	  const bt = pvTable([
+	    { t: '예측기', f: b => esc(b.label) },
+	    { t: 'RMSE µm', f: b => fmt(b.rmse_um, 3) },
+	    { t: 'MAE µm', f: b => fmt(b.mae_um, 3) },
+	    { t: '편향 µm', f: b => fmt(b.bias_um, 3) },
+	    { t: '융합 가중', f: b => `${fmt(b.weight * 100, 0)}%` },
+	    { t: '이력 (SDS)', f: b => b.history_n ? `${b.history_n}건 · ${fmt(b.history_rmse_um, 3)}` : '-' },
+	  ], lg.backtests);
+	  const phases = (lg.phases || []).map(p => `${p.label} ${fmt(p.t0_s, 1)}–${fmt(p.t1_s, 1)} s · ${fmt(p.rate_um_min, 2)} µm/min`).join(' | ');
+	  const life = pvKv([
+	    ['절삭 시간 · 제거량', `${fmt(lg.cut_time_s, 1)} s · ${fmt(lg.removed_cm3, 2)} cm³`],
+	    ['비마모 (VB / 제거 부피)', `${fmt(lg.specific_wear_um_cm3, 2)} µm/cm³`],
+	    ['다음 부품당 VB 증가 P50 / P90', `${fmt(lg.per_part_vb_p50_mm, 4)} / ${fmt(lg.per_part_vb_p90_mm, 4)} mm`],
+	    ['공구 교체까지 (P50 / 보수 P90)', `${c.parts_left_p50 === null || c.parts_left_p50 === undefined ? '-' : fmt(c.parts_left_p50, 0)} / ${c.parts_left_p90 === null || c.parts_left_p90 === undefined ? '-' : fmt(c.parts_left_p90, 0)} 개`],
+	    ['마모 단계', phases || '-'],
+	  ]);
+	  const hists = `<div class="comp-hists">${(lg.histograms || []).map((h, i) => `<div class="comp-hist"><div class="h-title">${esc(h.label)} (${esc(h.unit)})</div><canvas id="comp-h-${i}"></canvas><div class="h-meta">가중: ${esc(h.weight)} · 평균 ${pvShort(h.mean)} · P10 ${pvShort(h.p10)} · P50 ${pvShort(h.p50)} · P90 ${pvShort(h.p90)} · n ${h.n}</div></div>`).join('')}</div>`;
+	  const sdsAxes = pvTable([
+	    { t: '축', f: a => esc(a.axis) }, { t: 'n', k: 'n' }, { t: '평균', f: a => fmt(a.mean, 4) }, { t: '표준편차', f: a => fmt(a.sd, 4) },
+	    { t: '최근', f: a => fmt(a.recent, 4) }, { t: '드리프트 z', f: a => `<span class="${Math.abs(a.drift_z) > 2 ? 'sev-2' : ''}">${fmt(a.drift_z, 2)}</span>` },
+	  ], r.sds_axes);
+	  const gr = pvTable([
+	    { t: '게이트', f: g => esc(g.gate) }, { t: '평가', k: 'evaluated' },
+	    { t: '차단율', f: g => `${fmt(g.blocked_rate * 100, 0)}%` }, { t: '단독 차단율', f: g => `${fmt(g.sole_rate * 100, 0)}%` },
+	    { t: '평균 심각도', f: g => fmt(g.mean_severity, 2) },
+	  ], r.gate_rates);
+	  const cp = c.checkpoint ? `<div class="comp-pre">${c.checkpoint.lines.map(esc).join('\n')}</div><div class="pv-log">${c.checkpoint.notes.map(esc).join('\n')}</div>` : '<div style="font-size:0.7rem;color:var(--text-muted);">체크포인트 미삽입 (설정에서 켜거나 laya·과삭 게이트가 작업자 확인을 요청하면 자동 삽입)</div>';
+	  const prog = c.program_text ? `<div class="pv-row"><button class="btn btn-sm" onclick="compSave('program')">2차 G-code 저장</button><span style="font-size:0.66rem;color:var(--text-muted);">${c.passes.map(p => `${esc(p.name)} (오프셋 ×${fmt(p.offset_scale, 2)} · 이송 ×${fmt(p.feed_scale, 2)})`).join(' → ')} · 대기 ${fmt(c.pre_s, 0)} s · 이동 ${fmt(c.time_s, 1)} s · 절삭 ${fmt(c.cut_time_s, 1)} s</span></div><div class="comp-pre">${esc(c.program_text)}</div>` : `<div style="font-size:0.72rem;color:var(--text-muted);">${esc(label(fa))} — 2차 G-code 없음</div>`;
+	  const st = r.settings || {};
+	  const form = `<div class="pv-row">
+	      <label class="pv-check"><input type="checkbox" id="comp-opt-checkpoint" ${st.checkpoint ? 'checked' : ''}/> Plan B 측정 체크포인트 삽입</label>
+	      <label class="pv-check"><input type="checkbox" id="comp-opt-orient" ${st.use_orient ? 'checked' : ''}/> 저속 대신 M19 정위치</label>
+	      <label class="pv-check"><input type="checkbox" id="comp-opt-laya" ${st.use_laya !== false ? 'checked' : ''}/> laya 판단 사용</label>
+	      <label class="pv-check"><input type="checkbox" id="comp-opt-ttm" ${st.use_ttm !== false ? 'checked' : ''}/> TTM-R3 예측 사용</label>
+	    </div>
+	    <div class="pv-row">
+	      <label class="pv-check">에어 블로우 코드 <input type="text" id="comp-opt-air" value="${esc(st.air_blast_code || 'M07')}" style="width:60px;"/></label>
+	      <label class="pv-check">목표 잔여 (공차 비율) <input type="number" id="comp-opt-target" value="${fmt(st.target_fraction ?? 0.15, 2)}" step="0.05" style="width:70px;"/></label>
+	      <label class="pv-check">최대 냉각 대기 s <input type="number" id="comp-opt-cool" value="${fmt(st.max_cooldown_s ?? 600, 0)}" step="30" style="width:70px;"/></label>
+	      <button class="btn btn-sm btn-outline" onclick="compSaveSettings()">설정 저장</button>
+	    </div>
+	    <div class="pv-row">
+	      <label class="pv-check">실측 반경 마모 µm (Plan B 촬영·마이크로미터) <input type="number" id="comp-measured" step="0.5" style="width:80px;" placeholder="${fmt(d.radial_end1_um, 1)}"/></label>
+	      <button class="btn btn-sm" onclick="compReplan()">실측으로 재계획</button>
+	      <button class="btn btn-sm btn-outline" onclick="compRerun()">다시 계산 후 재생</button>
+	    </div>`;
+	  const files = `<div class="pv-log">${[...(r.files || []).map(f => '저장: ' + f), ...(r.sds || []), ...(r.stages || []).map(s => `${s[0]} ${fmt(s[1], 2)} s`)].map(esc).join('\n')}</div><div class="pv-row" style="margin-top:6px;"><button class="btn btn-sm btn-outline" onclick="compSave('csv')">마모 로그 CSV 저장</button></div>`;
+	  document.getElementById('comp-body').innerHTML = head + models + `<div class="pv-grid">
+	    <div class="pv-card"><h4>결정 근거</h4>${reasons}</div>
+	    <div class="pv-card"><h4>laya-typed-decisions (안전 게이트가 허용한 선택지만 제시 · 보수적 방향만 즉시 채택)</h4>${laya}</div>
+	  </div>
+	  <div class="pv-card" style="margin-top:10px;"><h4>안전 게이트 — 피삭재에 치명적인 조건이면 해당 선택지를 막음</h4>${gates}</div>
+	  <div class="pv-grid" style="margin-top:10px;">
+	    <div class="pv-card"><h4>벽면 잔여량 → 2차 후 예측</h4>${resid}</div>
+	    <div class="pv-card"><h4>마모 시계열 (VB) — TTM-R3·Holt·물리 궤적 백테스트 융합</h4><canvas class="pv-canvas" id="comp-fc" height="200"></canvas>${bt}${life}</div>
+	  </div>
+	  <div class="pv-card" style="margin-top:10px;"><h4>구간별 보정 (최종 선택 기준 · 구간 안은 벽면 조각 분포를 따라 선형 보정)</h4>${zones}</div>
+	  <div class="pv-card" style="margin-top:10px;"><h4>분포도 — 절삭량·마모·상태 (절삭 시간 가중)</h4>${hists}</div>
+	  <div class="pv-grid" style="margin-top:10px;">
+	    <div class="pv-card"><h4>누적 분포 (SDS · 이 공구 × 소재)</h4>${sdsAxes}${gr}</div>
+	    <div class="pv-card"><h4>로그 기록</h4>${files}</div>
+	  </div>
+	  <div class="pv-grid" style="margin-top:10px;">
+	    <div class="pv-card"><h4>2차 보정 G-code (1차 종료 후 별도 실행)</h4>${prog}</div>
+	    <div class="pv-card"><h4>Plan B 측정 체크포인트 (비절삭 구간 · 1차 프로그램은 그대로)</h4>${cp}</div>
+	  </div>
+	  <div class="pv-card" style="margin-top:10px;"><h4>보정 설정 · 실측 재계획</h4>${form}</div>`;
+	  (lg.histograms || []).forEach((h, i) => { const cv = document.getElementById(`comp-h-${i}`); if (cv) compHist(cv, h); });
+	  const cv = document.getElementById('comp-fc');
+	  const f = lg.forecast;
+	  if (cv) {
+	    cv.width = cv.clientWidth || 600;
+	    if (f) {
+	      const lines = [
+	        { x: f.history_t, y: f.history_y, color: '#e0e0e0', label: '1차 VB (시뮬레이션 로그)' },
+	        { x: [f.history_t[f.history_t.length - 1], ...f.t_future], y: [f.history_y[f.history_y.length - 1], ...f.point], color: '#00d4ff', width: 2, label: `융합 예측 (${f.method})` },
+	      ];
+	      if (f.prior_future && f.prior_future.length) lines.push({ x: f.t_future, y: f.prior_future, color: '#888', dash: [4, 4], label: '물리 마모 궤적' });
+	      pvChart(cv, { lines, band: { x: f.t_future, lo: f.quantiles[0], hi: f.quantiles[f.quantiles.length - 1], color: 'rgba(0,212,255,0.15)' }, hlines: f.threshold && f.threshold.limit <= Math.max(...f.quantiles[f.quantiles.length - 1]) * 1.5 ? [{ y: f.threshold.limit, label: `VB 한계 ${f.threshold.limit}` }] : [] });
+	    } else {
+	      pvBlank(cv, (lg.notes || []).join(' · ') || '예측 없음');
+	    }
+	  }
+	}
+
+	async function compSave(which) {
+	  const r = JOB.result;
+	  if (!r) return;
+	  const base = `${r.profile_name.replace(/[^\w.-]+/g, '_')}_${r.stamp}`;
+	  const text = which === 'csv' ? r.csv : r.comp.program_text;
+	  const outputPath = which === 'csv' ? `${base}_wearlog.csv` : `${base}_COMP2.nc`;
+	  try { const p = await invoke('save_text_file', { outputPath, text }); if (p) appendLog(`저장: ${esc(p)}`); } catch (e) { appendLog(`저장 실패: ${esc(e)}`); }
+	}
+
+	async function compSaveSettings() {
+	  const cur = (JOB.result && JOB.result.settings) || {};
+	  const comp = Object.assign({}, cur, {
+	    checkpoint: document.getElementById('comp-opt-checkpoint').checked,
+	    use_orient: document.getElementById('comp-opt-orient').checked,
+	    use_laya: document.getElementById('comp-opt-laya').checked,
+	    use_ttm: document.getElementById('comp-opt-ttm').checked,
+	    air_blast_code: document.getElementById('comp-opt-air').value.trim(),
+	    target_fraction: parseFloat(document.getElementById('comp-opt-target').value),
+	    max_cooldown_s: parseFloat(document.getElementById('comp-opt-cool').value),
+	    measured_radial_um: null,
+	  });
+	  try {
+	    const s = await invoke('settings_set_comp', { comp });
+	    if (s) { APP.settings = s; if (JOB.result) { JOB.result.settings = s.comp; JOB.stale = true; } appendLog('2차 보정 설정 저장 — 다음 재생(다시 계산) 또는 재계획부터 적용'); }
+	  } catch (e) { appendLog(`설정 저장 실패: ${esc(e)}`); }
+	}
+
+	async function compReplan() {
+	  const v = parseFloat(document.getElementById('comp-measured').value);
+	  const measured = isFinite(v) ? v : null;
+	  animPause();
+	  let st;
+	  JOB.running = true;
+	  JOB.stale = false;
+	  prepShow({ pct: 0, label: '재계획 준비', log: [] });
+	  try { st = await invoke('sim_job_replan', { measuredRadialUm: measured }); } catch (e) { JOB.running = false; prepHide(); appendLog(`재계획 실패: ${esc(e)}`); return; }
+	  JOB.id = st.id;
+	  JOB.key = st.key;
+	  await jobPoll(st.id, { autoplay: false });
+	}
+
+	function compRerun() {
+	  compShow(false);
+	  jobRun({ autoplay: true });
 	}
 
 	function getActiveProfile() {

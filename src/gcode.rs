@@ -203,7 +203,7 @@ impl ToolPathPattern {
             }),
             "contour_multi" => Ok(Self::ContourMultiPass {
                 offset_count: 4,
-                step_over_mm: d * 0.4,
+                step_over_mm: pattern_stepover(profile, 0.1, 0.4),
             }),
             "slot" => Ok(Self::Slot {
                 start_x: 10.0,
@@ -218,6 +218,16 @@ impl ToolPathPattern {
 
     pub fn all_keys() -> [&'static str; 6] {
         ["pocket_zigzag", "rect_profile", "circular", "helical_pocket", "contour_multi", "slot"]
+    }
+}
+
+pub fn pattern_stepover(profile: &MachiningProfile, min_frac: f64, max_frac: f64) -> f64 {
+    let d = profile.endmill_setting.diameter_mm.max(0.1);
+    let ae = profile.conditions.radial_doc_mm;
+    if ae.is_finite() && ae > 0.0 {
+        ae.clamp(min_frac * d, max_frac * d)
+    } else {
+        max_frac * d
     }
 }
 
@@ -274,7 +284,7 @@ impl GCodeGenerator {
             }
 
             ToolPathPattern::PocketZigZag => {
-                let step = dia * 0.6;
+                let step = pattern_stepover(profile, 0.2, 0.6);
                 let margin = dia / 2.0 + 1.0;
                 let inner_w = w - margin * 2.0;
                 let inner_h = h - margin * 2.0;
