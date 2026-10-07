@@ -64,10 +64,12 @@ pub fn estimated_modal(tool: &ToolGeometry, ap: f64, cal: f64) -> ToolModal {
     let d = tool.diameter_mm;
     let l = tool.stickout_mm.max(1.0);
     let lf = tool.loc_mm.min(l);
-    let ls = (l - lf).max(0.0);
+    let ln = if tool.has_neck() { (tool.reach_mm.min(l) - lf).max(0.0) } else { 0.0 };
+    let ls = (l - lf - ln).max(0.0);
     let area_f = 0.65 * PI * d * d / 4.0;
+    let area_n = PI * tool.neck_diameter_mm * tool.neck_diameter_mm / 4.0;
     let area_s = PI * tool.shank_mm * tool.shank_mm / 4.0;
-    let m_tool = tool.tool_density * (area_f * lf + area_s * ls) * 1e-9;
+    let m_tool = tool.tool_density * (area_f * lf + area_n * ln + area_s * ls) * 1e-9;
     let beam = 1.0 - holder_share;
     let m_eff = (0.236 * m_tool * beam * beam + (m_tool + tool.holder_mass_kg) * holder_share * holder_share).max(1e-5);
     let fn_hz = (k_total * 1e6 / m_eff).sqrt() / (2.0 * PI);

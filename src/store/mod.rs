@@ -391,12 +391,47 @@ impl Store {
     }
 
     pub fn sync_builtin_presets(&mut self, presets: &[MachiningPreset]) -> Result<(), String> {
+        let env = crate::profile::ShopEnvironment::standard();
         for p in presets.iter() {
-            self.index_endmill(&p.endmill_setting)?;
-            self.index_workpiece(&p.workpiece_setup)?;
-            self.rdb.upsert_preset(p, true)?;
+            let tuned = crate::calc::recommend_preset(p, &env);
+            self.index_endmill(&tuned.endmill_setting)?;
+            self.index_workpiece(&tuned.workpiece_setup)?;
+            self.rdb.upsert_preset(&tuned, true)?;
         }
         Ok(())
+    }
+
+    pub fn ensure_builtin_presets(&mut self, presets: &[MachiningPreset]) -> Result<Vec<String>, String> {
+        let missing: Vec<MachiningPreset> = presets
+            .iter()
+            .filter(|p| self.rdb.preset_id(&p.name).ok().flatten().is_none())
+            .cloned()
+            .collect();
+        let names: Vec<String> = missing.iter().map(|p| p.name.clone()).collect();
+        if !missing.is_empty() {
+            self.sync_builtin_presets(&missing)?;
+        }
+        Ok(names)
+    }
+
+    pub fn delete_endmill(&mut self, id: i64) -> Result<bool, String> {
+        let removed = self.rdb.delete_endmill(id)?;
+        if removed {
+            if let Some(v) = self.vec.as_mut() {
+                let _ = v.delete("endmill_attr", &[&format!("em{}", id)]);
+            }
+        }
+        Ok(removed)
+    }
+
+    pub fn delete_workpiece(&mut self, id: i64) -> Result<bool, String> {
+        let removed = self.rdb.delete_workpiece(id)?;
+        if removed {
+            if let Some(v) = self.vec.as_mut() {
+                let _ = v.delete("workpiece_attr", &[&format!("wp{}", id)]);
+            }
+        }
+        Ok(removed)
     }
 
     pub fn save_preset(&mut self, p: &MachiningPreset) -> Result<i64, String> {

@@ -10,6 +10,7 @@ pub mod workpiece_setup;
 pub mod ml;
 pub mod physics;
 pub mod tribology;
+pub mod environment;
 pub mod timeseries;
 pub mod loadsim;
 pub mod toolimage;
@@ -22,6 +23,9 @@ pub mod pipeline;
 pub mod dynamics;
 pub mod store;
 pub mod curation;
+pub mod calc;
+pub mod modelhub;
+pub mod viewport;
 
 pub use application::*;
 pub use metadata::*;

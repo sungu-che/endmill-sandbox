@@ -1,6 +1,6 @@
 use crate::cutting::{CoolantType, CuttingConditions, WorkpieceMaterial};
 use crate::material::{CarbideGrade, ToolBaseMaterial};
-use crate::profile::{CoolantConfig, CoolantMethod, EndMillMockupSetting, MachineLimits, MachiningProfile, ToolNose};
+use crate::profile::{CoolantConfig, CoolantMethod, EndMillMockupSetting, MachineLimits, MachiningProfile, ShopEnvironment, ToolNose};
 use crate::tribology::{self, CoatingChem, CoolantFluid, Cooling, ThermalShock, TribologyReport, WearMechanism, WpChem};
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
@@ -663,7 +663,23 @@ pub struct ToolGeometry {
     pub poisson: f64,
     #[serde(default)]
     pub fracture_toughness: f64,
+    #[serde(default)]
+    pub neck_diameter_mm: f64,
+    #[serde(default)]
+    pub reach_mm: f64,
+    #[serde(default)]
+    pub substrate: String,
+    #[serde(default = "default_substrate_max_c")]
+    pub substrate_max_c: f64,
+    #[serde(default)]
+    pub edge_default_um: f64,
 }
+
+fn default_substrate_max_c() -> f64 {
+    1000.0
+}
+
+pub const CARBIDE_PROPS: (f64, f64, f64, f64, f64, f64, f64, f64) = (600.0, 80.0, 5.5e-6, 14500.0 * 220.0, 1.0, 14500.0, 0.22, 10.0);
 
 impl ToolGeometry {
     pub fn from_setting(s: &EndMillMockupSetting, wp: &WorkpieceProps, machine: &MachineLimits, base: Option<&ToolBaseMaterial>) -> Self {
@@ -676,13 +692,16 @@ impl ToolGeometry {
             0.80
         };
         let (e, k, alpha, rho_c, wf, density, nu, kic) = match base {
+            Some(ToolBaseMaterial::HSS(crate::material::HSSGrade::M42 | crate::material::HSSGrade::M35)) => (215.0, 24.0, 10.5e-6, 8200.0 * 460.0, 2.2, 8200.0, 0.29, 22.0),
             Some(ToolBaseMaterial::HSS(_)) => (210.0, 25.0, 11.0e-6, 8100.0 * 460.0, 3.0, 8100.0, 0.29, 25.0),
             Some(ToolBaseMaterial::CBN) => (680.0, 100.0, 4.7e-6, 3480.0 * 800.0, if wp.hardness_hrc >= 45.0 { 0.3 } else { 1.5 }, 3480.0, 0.15, 6.5),
             Some(ToolBaseMaterial::PCD) => (900.0, 500.0, 3.0e-6, 3500.0 * 510.0, if wp.key == "aluminum" || wp.key == "cfrp" { 0.1 } else { 10.0 }, 3500.0, 0.07, 8.5),
             Some(ToolBaseMaterial::SolidCarbide(CarbideGrade::UltraFine { .. })) => (620.0, 75.0, 5.2e-6, 14500.0 * 220.0, 0.9, 14500.0, 0.22, 9.0),
-            _ => (600.0, 80.0, 5.5e-6, 14500.0 * 220.0, 1.0, 14500.0, 0.22, 10.0),
+            _ => CARBIDE_PROPS,
         };
         let frf_ok = machine.tip_frf_tool.as_deref().map(|k| k == s.dynamic_key()).unwrap_or(true);
+        let edge_default = if s.is_high_end { wp.edge_radius_um } else { wp.edge_radius_um * 0.7 };
+        let neck = s.neck();
         Self {
             diameter_mm: s.diameter_mm,
             flutes: z,
@@ -692,9 +711,9 @@ impl ToolGeometry {
             shank_mm: s.shank_diameter_mm,
             nose: s.nose,
             stickout_mm: s.effective_stickout_mm(),
-            rake_deg: wp.rake_deg,
-            clearance_deg: 10.0,
-            edge_radius_um: if s.is_high_end { wp.edge_radius_um } else { wp.edge_radius_um * 0.7 },
+            rake_deg: s.rake_deg.unwrap_or(wp.rake_deg),
+            clearance_deg: s.clearance_deg.unwrap_or(10.0),
+            edge_radius_um: s.edge_radius_um.unwrap_or(edge_default),
             core_ratio: core,
             runout_um: s.runout_um.unwrap_or(if s.is_high_end { 3.0 } else { 10.0 }),
             variable_pitch: s.variable_pitch,
@@ -714,7 +733,37 @@ impl ToolGeometry {
             measured_stickout_mm: machine.tip_frf_stickout_mm.filter(|v| frf_ok && *v > 0.0),
             poisson: nu,
             fracture_toughness: kic,
+            neck_diameter_mm: neck.map(|(d, _)| d).unwrap_or(0.0),
+            reach_mm: neck.map(|(_, r)| r).unwrap_or(0.0),
+            substrate: s.substrate.key().into(),
+            substrate_max_c: s.substrate.max_temp_c(),
+            edge_default_um: edge_default,
         }
+    }
+
+    pub fn has_neck(&self) -> bool {
+        self.neck_diameter_mm > 0.0 && self.reach_mm > self.loc_mm
+    }
+
+    pub fn reset_to_reference_substrate(&mut self, wp: &WorkpieceProps) {
+        let (e, k, alpha, rho_c, wf, density, nu, kic) = CARBIDE_PROPS;
+        self.elastic_gpa = e;
+        self.tool_conductivity = k;
+        self.tool_expansion = alpha;
+        self.tool_rho_c = rho_c;
+        self.base_wear_factor = wf;
+        self.tool_density = density;
+        self.poisson = nu;
+        self.fracture_toughness = kic;
+        self.rake_deg = wp.rake_deg;
+        self.clearance_deg = 10.0;
+        if self.edge_default_um > 0.0 {
+            self.edge_radius_um = self.edge_default_um;
+        }
+        self.neck_diameter_mm = 0.0;
+        self.reach_mm = 0.0;
+        self.substrate = "carbide".into();
+        self.substrate_max_c = 1000.0;
     }
 
     pub fn radius(&self) -> f64 {
@@ -738,6 +787,10 @@ impl ToolGeometry {
     }
 }
 
+fn standard_room_c() -> f64 {
+    crate::profile::STANDARD_AMBIENT_C
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoolantState {
     pub method: CoolantMethod,
@@ -746,16 +799,27 @@ pub struct CoolantState {
     pub temperature_c: f64,
     #[serde(default)]
     pub fluid: CoolantFluid,
+    #[serde(default = "standard_room_c")]
+    pub room_c: f64,
+    #[serde(default)]
+    pub temperature_auto: bool,
 }
 
 impl CoolantState {
     pub fn from_config(c: &CoolantConfig) -> Self {
+        Self::from_config_env(c, &ShopEnvironment::standard())
+    }
+
+    pub fn from_config_env(c: &CoolantConfig, env: &ShopEnvironment) -> Self {
+        let temperature = c.temperature_in(env);
         Self {
             method: c.method.clone(),
             pressure_bar: c.pressure_bar,
             flow_l_min: c.flow_rate_l_min,
-            temperature_c: c.temperature_c.unwrap_or(22.0),
-            fluid: CoolantFluid::of(&c.method),
+            temperature_c: temperature,
+            fluid: CoolantFluid::at(&c.method, env, temperature),
+            room_c: env.ambient_c,
+            temperature_auto: c.temperature_c.is_none(),
         }
     }
 
@@ -771,11 +835,15 @@ impl CoolantState {
     }
 
     pub fn ambient_c(&self) -> f64 {
-        if matches!(self.method, CoolantMethod::Dry | CoolantMethod::AirBlast) {
-            22.0
+        if matches!(self.method, CoolantMethod::Dry) {
+            self.room_c
         } else {
             self.temperature_c
         }
+    }
+
+    pub fn is_liquid(&self) -> bool {
+        matches!(self.method, CoolantMethod::Flood | CoolantMethod::ThroughTool)
     }
 
     pub fn workpiece_h(&self) -> f64 {
@@ -828,14 +896,18 @@ pub struct CutContext {
     pub tolerance_mm: f64,
     pub allowance_mm: f64,
     pub fixture_stiffness_n_per_um: f64,
+    #[serde(default)]
+    pub env: ShopEnvironment,
 }
 
 impl CutContext {
     pub fn from_profile(p: &MachiningProfile) -> Self {
         let wp = WorkpieceProps::of(&p.workpiece_setup.effective_material());
-        let tool = ToolGeometry::from_setting(&p.endmill_setting, &wp, &p.machine, None);
+        let base = p.endmill_setting.substrate.base();
+        let tool = ToolGeometry::from_setting(&p.endmill_setting, &wp, &p.machine, Some(&base));
+        let env = p.machine.environment.clone();
         Self {
-            coolant: CoolantState::from_config(&p.coolant_config),
+            coolant: CoolantState::from_config_env(&p.coolant_config, &env),
             machine: p.machine.clone(),
             calib: Calibration::default(),
             tolerance_mm: p.workpiece_setup.effective_tolerance_mm(),
@@ -843,6 +915,15 @@ impl CutContext {
             fixture_stiffness_n_per_um: p.workpiece_setup.clamping.stiffness_n_per_um(),
             wp,
             tool,
+            env,
+        }
+    }
+
+    pub fn bulk_c(&self) -> f64 {
+        if self.coolant.is_liquid() {
+            self.coolant.temperature_c
+        } else {
+            self.env.ambient_c
         }
     }
 
@@ -1054,15 +1135,16 @@ pub fn shear_zone(ctx: &CutContext, co: &CuttingCoeffs, vc: f64, h_mm: f64) -> (
         let beta = boothroyd_partition(rt * tan_phi);
         ((1.0 - beta) * (1.0 - co.friction_power_share) * u / rho_c, beta)
     };
-    let (first, _) = eval(22.0);
-    eval(22.0 + 0.5 * first)
+    let t_in = ctx.bulk_c();
+    let (first, _) = eval(t_in);
+    eval(t_in + 0.5 * first)
 }
 
 pub fn softening_factor(ctx: &CutContext, co: &CuttingCoeffs, vc: f64, h_mm: f64) -> f64 {
     let state = |v: f64, h: f64| {
         let (rise, _) = shear_zone(ctx, co, v, h);
         let rate = ctx.wp.jc.map(|j| j.rate(shear_strain_rate(co, ctx.tool.rake_deg, v, h))).unwrap_or(1.0);
-        ctx.wp.jc_thermal(22.0 + rise).max(0.05) * rate
+        ctx.wp.jc_thermal(ctx.bulk_c() + rise).max(0.05) * rate
     };
     (state(vc, h_mm) / state(ctx.wp.ref_vc, reference_chip_mm(ctx)).max(1e-6)).clamp(0.75, 1.2)
 }
@@ -1080,10 +1162,13 @@ pub fn cutting_coeffs_at_temp(ctx: &CutContext, vc: f64, h_mm: f64, t_int: f64) 
 pub const FLANK_HEAT_GAIN: f64 = 1.0;
 
 pub fn interface_rise(ctx: &CutContext, co: &CuttingCoeffs, f: &ForceResult, vc: f64) -> (f64, f64) {
+    interface_rise_from(ctx, co, f, vc, ctx.coolant.ambient_c())
+}
+
+pub fn interface_rise_from(ctx: &CutContext, co: &CuttingCoeffs, f: &ForceResult, vc: f64, t0: f64) -> (f64, f64) {
     let h = f.h_mean_mm.max(1e-4);
     let u = co.kc11 * h.powf(-co.mc) * 1.0e6;
     let v = vc / 60.0;
-    let t0 = ctx.coolant.ambient_c();
     let rise = |tm: f64| {
         let pe = (v * h * 1e-3 / ctx.wp.diffusivity_at(tm)).max(1e-6);
         0.4 * u / ctx.wp.rho_c_at(tm) * pe.cbrt() * ctx.wp.thermal_factor * ctx.calib.temperature * (1.0 + FLANK_HEAT_GAIN * f.flank_power_share)
@@ -1291,21 +1376,37 @@ pub struct Compliance {
     pub ei_equivalent: f64,
 }
 
-pub fn tool_compliance(tool: &ToolGeometry, ap: f64, cal: f64) -> Compliance {
-    let e = tool.elastic_gpa * 1000.0;
+pub fn tool_sections(tool: &ToolGeometry) -> [(f64, f64, f64); 3] {
     let d_f = tool.core_ratio * tool.diameter_mm;
     let i_f = PI * d_f.powi(4) / 64.0;
     let i_s = PI * tool.shank_mm.max(d_f).powi(4) / 64.0;
     let l = tool.stickout_mm.max(tool.loc_mm.min(tool.stickout_mm));
     let lf = tool.loc_mm.min(l);
-    let ls = (l - lf).max(0.0);
-    let a = (l - ap.max(0.0).min(l) / 2.0).max(1e-3);
-    let delta_per_n = if a <= ls {
-        a.powi(3) / (3.0 * e * i_s)
+    let (ln, i_n) = if tool.has_neck() {
+        let dn = tool.neck_diameter_mm.max(0.5 * d_f);
+        ((tool.reach_mm.min(l) - lf).max(0.0), PI * dn.powi(4) / 64.0)
     } else {
-        let tail = a - ls;
-        (a.powi(3) - tail.powi(3)) / (3.0 * e * i_s) + tail.powi(3) / (3.0 * e * i_f)
+        (0.0, i_s)
     };
+    let ls = (l - lf - ln).max(0.0);
+    [(0.0, ls, i_s), (ls, ls + ln, i_n), (ls + ln, l, i_f)]
+}
+
+pub fn tool_compliance(tool: &ToolGeometry, ap: f64, cal: f64) -> Compliance {
+    let e = tool.elastic_gpa * 1000.0;
+    let l = tool.stickout_mm.max(tool.loc_mm.min(tool.stickout_mm));
+    let a = (l - ap.max(0.0).min(l) / 2.0).max(1e-3);
+    let mut delta_per_n = 0.0;
+    for (x0, x1, i) in tool_sections(tool) {
+        if x0 >= a {
+            break;
+        }
+        let x1c = x1.min(a);
+        if x1c <= x0 {
+            continue;
+        }
+        delta_per_n += ((a - x0).powi(3) - (a - x1c).powi(3)) / (3.0 * e * i);
+    }
     let holder = 1.0 / (tool.holder_stiffness_n_per_um * 1000.0);
     let total = (delta_per_n + holder) * cal;
     Compliance {
@@ -1357,8 +1458,17 @@ pub struct ThermalResult {
 
 #[allow(clippy::too_many_arguments)]
 pub fn thermal(ctx: &CutContext, co: &CuttingCoeffs, f: &ForceResult, vc: f64, rpm: f64, eng: &Engagement, wp_mass_kg: f64, wp_area_m2: f64) -> ThermalResult {
+    thermal_preheated(ctx, co, f, vc, rpm, eng, wp_mass_kg, wp_area_m2, 0.0)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn thermal_preheated(ctx: &CutContext, co: &CuttingCoeffs, f: &ForceResult, vc: f64, rpm: f64, eng: &Engagement, wp_mass_kg: f64, wp_area_m2: f64, preheat_c: f64) -> ThermalResult {
     let h = f.h_mean_mm.max(1e-4);
-    let (raw, t0) = interface_rise(ctx, co, f, vc);
+    let base = ctx.coolant.ambient_c();
+    let pre = preheat_c.max(0.0).min(0.5 * (ctx.wp.melt_c - base).max(0.0));
+    let soft = if pre > 0.0 { (ctx.wp.jc_thermal(base + pre) / ctx.wp.jc_thermal(base).max(1e-6)).clamp(0.3, 1.0) } else { 1.0 };
+    let (raw0, t0) = interface_rise_from(ctx, co, f, vc, base + pre);
+    let raw = raw0 * soft;
     let cap = (0.9 * ctx.wp.melt_c - t0).max(50.0);
     let t_cut = if rpm > 0.0 { eng.span() / (2.0 * PI) * 60.0 / rpm } else { 0.0 };
     let steady = tribology::interface_cooling(ctx, co, f, vc, raw.min(cap));
@@ -1368,9 +1478,10 @@ pub fn thermal(ctx: &CutContext, co: &CuttingCoeffs, f: &ForceResult, vc: f64, r
     let barrier = tribology::coating_barrier(ctx, cooling.contact_length_mm, cooling.conduction, contact_s);
     let reference = tribology::reference_barrier(ctx, cooling.contact_length_mm, cooling.conduction, contact_s);
     let dt = (raw * barrier.interface).min(cap);
-    let dry = t0 + dt * tf;
-    let wet = t0 + dt * tf * (1.0 - cooling.effectiveness);
-    let body = t0 + 0.08 * (wet - t0) * barrier.tool_heat * (1.0 - cooling.body_effectiveness);
+    let solidus = 0.95 * ctx.wp.melt_c;
+    let dry = (t0 + dt * tf).min(solidus);
+    let wet = (t0 + dt * tf * (1.0 - cooling.effectiveness)).min(solidus);
+    let body = base + 0.08 * (wet - base) * barrier.tool_heat * (1.0 - cooling.body_effectiveness);
     let (_, beta) = shear_zone(ctx, co, vc, h);
     let r_wp = ((1.0 - f.rubbing_share) * (1.0 - co.friction_power_share) * beta + f.rubbing_share * 0.5).clamp(0.02, 0.7);
     let p_wp = f.cutting_power_kw * 1000.0 * r_wp;
@@ -1384,8 +1495,8 @@ pub fn thermal(ctx: &CutContext, co: &CuttingCoeffs, f: &ForceResult, vc: f64, r
         interface_c: wet,
         coolant_reduction_pct: if dry - t0 > 0.0 { (dry - wet) / (dry - t0) * 100.0 } else { 0.0 },
         tool_body_c: body,
-        tool_radial_growth_um: ctx.tool.tool_expansion * ctx.tool.radius() * (body - 22.0) * 1000.0,
-        tool_axial_growth_um: ctx.tool.tool_expansion * ctx.tool.stickout_mm * (body - 22.0) * 0.5 * 1000.0,
+        tool_radial_growth_um: ctx.tool.tool_expansion * ctx.tool.radius() * (body - ctx.env.ambient_c) * 1000.0,
+        tool_axial_growth_um: ctx.tool.tool_expansion * ctx.tool.stickout_mm * (body - ctx.env.ambient_c) * 0.5 * 1000.0,
         engagement_time_ms: t_cut * 1000.0,
         transient_factor: tf,
         workpiece_heat_w: p_wp,
@@ -1394,7 +1505,7 @@ pub fn thermal(ctx: &CutContext, co: &CuttingCoeffs, f: &ForceResult, vc: f64, r
         thermal_crack_risk: shock.risk,
         bue_risk: bue,
         over_coating_limit: wet > 0.85 * ctx.tool.coating.max_temp_c,
-        over_workpiece_limit: ctx.wp.temp_limit_c.map(|l| wet > l).unwrap_or(false),
+        over_workpiece_limit: crate::environment::workpiece_limit_c(ctx).map(|l| wet > l).unwrap_or(false),
         heat_to_workpiece_share: r_wp,
         cooling,
         shock,
@@ -1438,8 +1549,11 @@ pub struct WearReference {
 
 fn reference_setup(ctx: &CutContext) -> (CutContext, f64, Engagement, f64) {
     let mut rctx = ctx.clone();
-    rctx.coolant = CoolantState::from_config(&rctx.wp.reference_coolant());
+    rctx.env = ShopEnvironment::standard();
+    rctx.coolant = CoolantState::from_config_env(&rctx.wp.reference_coolant(), &rctx.env);
     rctx.calib = Calibration::default();
+    let wp = rctx.wp.clone();
+    rctx.tool.reset_to_reference_substrate(&wp);
     rctx.tool.coating = tribology_from_name(Some("AlTiN"));
     rctx.tool.runout_um = 3.0;
     rctx.tool.base_wear_factor = 1.0;
@@ -1475,6 +1589,18 @@ pub fn reference_state(ctx: &CutContext) -> WearReference {
     }
 }
 
+pub fn substrate_softening(ctx: &CutContext, t_c: f64) -> f64 {
+    if ctx.tool.substrate_max_c >= 800.0 {
+        return 1.0;
+    }
+    let over = t_c - 0.9 * ctx.tool.substrate_max_c;
+    if over <= 0.0 {
+        1.0
+    } else {
+        (over / 60.0).exp().min(25.0)
+    }
+}
+
 pub fn wear(ctx: &CutContext, f: &ForceResult, th: &ThermalResult, vc: f64, fz: f64, eng: &Engagement, reference: WearReference) -> WearResult {
     let sf = (f.radial_load_n_per_mm * (1.0 - f.flank_share) / reference.stress).clamp(0.05, 20.0);
     let duty = eng.span() / (2.0 * PI);
@@ -1490,7 +1616,7 @@ pub fn wear(ctx: &CutContext, f: &ForceResult, th: &ThermalResult, vc: f64, fz: 
     let rf = (1.0 + 2.0 * ctx.tool.runout_um / 1000.0 / fz.max(1e-4)).powf(1.0 - ctx.wp.mc).min(2.0);
     let evac = 1.0 + 0.3 * (1.0 - ctx.coolant.chip_evacuation()) * if ctx.wp.ae_ratio >= 0.5 || eng.mode == MillMode::Slot { 1.0 } else { 0.3 };
     let base_rate = 0.2 / ctx.wp.ref_life_min.max(1.0);
-    let rate = base_rate * mech * rf * ctx.tool.base_wear_factor * evac * ctx.calib.wear * (1.0 + 1.5 * th.thermal_crack_risk);
+    let rate = base_rate * mech * rf * ctx.tool.base_wear_factor * evac * ctx.calib.wear * (1.0 + 1.5 * th.thermal_crack_risk) * substrate_softening(ctx, th.interface_c);
     let limit = ctx.vb_limit_mm();
     let (mechanisms, dominant) = tribology::mechanism_report(&reference.shares, &parts);
     WearResult {
@@ -1824,6 +1950,8 @@ pub struct CutAnalysis {
     pub tribology: TribologyReport,
     #[serde(default)]
     pub regime: Vec<f32>,
+    #[serde(default)]
+    pub environment: crate::environment::EnvironmentReport,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1870,6 +1998,10 @@ pub struct ErrorBudget {
     pub fixture_um: f64,
     #[serde(default)]
     pub dynamic_um: f64,
+    #[serde(default)]
+    pub environment_um: f64,
+    #[serde(default)]
+    pub drift_um: f64,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -1949,7 +2081,10 @@ pub fn analyze_cut(ctx: &CutContext, conds: &CuttingConditions, down: bool, body
     let fixture_um = f.fy_mean.abs() / ctx.fixture_stiffness_n_per_um.max(1e-6);
     let dynamic_um = forced.sle_um.abs();
     let wall_defl = wall.deflection_um;
-    let total = wall_defl.abs() + wear10 + th.tool_radial_growth_um.abs() + wp_um + fixture_um + dynamic_um;
+    let env_rep = crate::environment::report(ctx, body, vce, th.interface_c);
+    let env_um = env_rep.scale_error_um;
+    let drift_um = env_rep.drift_um;
+    let total = wall_defl.abs() + wear10 + th.tool_radial_growth_um.abs() + wp_um + fixture_um + dynamic_um + env_um.abs() + drift_um;
     let tol_um = ctx.tolerance_mm * 1000.0;
     let mut notes = Vec::new();
     let thinning = if eng.mode != MillMode::Slot && eng.max_sin() > 0.0 { 1.0 / eng.max_sin() } else { 1.0 };
@@ -2027,6 +2162,16 @@ pub fn analyze_cut(ctx: &CutContext, conds: &CuttingConditions, down: bool, body
     if spindle > avail {
         notes.push(format!("필요 동력 {:.2} kW 가 해당 회전수의 가용 동력 {:.2} kW 를 초과합니다.", spindle, avail));
     }
+    if ctx.tool.substrate_max_c < 800.0 && th.interface_c > 0.9 * ctx.tool.substrate_max_c {
+        notes.push(format!(
+            "날끝 {:.0}°C 가 공구 모재({}) 허용 온도 {:.0}°C 에 근접·초과해 모재 연화로 마모가 ×{:.1} 빨라집니다.",
+            th.interface_c,
+            crate::profile::ToolSubstrate::from_key(&ctx.tool.substrate).map(|t| t.label()).unwrap_or(ctx.tool.substrate.as_str()),
+            ctx.tool.substrate_max_c,
+            substrate_softening(ctx, th.interface_c)
+        ));
+    }
+    notes.extend(env_rep.notes.iter().cloned());
     notes.extend(stability.notes.iter().cloned());
     if forced.near_resonance {
         notes.push(format!(
@@ -2074,6 +2219,8 @@ pub fn analyze_cut(ctx: &CutContext, conds: &CuttingConditions, down: bool, body
             utilization: if tol_um > 0.0 { total / tol_um } else { 0.0 },
             fixture_um,
             dynamic_um,
+            environment_um: env_um,
+            drift_um,
         },
         thermal: th,
         wear: wr,
@@ -2087,6 +2234,7 @@ pub fn analyze_cut(ctx: &CutContext, conds: &CuttingConditions, down: bool, body
         coeffs: co,
         tribology: rep,
         regime,
+        environment: env_rep,
     }
 }
 

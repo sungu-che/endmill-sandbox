@@ -144,6 +144,76 @@ impl WorkpieceSetup {
         }
     }
 
+    pub fn default_stainless_plate() -> Self {
+        Self {
+            name: "스테인리스 판재 (SUS304)".into(),
+            material: WorkpieceMaterial::StainlessSteel,
+            shape: StockShape::Rectangular,
+            width_mm: 120.0,
+            height_mm: 80.0,
+            thickness_mm: 20.0,
+            clamping: ClampingMethod::Vise,
+            stock_allowance_mm: 0.3,
+            zero_point: (0.0, 0.0),
+            surface_roughness_target_ra: 0.8,
+            hardness_hrc: None,
+            grain_direction_deg: 0.0,
+            pre_machined: true,
+            tolerance_mm: Some(0.02),
+        }
+    }
+
+    pub fn default_hardened_block() -> Self {
+        Self {
+            name: "금형강 블록 (SKD11 HRC58)".into(),
+            material: WorkpieceMaterial::AlloySteel { hardness_hrc: 58 },
+            shape: StockShape::Rectangular,
+            width_mm: 100.0,
+            height_mm: 80.0,
+            thickness_mm: 40.0,
+            clamping: ClampingMethod::FixturePlate,
+            stock_allowance_mm: 0.15,
+            zero_point: (0.0, 0.0),
+            surface_roughness_target_ra: 0.4,
+            hardness_hrc: Some(58),
+            grain_direction_deg: 0.0,
+            pre_machined: true,
+            tolerance_mm: Some(0.01),
+        }
+    }
+
+    pub fn default_cfrp_panel() -> Self {
+        Self {
+            name: "CFRP 패널 (t6)".into(),
+            material: WorkpieceMaterial::CFRP,
+            shape: StockShape::Rectangular,
+            width_mm: 300.0,
+            height_mm: 200.0,
+            thickness_mm: 6.0,
+            clamping: ClampingMethod::VacuumChuck,
+            stock_allowance_mm: 0.5,
+            zero_point: (0.0, 0.0),
+            surface_roughness_target_ra: 3.2,
+            hardness_hrc: None,
+            grain_direction_deg: 0.0,
+            pre_machined: false,
+            tolerance_mm: Some(0.1),
+        }
+    }
+
+    pub fn builtin_setups() -> Vec<Self> {
+        vec![
+            Self::default_aluminum_plate(),
+            Self::default_steel_block(),
+            Self::default_titanium_plate(),
+            Self::default_cylindrical_steel(),
+            Self::default_inconel_block(),
+            Self::default_stainless_plate(),
+            Self::default_hardened_block(),
+            Self::default_cfrp_panel(),
+        ]
+    }
+
     pub fn effective_material(&self) -> WorkpieceMaterial {
         match (&self.material, self.hardness_hrc) {
             (WorkpieceMaterial::AlloySteel { .. }, Some(h)) => WorkpieceMaterial::AlloySteel { hardness_hrc: h },

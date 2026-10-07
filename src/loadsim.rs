@@ -212,6 +212,16 @@ pub struct SimSample {
     pub chatter_margin: f64,
     #[serde(default)]
     pub workpiece_um: f64,
+    #[serde(default)]
+    pub wp_local_c: f64,
+    #[serde(default)]
+    pub wp_heat_w: f64,
+    #[serde(default)]
+    pub preheat_c: f64,
+    #[serde(default)]
+    pub contact_dx: f64,
+    #[serde(default)]
+    pub contact_dy: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -281,6 +291,219 @@ pub struct LoadSimReport {
     pub chatter_fraction: f64,
     #[serde(default)]
     pub thin_wall_mm: Option<f64>,
+    #[serde(default)]
+    pub heat_packets: Vec<HeatPacket>,
+    #[serde(default)]
+    pub heat: HeatFieldProps,
+    #[serde(default)]
+    pub segment_end_s: Vec<f64>,
+    #[serde(default)]
+    pub max_preheat_c: f64,
+    #[serde(default)]
+    pub bulk_c: f64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct HeatPacket {
+    pub t_s: f64,
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+    pub q_j: f64,
+    pub tau0_s: f64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+pub struct HeatFieldProps {
+    pub rho_c: f64,
+    pub kappa_m2_s: f64,
+    pub effusivity: f64,
+    pub h_surface: f64,
+    pub bulk_c: f64,
+    pub prune_k: f64,
+}
+
+impl HeatFieldProps {
+    pub fn of(ctx: &CutContext) -> Self {
+        let bulk = ctx.bulk_c();
+        let rho_c = ctx.wp.rho_c_at(bulk).max(1.0e5);
+        let kappa = ctx.wp.diffusivity_at(bulk).max(1.0e-8);
+        Self {
+            rho_c,
+            kappa_m2_s: kappa,
+            effusivity: rho_c * kappa.sqrt(),
+            h_surface: ctx.coolant.workpiece_h(),
+            bulk_c: bulk,
+            prune_k: 0.02,
+        }
+    }
+
+    pub fn convective_decay(&self, age_s: f64) -> f64 {
+        (-2.0 * self.h_surface * age_s.max(0.0).sqrt() / (std::f64::consts::PI.sqrt() * self.effusivity.max(1.0))).exp()
+    }
+
+    pub fn amplitude(&self, p: &HeatPacket, age_s: f64) -> f64 {
+        if age_s < 0.0 {
+            return 0.0;
+        }
+        let tau = age_s + p.tau0_s.max(1e-4);
+        let four_kt = 4.0 * self.kappa_m2_s * tau;
+        2.0 * p.q_j / (self.rho_c * (std::f64::consts::PI * four_kt).powf(1.5)) * self.convective_decay(age_s)
+    }
+
+    pub fn excess_at(&self, p: &HeatPacket, x: f64, y: f64, z: f64, t_s: f64) -> f64 {
+        let age = t_s - p.t_s;
+        if age < 0.0 {
+            return 0.0;
+        }
+        let tau = age + p.tau0_s.max(1e-4);
+        let four_kt = 4.0 * self.kappa_m2_s * tau;
+        let r2 = ((x - p.x).powi(2) + (y - p.y).powi(2) + (z - p.z).powi(2)) * 1e-6;
+        let e = r2 / four_kt;
+        if e > 30.0 {
+            return 0.0;
+        }
+        2.0 * p.q_j / (self.rho_c * (std::f64::consts::PI * four_kt).powf(1.5)) * (-e).exp() * self.convective_decay(age)
+    }
+
+    pub fn life_s(&self, p: &HeatPacket, threshold_k: f64) -> f64 {
+        let tau = (2.0 * p.q_j / (self.rho_c * threshold_k.max(1e-6))).powf(2.0 / 3.0) / (4.0 * std::f64::consts::PI * self.kappa_m2_s);
+        (tau - p.tau0_s).max(0.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PendingHeat {
+    q: f64,
+    sx: f64,
+    sy: f64,
+    sz: f64,
+    st: f64,
+    t0: f64,
+    x0: f64,
+    y0: f64,
+    tau0: f64,
+}
+
+struct HeatTracker {
+    props: HeatFieldProps,
+    alive: Vec<HeatPacket>,
+    all: Vec<HeatPacket>,
+    pending: Option<PendingHeat>,
+    merge_dt: f64,
+    merge_len: f64,
+}
+
+impl HeatTracker {
+    fn new(props: HeatFieldProps, tool_d: f64) -> Self {
+        Self {
+            props,
+            alive: Vec::new(),
+            all: Vec::new(),
+            pending: None,
+            merge_dt: 0.1,
+            merge_len: (0.1 * tool_d).max(0.5),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn deposit(&mut self, x: f64, y: f64, z: f64, t: f64, q: f64, tau0: f64) {
+        if q <= 0.0 {
+            return;
+        }
+        if let Some(p) = self.pending {
+            let far = ((x - p.x0).powi(2) + (y - p.y0).powi(2)).sqrt() > self.merge_len;
+            if t - p.t0 > self.merge_dt || far {
+                self.flush();
+            }
+        }
+        let p = self.pending.get_or_insert(PendingHeat {
+            q: 0.0,
+            sx: 0.0,
+            sy: 0.0,
+            sz: 0.0,
+            st: 0.0,
+            t0: t,
+            x0: x,
+            y0: y,
+            tau0,
+        });
+        p.q += q;
+        p.sx += q * x;
+        p.sy += q * y;
+        p.sz += q * z;
+        p.st += q * t;
+        p.tau0 = p.tau0.max(tau0);
+    }
+
+    fn flush(&mut self) {
+        if let Some(p) = self.pending.take() {
+            if p.q > 0.0 {
+                let pk = HeatPacket {
+                    t_s: p.st / p.q,
+                    x: p.sx / p.q,
+                    y: p.sy / p.q,
+                    z: p.sz / p.q,
+                    q_j: p.q,
+                    tau0_s: p.tau0,
+                };
+                self.alive.push(pk);
+                self.all.push(pk);
+            }
+        }
+    }
+
+    fn excess(&self, x: f64, y: f64, z: f64, t: f64, older_than: f64) -> f64 {
+        self.alive
+            .iter()
+            .filter(|p| p.t_s <= older_than)
+            .map(|p| self.props.excess_at(p, x, y, z, t))
+            .sum()
+    }
+
+    fn prune(&mut self, t: f64) {
+        let props = self.props;
+        self.alive.retain(|p| props.amplitude(p, t - p.t_s) >= props.prune_k);
+    }
+
+    fn finish(mut self, cap: usize) -> (Vec<HeatPacket>, HeatFieldProps) {
+        self.flush();
+        let near = 4.0 * self.merge_len;
+        let mut v = self.all;
+        while v.len() > cap {
+            let before = v.len();
+            let mut merged = Vec::with_capacity(v.len() / 2 + 1);
+            for pair in v.chunks(2) {
+                if pair.len() == 1 {
+                    merged.push(pair[0]);
+                    continue;
+                }
+                let (a, b) = (pair[0], pair[1]);
+                let q = a.q_j + b.q_j;
+                if q <= 0.0 {
+                    continue;
+                }
+                if ((a.x - b.x).powi(2) + (a.y - b.y).powi(2)).sqrt() > near {
+                    merged.push(a);
+                    merged.push(b);
+                    continue;
+                }
+                merged.push(HeatPacket {
+                    t_s: (a.t_s * a.q_j + b.t_s * b.q_j) / q,
+                    x: (a.x * a.q_j + b.x * b.q_j) / q,
+                    y: (a.y * a.q_j + b.y * b.q_j) / q,
+                    z: (a.z * a.q_j + b.z * b.q_j) / q,
+                    q_j: q,
+                    tau0_s: a.tau0_s.max(b.tau0_s) + ((a.x - b.x).powi(2) + (a.y - b.y).powi(2) + (a.z - b.z).powi(2)) * 1e-6 / (16.0 * self.props.kappa_m2_s.max(1e-9)),
+                });
+            }
+            v = merged;
+            if v.len() >= before {
+                break;
+            }
+        }
+        (v, self.props)
+    }
 }
 
 #[derive(Clone)]
@@ -323,7 +546,11 @@ pub fn simulate(profile: &MachiningProfile, pattern: &ToolPathPattern, ctx: &Cut
 }
 
 pub fn simulate_segments(profile: &MachiningProfile, segments: &[ToolPathSegment], label: &str, ctx: &CutContext) -> LoadSimReport {
-    let mut grid = StockGrid::from_setup(profile, 3_000_000);
+    simulate_segments_res(profile, segments, label, ctx, 3_000_000)
+}
+
+pub fn simulate_segments_res(profile: &MachiningProfile, segments: &[ToolPathSegment], label: &str, ctx: &CutContext, max_cells: usize) -> LoadSimReport {
+    let mut grid = StockGrid::from_setup(profile, max_cells.max(10_000));
     let mut floor_err = vec![f32::NAN; grid.nx * grid.ny];
     let tool = &ctx.tool;
     let r = tool.radius();
@@ -337,6 +564,16 @@ pub fn simulate_segments(profile: &MachiningProfile, segments: &[ToolPathSegment
     let tau_break = nominal.trajectory.break_in_tau_min.max(1e-6);
     let e_wp = ctx.wp.elastic_gpa * 1000.0 / (1.0 - ctx.wp.poisson.powi(2)).max(0.5);
     let reference = physics::reference_state(ctx);
+    let heat_props = HeatFieldProps::of(ctx);
+    let bulk = heat_props.bulk_c;
+    let mut heat = HeatTracker::new(heat_props, 2.0 * r);
+    let tau0 = ((0.5 * r).clamp(0.3, 5.0) * 1e-3).powi(2) / (4.0 * heat_props.kappa_m2_s);
+    let mut seg_start_s: Vec<f64> = vec![0.0; segments.len()];
+    let mut preheat = 0.0f64;
+    let mut max_preheat = 0.0f64;
+    let mut last_eval_t = f64::NEG_INFINITY;
+    let mut last_eval_xy = (f64::NAN, f64::NAN);
+    let mut last_prune_t = 0.0f64;
     let mut wtool = tool.clone();
     let mut cache: HashMap<(i64, i64, i64, i64, i64), CacheEntry> = HashMap::new();
     let mut chatter_cache: HashMap<(i64, i64, i64), f64> = HashMap::new();
@@ -379,6 +616,7 @@ pub fn simulate_segments(profile: &MachiningProfile, segments: &[ToolPathSegment
     let lead_tan = 7f64.to_radians().tan();
     let datum = (0.0f64, 0.0f64);
     for (si, seg) in segments.iter().enumerate() {
+        seg_start_s[si] = t;
         let start = prev;
         let end = seg.end_point();
         let seg_len = seg.length_from(start);
@@ -444,6 +682,9 @@ pub fn simulate_segments(profile: &MachiningProfile, segments: &[ToolPathSegment
             let mut temp = ctx.coolant.temperature_c;
             let mut margin = f64::INFINITY;
             let mut wp_defl = 0.0;
+            let mut wp_heat = 0.0;
+            let mut pre_here = 0.0;
+            let mut cdir = (0.0, 0.0);
             if cutting && dt > 0.0 {
                 cut_time += dt;
                 cut_samples += 1;
@@ -552,11 +793,34 @@ pub fn simulate_segments(profile: &MachiningProfile, segments: &[ToolPathSegment
                     phi_ex: eng_deg.to_radians().max(1e-3),
                     mode: MillMode::Center,
                 };
-                let th = physics::thermal(ctx, &co, &sample_force, vce, rpm, &eng_for_heat, body.mass_kg, body.area_m2);
+                let vol = rem.volume.max(1e-12);
+                let (lat_c, fwd_c) = (rem.lateral / vol, rem.forward / vol);
+                let (odx, ody) = if plunge_like { (0.0, 0.0) } else { (fwd_c * dir.0 - lat_c * dir.1, fwd_c * dir.1 + lat_c * dir.0) };
+                let on = (odx * odx + ody * ody).sqrt();
+                if on > 0.05 * r {
+                    cdir = (odx / on, ody / on);
+                }
+                let (hx, hy, hz) = (p.0 + odx, p.1 + ody, p.2 + 0.25 * ap_eff);
+                let self_window = (2.0 * r / (feed / 60.0).max(1e-3)).clamp(0.05, 10.0);
+                let moved = ((hx - last_eval_xy.0).powi(2) + (hy - last_eval_xy.1).powi(2)).sqrt();
+                if !(t - last_eval_t < 0.05 && moved < 0.5) {
+                    preheat = heat.excess(hx, hy, hz, t, t - self_window).max(0.0);
+                    last_eval_t = t;
+                    last_eval_xy = (hx, hy);
+                }
+                pre_here = preheat;
+                max_preheat = max_preheat.max(preheat);
+                let th = physics::thermal_preheated(ctx, &co, &sample_force, vce, rpm, &eng_for_heat, body.mass_kg, body.area_m2, preheat + wp_rise.max(0.0));
+                wp_heat = th.workpiece_heat_w;
+                heat.deposit(hx, hy, hz, t - 0.5 * dt, th.workpiece_heat_w * dt, tau0);
+                if t - last_prune_t > 1.0 {
+                    heat.prune(t);
+                    last_prune_t = t;
+                }
                 let wr = physics::wear(ctx, &sample_force, &th, vce, fz_nom.max(1e-6), &eng_for_heat, reference);
                 let t_cut_min = cut_time / 60.0;
                 let rate = kappa * wr.vb_rate_mm_per_min + vb_break / tau_break * (-t_cut_min / tau_break).exp();
-                vb += rate * dt / 60.0;
+                vb = (vb + rate * dt / 60.0).min(2.0 * ctx.vb_limit_mm());
                 temp = th.interface_c;
                 wp_rise += ((th.workpiece_heat_w - wp_rise * ha) / mc_wp.max(1e-6)) * dt;
                 if let Some((z_mid, side, away_force)) = wall {
@@ -619,9 +883,14 @@ pub fn simulate_segments(profile: &MachiningProfile, segments: &[ToolPathSegment
                 temp_c: temp,
                 vb_mm: vb,
                 radial_loss_um: vb * tan_clear * 1000.0,
-                wp_temp_c: 22.0 + wp_rise,
+                wp_temp_c: bulk + wp_rise,
                 chatter_margin: if margin.is_finite() { margin } else { 0.0 },
                 workpiece_um: wp_defl,
+                wp_local_c: bulk + wp_rise + pre_here,
+                wp_heat_w: wp_heat,
+                preheat_c: pre_here,
+                contact_dx: cdir.0,
+                contact_dy: cdir.1,
             });
             last = *p;
         }
@@ -651,6 +920,18 @@ pub fn simulate_segments(profile: &MachiningProfile, segments: &[ToolPathSegment
             tw, max_wp_defl
         ));
     }
+    if max_preheat > 15.0 {
+        warnings.push(format!(
+            "이전 패스의 잔류열이 다 빠지기 전에 다음 패스가 지나가 절삭 지점 소재가 최대 {:.0} K 예열됩니다 (열확산율 {:.1} mm²/s) — 패스 순서·간격 조정 또는 냉각 강화를 검토하세요",
+            max_preheat,
+            heat_props.kappa_m2_s * 1e6
+        ));
+    }
+    let mut segment_end_s: Vec<f64> = seg_start_s.iter().skip(1).cloned().collect();
+    if !segments.is_empty() {
+        segment_end_s.push(t);
+    }
+    let (heat_packets, heat_field) = heat.finish(6000);
     let episodes = build_episodes(&samples, ctx, profile);
     let (mean_wall, max_wall) = if wall_errors.is_empty() {
         (0.0, 0.0)
@@ -704,7 +985,7 @@ pub fn simulate_segments(profile: &MachiningProfile, segments: &[ToolPathSegment
         max_power_kw: max_power,
         max_force_n: max_force,
         max_temp_c: max_temp,
-        wp_temp_end_c: 22.0 + wp_rise,
+        wp_temp_end_c: bulk + wp_rise,
         plunge_count: plunges,
         cell_mm: grid.cell,
         samples: samples_ds,
@@ -713,6 +994,11 @@ pub fn simulate_segments(profile: &MachiningProfile, segments: &[ToolPathSegment
         min_chatter_margin: if min_margin.is_finite() { min_margin } else { 0.0 },
         chatter_fraction,
         thin_wall_mm: thin_wall,
+        heat_packets,
+        heat: heat_field,
+        segment_end_s,
+        max_preheat_c: max_preheat,
+        bulk_c: bulk,
     }
 }
 

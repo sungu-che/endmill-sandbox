@@ -278,6 +278,7 @@ impl CuttingCalculator {
             fixture_stiffness_n_per_um: crate::workpiece_setup::ClampingMethod::Vise.stiffness_n_per_um(),
             wp: props,
             tool,
+            env: crate::profile::ShopEnvironment::default(),
         };
         let body = crate::physics::ThermalBody {
             mass_kg: 2.0,

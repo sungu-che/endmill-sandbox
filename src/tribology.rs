@@ -1,5 +1,5 @@
 use crate::physics::{CoatingTribology, CutContext, CuttingCoeffs, ForceResult, ToolGeometry, WorkpieceProps};
-use crate::profile::CoolantMethod;
+use crate::profile::{CoolantMethod, ShopEnvironment};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -246,6 +246,35 @@ impl CoolantFluid {
         }
     }
 
+    pub fn at(method: &CoolantMethod, env: &ShopEnvironment, temperature_c: f64) -> Self {
+        let mut f = Self::of(method);
+        match f.medium {
+            Medium::None | Medium::Air | Medium::OilMist => {
+                let std_env = ShopEnvironment::standard();
+                let mut local = env.clone();
+                local.ambient_c = temperature_c.clamp(-10.0, 60.0);
+                f.k *= local.air_conductivity() / std_env.air_conductivity();
+                f.rho *= local.air_density() / std_env.air_density();
+                f.cp *= local.air_cp() / std_env.air_cp();
+                f.nu *= local.air_kinematic() / std_env.air_kinematic();
+                f.pr *= local.air_prandtl() / std_env.air_prandtl();
+            }
+            Medium::WaterEmulsion => {
+                let t = temperature_c.clamp(1.0, 90.0);
+                let t_ref = crate::profile::STANDARD_AMBIENT_C;
+                let mu_rel = crate::profile::water_viscosity_pa_s(t) / crate::profile::water_viscosity_pa_s(t_ref);
+                let k_rel = crate::profile::water_conductivity(t) / crate::profile::water_conductivity(t_ref);
+                f.k *= k_rel;
+                f.nu *= mu_rel;
+                f.pr *= mu_rel / k_rel;
+                let shift = env.boiling_c() - 100.0;
+                f.boil_c += shift;
+                f.leidenfrost_c += shift;
+            }
+        }
+        f
+    }
+
     pub fn is_water(&self) -> bool {
         self.medium == Medium::WaterEmulsion
     }
@@ -475,7 +504,7 @@ pub fn contact_friction(ctx: &CutContext, vc: f64, t_int: f64) -> Friction {
     } else {
         1.0 + 0.12 * over
     };
-    let mu_thermal = mu_pair * soft * breakdown;
+    let mu_thermal = mu_pair * soft * breakdown * crate::environment::friction_factor(ctx, vc, t_int);
     let theta = ((t_int - 20.0) / (wp.melt_c - 20.0).max(100.0)).clamp(0.0, 1.0);
     let sticking = (0.15 + 0.4 * p.adhesion.min(2.0) * theta.sqrt()).clamp(0.05, 0.9);
     let fl = &ctx.coolant.fluid;
@@ -712,7 +741,7 @@ pub fn arrhenius(wp: &WorkpieceProps, t_c: f64) -> f64 {
 }
 
 pub fn oxidation_environment(ctx: &CutContext) -> f64 {
-    match ctx.coolant.method {
+    crate::environment::oxidation_factor(ctx) * match ctx.coolant.method {
         CoolantMethod::Flood | CoolantMethod::ThroughTool => {
             if ctx.tool.coating.protective_oxide {
                 1.05

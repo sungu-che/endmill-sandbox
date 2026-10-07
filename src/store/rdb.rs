@@ -581,6 +581,54 @@ impl Rdb {
         raw.into_iter().map(|(id, k, j, c, n, w)| self.endmill_from_row(id, k, j, c, n, w)).collect()
     }
 
+    pub fn endmill_refs(&self, id: i64) -> Result<(i64, i64, i64), String> {
+        self.conn
+            .query_row(
+                "SELECT (SELECT COUNT(*) FROM presets WHERE endmill_id = ?1),
+                        (SELECT COUNT(*) FROM profiles WHERE endmill_id = ?1),
+                        (SELECT COUNT(*) FROM runs WHERE endmill_id = ?1)",
+                params![id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .map_err(err)
+    }
+
+    pub fn delete_endmill(&self, id: i64) -> Result<bool, String> {
+        let (a, b, c) = self.endmill_refs(id)?;
+        if a + b + c > 0 {
+            return Err(format!("앤드밀 #{} 은(는) 프리셋 {}개 · 프로필 {}개 · 실행 기록 {}건에서 사용 중이라 삭제할 수 없습니다", id, a, b, c));
+        }
+        self.conn
+            .execute("DELETE FROM vector_refs WHERE entity = 'endmill' AND entity_id = ?1", params![id])
+            .map_err(err)?;
+        let n = self.conn.execute("DELETE FROM endmills WHERE id = ?1", params![id]).map_err(err)?;
+        Ok(n > 0)
+    }
+
+    pub fn workpiece_refs(&self, id: i64) -> Result<(i64, i64, i64), String> {
+        self.conn
+            .query_row(
+                "SELECT (SELECT COUNT(*) FROM presets WHERE workpiece_id = ?1),
+                        (SELECT COUNT(*) FROM profiles WHERE workpiece_id = ?1),
+                        (SELECT COUNT(*) FROM runs WHERE workpiece_id = ?1)",
+                params![id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .map_err(err)
+    }
+
+    pub fn delete_workpiece(&self, id: i64) -> Result<bool, String> {
+        let (a, b, c) = self.workpiece_refs(id)?;
+        if a + b + c > 0 {
+            return Err(format!("공작물 #{} 은(는) 프리셋 {}개 · 프로필 {}개 · 실행 기록 {}건에서 사용 중이라 삭제할 수 없습니다", id, a, b, c));
+        }
+        self.conn
+            .execute("DELETE FROM vector_refs WHERE entity = 'workpiece' AND entity_id = ?1", params![id])
+            .map_err(err)?;
+        let n = self.conn.execute("DELETE FROM workpieces WHERE id = ?1", params![id]).map_err(err)?;
+        Ok(n > 0)
+    }
+
     pub fn upsert_workpiece(&self, w: &WorkpieceSetup) -> Result<(i64, bool), String> {
         let attr = WorkpieceAttr::from_setup(w);
         let key = attr.key();
@@ -786,7 +834,11 @@ impl Rdb {
                     builtin: b != 0,
                     endmill_id: em,
                     workpiece_id: wp,
-                    preset: serde_json::from_str(&j).map_err(|e| e.to_string())?,
+                    preset: {
+                        let mut pr: MachiningPreset = serde_json::from_str(&j).map_err(|e| e.to_string())?;
+                        pr.normalize_legacy();
+                        pr
+                    },
                     profiles: nprof,
                     runs: nruns,
                 })
@@ -861,7 +913,11 @@ impl Rdb {
                     name,
                     endmill_id: em,
                     workpiece_id: wp,
-                    profile: serde_json::from_str(&j).map_err(|e| e.to_string())?,
+                    profile: {
+                        let mut pf: MachiningProfile = serde_json::from_str(&j).map_err(|e| e.to_string())?;
+                        pf.normalize_legacy();
+                        pf
+                    },
                     updated_at: upd,
                     runs,
                 })

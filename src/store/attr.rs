@@ -25,6 +25,16 @@ pub struct EndMillAttr {
     pub coating_family: String,
     pub variable_pitch: bool,
     pub substrate: String,
+    #[serde(default)]
+    pub rake_deg: Option<f64>,
+    #[serde(default)]
+    pub clearance_deg: Option<f64>,
+    #[serde(default)]
+    pub edge_radius_um: Option<f64>,
+    #[serde(default)]
+    pub neck_diameter_mm: Option<f64>,
+    #[serde(default)]
+    pub reach_mm: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -54,7 +64,12 @@ impl EndMillAttr {
             corner_r_mm: cr,
             coating_family: tribology_from_name(s.coating_name.as_deref()).family,
             variable_pitch: s.variable_pitch,
-            substrate: "carbide".into(),
+            substrate: s.substrate.key().into(),
+            rake_deg: s.rake_deg.map(|v| q(v, 0.5)),
+            clearance_deg: s.clearance_deg.map(|v| q(v, 0.5)),
+            edge_radius_um: s.edge_radius_um.map(|v| q(v, 0.5)),
+            neck_diameter_mm: s.neck().map(|(d, _)| q(d, 0.01)),
+            reach_mm: s.neck().map(|(_, r)| q(r, 0.1)),
         }
     }
 
@@ -84,7 +99,24 @@ impl EndMillAttr {
             self.coating_family.to_lowercase(),
             u8::from(self.variable_pitch),
             self.substrate
-        )
+        ) + &self.extra_key()
+    }
+
+    pub fn extra_key(&self) -> String {
+        let mut k = String::new();
+        if let Some(v) = self.rake_deg {
+            k.push_str(&format!(":rk{:.1}", v));
+        }
+        if let Some(v) = self.clearance_deg {
+            k.push_str(&format!(":cl{:.1}", v));
+        }
+        if let Some(v) = self.edge_radius_um {
+            k.push_str(&format!(":er{:.1}", v));
+        }
+        if let (Some(d), Some(r)) = (self.neck_diameter_mm, self.reach_mm) {
+            k.push_str(&format!(":nk{:.2}x{:.1}", d, r));
+        }
+        k
     }
 
     pub fn label(&self) -> String {
@@ -93,15 +125,25 @@ impl EndMillAttr {
             "corner" => format!("코너R{:.2}", self.corner_r_mm),
             _ => "스퀘어".to_string(),
         };
+        let substrate = crate::profile::ToolSubstrate::from_key(&self.substrate)
+            .filter(|t| *t != crate::profile::ToolSubstrate::Carbide)
+            .map(|t| format!(" {}", t.label()))
+            .unwrap_or_default();
+        let neck = match (self.neck_diameter_mm, self.reach_mm) {
+            (Some(d), Some(r)) => format!(" 넥Ø{:.2}×{:.0}", d, r),
+            _ => String::new(),
+        };
         format!(
-            "Ø{:.2} {}날 {} LOC{:.0} H{:.0}° {}{}",
+            "Ø{:.2} {}날 {} LOC{:.0} H{:.0}° {}{}{}{}",
             self.diameter_mm,
             self.flutes,
             nose,
             self.loc_mm,
             self.helix_deg,
             self.coating_family,
-            if self.variable_pitch { " 부등분할" } else { "" }
+            if self.variable_pitch { " 부등분할" } else { "" },
+            neck,
+            substrate
         )
     }
 
@@ -135,6 +177,12 @@ impl EndMillAttr {
             stickout_mm: None,
             runout_um: None,
             variable_pitch: self.variable_pitch,
+            substrate: crate::profile::ToolSubstrate::from_key(&self.substrate).unwrap_or_default(),
+            rake_deg: self.rake_deg,
+            clearance_deg: self.clearance_deg,
+            edge_radius_um: self.edge_radius_um,
+            neck_diameter_mm: self.neck_diameter_mm,
+            reach_mm: self.reach_mm,
         }
     }
 
@@ -143,6 +191,8 @@ impl EndMillAttr {
         let tri = tribology_from_name(Some(&self.coating_family));
         let substrate = match self.substrate.as_str() {
             "hss" => -1.0,
+            "hss_co" => -0.8,
+            "carbide_uf" => 0.1,
             "cbn" => 1.0,
             "pcd" => 1.5,
             _ => 0.0,

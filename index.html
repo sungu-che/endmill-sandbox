@@ -653,6 +653,49 @@
     .lib-ev-relay_workpiece span, .lib-ev-relay_endmill span { color: var(--warning); }
     .lib-ev-relay_regime span { color: #a29bfe; }
     .pv-frf { font-size: 0.7rem; color: var(--text-dim); display: flex; align-items: center; gap: 4px; }
+    .settings-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg-panel); overflow-y: auto; padding: 12px 14px; z-index: 70; display: none; }
+    .settings-overlay.visible { display: block; }
+    .st-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 8px; }
+    .st-note { font-size: 0.68rem; color: var(--text-dim); line-height: 1.5; margin-top: 6px; }
+    .st-note b { color: var(--text); }
+    .mdl-row { border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 8px; background: var(--bg-input); }
+    .mdl-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 0.76rem; }
+    .mdl-head b { color: var(--text); }
+    .mdl-meta { font-size: 0.66rem; color: var(--text-muted); margin: 3px 0; word-break: break-all; }
+    .mdl-bar { height: 8px; background: var(--bg-darkest); border-radius: 4px; overflow: hidden; margin: 4px 0; border: 1px solid var(--border); }
+    .mdl-bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), #6bcb77); transition: width 0.3s; }
+    .mdl-actions { display: flex; gap: 4px; flex-wrap: wrap; margin-left: auto; }
+    .mq-item { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 0.72rem; padding: 5px 0; border-bottom: 1px solid var(--border); }
+    .mq-item:last-child { border-bottom: none; }
+    .mq-state { min-width: 64px; font-weight: 700; }
+    .viewport-toolbar { flex-wrap: wrap; row-gap: 4px; }
+    .viewport-toolbar select, .viewport-toolbar input[type=range] { background: var(--bg-input); border: 1px solid var(--border); color: var(--text); padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; }
+    .viewport-toolbar input[type=range] { width: 120px; padding: 0; }
+    .vt-time { font-family: monospace; font-size: 0.68rem; color: var(--text-dim); min-width: 120px; }
+    .vp-legend { position: absolute; right: 8px; bottom: 8px; background: rgba(0,0,0,0.72); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 0.66rem; color: var(--text-dim); pointer-events: none; max-width: 300px; line-height: 1.45; }
+    .vp-legend .lg-bar { height: 8px; border-radius: 3px; margin: 3px 0; background: linear-gradient(90deg, rgba(120,0,0,0.2), #c0392b, #ff8c00, #ffd93d, #ffffff); }
+    .vp-legend .lg-scale { display: flex; justify-content: space-between; font-family: monospace; }
+    .vp-legend b { color: var(--text); }
+    .vp-busy { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); background: rgba(0,0,0,0.75); border: 1px solid var(--border); border-radius: 4px; padding: 4px 10px; font-size: 0.7rem; color: var(--warning); pointer-events: none; }
+    .ctx-box { background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 0.68rem; color: var(--text-dim); margin-bottom: 8px; line-height: 1.5; }
+    .ctx-box b { color: var(--text); }
+    .ctx-box .ov { color: var(--warning); }
+    .calc-sec { font-size: 0.68rem; color: var(--accent); font-weight: 700; margin: 8px 0 2px; }
+    .calc-note { font-size: 0.66rem; color: var(--text-dim); padding: 2px 0; border-bottom: 1px dotted var(--border); }
+    .ct-sec { font-size: 0.7rem; font-weight: 700; color: var(--accent); margin: 8px 0 4px; border-bottom: 1px solid var(--border); padding-bottom: 2px; }
+    .ct-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+    .ct-check { font-size: 0.7rem; color: var(--text-dim); display: flex; align-items: center; gap: 4px; margin-bottom: 6px; }
+    .ct-check input { width: auto !important; }
+    #cm-preview { width: 100%; height: 120px; background: var(--bg-darkest); border: 1px solid var(--border); border-radius: 4px; display: block; margin: 6px 0; }
+    .tree-item .tree-del { margin-left: 4px; font-size: 0.66rem; color: var(--text-muted); border: none; background: transparent; cursor: pointer; padding: 0 3px; }
+    .tree-item .tree-del:hover { color: var(--danger); }
+    .tree-item .tree-src { font-size: 0.56rem; color: var(--text-muted); margin-left: 4px; }
+    .tree-group { font-size: 0.62rem; color: var(--text-muted); padding: 6px 8px 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .side-actions { display: flex; gap: 4px; flex-wrap: wrap; padding: 4px 8px; }
+    .modal-back { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 200; display: flex; align-items: center; justify-content: center; }
+    .modal { background: var(--bg-card); border: 1px solid var(--border-light); border-radius: 8px; padding: 14px; width: min(560px, 94vw); max-height: 90vh; overflow-y: auto; }
+    .modal h4 { color: var(--accent); font-size: 0.85rem; margin-bottom: 10px; }
+    .modal .ct-grid { margin-bottom: 6px; }
 
     @media (max-width: 1100px) {
       :root { --left-w: 200px; --right-w: 240px; }
@@ -676,6 +719,7 @@
 	        <button class="menu-btn" onclick="switchView('setup', this)">설정</button>
 	        <button class="menu-btn" onclick="switchView('reference', this)">참고</button>
 	        <button class="menu-btn" onclick="switchView('precision', this)">정밀 분석</button>
+	        <button class="menu-btn" onclick="switchView('settings', this)">⚙ 모델·환경</button>
 	      </div>
 	      <div class="dro-display">
 	        <div class="dro-item"><span class="dro-label">X</span><span class="dro-value" id="dro-x">0.000</span></div>
@@ -704,7 +748,18 @@
 	      <span>◀ 프리셋</span><span class="chevron">▼</span>
 	    </div>
 	    <div class="panel-section-body" id="secPreset">
+	      <div class="side-actions">
+	        <button class="btn btn-sm" onclick="presetDialogOpen()">＋ 새 프리셋</button>
+	        <button class="btn btn-sm btn-outline" onclick="presetSaveCurrent()">현재 → 프리셋</button>
+	      </div>
+	      <div class="tree-group">활성 프로젝트의 프로필</div>
 	      <div id="preset-tree"></div>
+	      <div class="side-actions">
+	        <button class="btn btn-sm btn-outline" onclick="profileDuplicate()">복제</button>
+	        <button class="btn btn-sm btn-outline" onclick="profileDelete(this)">삭제</button>
+	        <button class="btn btn-sm btn-outline" id="preset-lib-btn" onclick="presetLibraryToggle()">프리셋 목록 ▾</button>
+	      </div>
+	      <div id="preset-lib" class="hidden"></div>
 	    </div>
 
 	    <div class="panel-section-header" data-section="secToolList">
@@ -733,7 +788,11 @@
 	      <span>⏵ 애니메이션</span><span class="chevron">▼</span>
 	    </div>
 	    <div class="panel-section-body" id="secAnim">
-	      <button class="vt-btn" id="vt-btn-anim" onclick="animateToolpath()">⏵ 애니메이션</button>
+	      <div class="side-actions">
+	        <button class="vt-btn" id="vt-btn-anim" onclick="animateToolpath()">⏵ 애니메이션</button>
+	        <button class="vt-btn" onclick="animStop()">⏹ 처음으로</button>
+	      </div>
+	      <div style="font-size:0.66rem;color:var(--text-muted);padding:0 8px 6px;">속도·위치·표시 항목은 가운데 뷰포트 툴바에서 조절합니다.</div>
 	    </div>
 
 	    <div class="panel-section-header" data-section="secReset">
@@ -750,6 +809,27 @@
 	    <div class="viewport-toolbar">
 	      <button class="vt-btn" onclick="fitViewport()">⊞ 피트</button>
 	      <div class="vt-sep"></div>
+	      <button class="vt-btn" id="vt-play" onclick="animToggle()">⏵ 재생</button>
+	      <button class="vt-btn" onclick="animStop()" title="처음으로">⏹</button>
+	      <select id="vt-speed" onchange="animSetSpeed(this.value)" title="실제 가공 시간 대비 재생 배속">
+	        <option value="0">자동 (약 30초)</option>
+	        <option value="0.25">×0.25</option>
+	        <option value="0.5">×0.5</option>
+	        <option value="1">×1 (실시간)</option>
+	        <option value="2">×2</option>
+	        <option value="5">×5</option>
+	        <option value="10">×10</option>
+	        <option value="20">×20</option>
+	        <option value="50">×50</option>
+	        <option value="100">×100</option>
+	      </select>
+	      <input type="range" id="vt-seek" min="0" max="1000" value="0" oninput="animSeek(this.value)" title="재생 위치" />
+	      <span class="vt-time" id="vt-time">0.0 / 0.0 s</span>
+	      <div class="vt-sep"></div>
+	      <button class="vt-btn active" id="tg-tool" onclick="vpToggle('tool')">공구</button>
+	      <button class="vt-btn active" id="tg-coolant" onclick="vpToggle('coolant')">냉각</button>
+	      <button class="vt-btn active" id="tg-heat" onclick="vpToggle('heat')">열·응력</button>
+	      <div class="vt-sep"></div>
 	      <select id="tp-pattern" onchange="renderToolpath2D()" style="background:var(--bg-input);border:1px solid var(--border);color:var(--text);padding:3px 8px;border-radius:4px;font-size:0.72rem;">
 	        <option value="pocket_zigzag">포켓 지그재그</option>
 	        <option value="rect_profile">사각형 프로파일</option>
@@ -765,6 +845,8 @@
 	      <div class="viewport-overlay" id="vp-overlay" style="display:none;">
 	        <span id="tp-coolant-label"></span>
 	      </div>
+	      <div class="vp-busy hidden" id="vp-busy"></div>
+	      <div class="vp-legend hidden" id="vp-legend"></div>
 	      <div class="viewport-hint">드래그: 회전 | 스크롤: 기울기 | 더블클릭: 리셋</div>
 	    </div>
 	    
@@ -827,7 +909,7 @@
 	      <div class="pv-pane active" id="pv-pane-input">
 	        <div class="pv-grid">
 	          <div class="pv-card">
-	            <h4>모델 (safetensors 전용 · ONNX 미사용)</h4>
+	            <h4>모델 (safetensors 전용 · ONNX 미사용) <button class="btn btn-sm btn-outline" style="margin-left:6px;" onclick="switchView('settings', document.querySelectorAll('.menu-btn')[4])">다운로드·삭제 관리</button></h4>
 	            <div class="form-group"><label>모델 루트 폴더</label><input type="text" id="pv-model-root" /></div>
 	            <div class="pv-row">
 	              <button class="btn btn-sm" onclick="pvSetModelRoot()">폴더 지정</button>
@@ -1036,6 +1118,55 @@
 	        <div class="pv-card" style="margin-top:10px;"><h4>저장 기록</h4><div class="pv-log" id="lib-log"></div></div>
 	      </div>
 	    </div>
+	    <div class="settings-overlay" id="settings-view">
+	      <div class="section-title">설정 — 작업장 환경 · 모델 다운로드/삭제 · 모델 대기 작업</div>
+	      <div class="pv-status" id="st-status"></div>
+	      <div class="pv-grid">
+	        <div class="pv-card">
+	          <h4>작업장 환경 (실내 온도 · 습도 — 간접 영향 경로로 상호작용에 반영)</h4>
+	          <div class="st-form">
+	            <div class="form-group"><label>실내 온도 (°C)</label><input type="number" id="env-ambient" step="0.5" min="0" max="50" /></div>
+	            <div class="form-group"><label>상대 습도 (%)</label><input type="number" id="env-rh" step="1" min="5" max="98" /></div>
+	            <div class="form-group"><label>측정 기준 온도 (°C)</label><input type="number" id="env-ref" step="0.5" min="15" max="25" /></div>
+	            <div class="form-group"><label>실내 온도 변동 (°C/h)</label><input type="number" id="env-swing" step="0.1" min="0" max="10" /></div>
+	            <div class="form-group"><label>냉각수 칠러 (°C · 비우면 없음)</label><input type="number" id="env-chiller" step="0.5" min="5" max="40" /></div>
+	            <div class="form-group"><label>대기압 (kPa)</label><input type="number" id="env-pressure" step="0.1" min="60" max="110" /></div>
+	          </div>
+	          <div class="pv-row">
+	            <button class="btn btn-sm" onclick="envSave()">환경 적용</button>
+	            <button class="btn btn-sm btn-outline" onclick="envStandard()">표준값 (22 °C · 50 %)</button>
+	          </div>
+	          <div id="env-derived"></div>
+	          <div class="st-note">
+	            실내 온도·습도는 스핀들 온도를 직접 바꾸지 않고 다음 경로로 계산에 들어갑니다.
+	            <b>냉각 매체</b>: 칠러가 없으면 냉각수 탱크가 실내 온도를 따라가고(펌프 일만큼 상승, 증발로 습구 온도 쪽으로 일부 하강), 압축 공기는 실내 온도에서 노즐 팽창만큼 낮아짐 → 날끝 기준 온도·급랭 진폭·공구 몸체 온도.
+	            <b>공기 물성</b>: 밀도·점도·열전도·비열 → 건식·에어·MQL 대류 열전달.
+	            <b>계면 수분</b>: 건식·에어·MQL 의 흡착수·수증기 → 코팅별 마찰(DLC↑, 다이아몬드↓, 산화물계 소폭↓)과 산화 마모.
+	            <b>치수</b>: 가공 온도와 측정 기준 온도의 열팽창 차이(공작물 vs 기계 스케일) + 실내 온도 변동에 의한 기계 열변위 → 오차 예산.
+	            <b>소재·위험</b>: CFRP 평형 함수율에 따른 Tg 이동, 이슬점 대비 결로, RH 60 % 이상 철계 녹 위험.
+	            모델 보정 기준은 22 °C · RH 50 % 이며 습도 효과는 이 기준 대비 편차로 반영됩니다.
+	          </div>
+	        </div>
+	        <div class="pv-card">
+	          <h4>모델 (Hugging Face safetensors · 다운로드 진행률 · 이어받기 · 삭제)</h4>
+	          <div id="mdl-root-line" style="font-size:0.68rem;color:var(--text-muted);margin-bottom:6px;"></div>
+	          <div id="mdl-list"></div>
+	          <div class="ct-sec">다운로드 설정</div>
+	          <label class="pv-check"><input type="checkbox" id="mdl-auto" /> 작업에 필요한 모델이 없으면 자동으로 받은 뒤 작업 재개</label>
+	          <label class="pv-check"><input type="checkbox" id="mdl-startup" /> 앱 시작 시 없는 모델 모두 받기 (SigLIP2 약 3.6 GB 포함)</label>
+	          <div class="form-group" style="margin-top:6px;"><label>모델 서버 (비우면 https://huggingface.co · 사내 미러 주소 가능)</label><input type="text" id="mdl-endpoint" placeholder="https://huggingface.co" /></div>
+	          <div class="form-group"><label>액세스 토큰 (선택 · 저장 후에는 표시하지 않음)</label><input type="password" id="mdl-token" placeholder="hf_..." autocomplete="off" /></div>
+	          <div class="pv-row">
+	            <button class="btn btn-sm" onclick="mdlSaveSettings(false)">다운로드 설정 저장</button>
+	            <button class="btn btn-sm btn-outline" onclick="mdlSaveSettings(true)">토큰 삭제</button>
+	          </div>
+	        </div>
+	      </div>
+	      <div class="pv-card" style="margin-top:10px;">
+	        <h4>모델 대기 작업 (필요한 모델이 준비될 때까지 일시정지 → 준비되면 자동 재개)</h4>
+	        <div id="mq-list"></div>
+	      </div>
+	    </div>
 	  </main>
 
 	  <div class="resizer resizer-v right" id="resizerRight"></div>
@@ -1047,12 +1178,23 @@
 	      <span>⚙ 파라미터</span><span class="chevron">▼</span>
 	    </div>
 	    <div class="panel-section-body" id="secParam">
+	      <div class="ctx-box" id="param-profile" style="margin:6px 8px;">프로필을 불러오는 중...</div>
+	      <div style="padding:0 8px 8px;">
+	        <div class="calc-sec">작업장 환경 (빠른 설정)</div>
+	        <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:4px;align-items:end;">
+	          <div class="form-group" style="margin-bottom:0;"><label>실내 °C</label><input type="number" id="qp-ambient" step="0.5" min="0" max="50" /></div>
+	          <div class="form-group" style="margin-bottom:0;"><label>습도 %</label><input type="number" id="qp-rh" step="1" min="5" max="98" /></div>
+	          <button class="btn btn-sm" onclick="envQuickSave()">적용</button>
+	        </div>
+	        <div id="qp-env" style="font-size:0.66rem;color:var(--text-muted);margin-top:4px;"></div>
+	      </div>
 	    </div>
 
 	    <div class="panel-section-header" data-section="secCutCalc">
 	      <span>▶ 절삭 조건 계산</span><span class="chevron">▼</span>
 	    </div>
 	    <div class="panel-section-body" id="secCutCalc">
+	      <div class="ctx-box" id="calc-context">선택한 프로필(프리셋·공구·소재·냉각·환경)을 기준으로 계산합니다.</div>
 	      <div class="form-group">
 	        <label>피삭재</label>
 	        <select id="calc-workpiece">
@@ -1087,7 +1229,31 @@
 	          <option value="low">저가형</option>
 	        </select>
 	      </div>
-	      <button class="btn" onclick="calculateConditions()" style="width:100%;margin-bottom:10px;">계산 실행</button>
+	      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+	        <div class="form-group">
+	          <label>가공 목적</label>
+	          <select id="calc-purpose">
+	            <option value="">자동 (프로필 기준)</option>
+	            <option value="roughing">황삭</option>
+	            <option value="finishing">정삭</option>
+	          </select>
+	        </div>
+	        <div class="form-group">
+	          <label>냉각</label>
+	          <select id="calc-coolant">
+	            <option value="flood">플러드</option>
+	            <option value="air_blast">에어 블로우</option>
+	            <option value="mist">미스트 (MQL)</option>
+	            <option value="through_tool">내부 급유</option>
+	            <option value="dry">건식</option>
+	          </select>
+	        </div>
+	      </div>
+	      <button class="btn" onclick="calculateConditions()" style="width:100%;margin-bottom:6px;">계산 실행</button>
+	      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;">
+	        <button class="btn btn-sm btn-outline" onclick="calcApply()">프로필에 적용</button>
+	        <button class="btn btn-sm btn-outline" onclick="calcSync(true)">프로필 값으로</button>
+	      </div>
 	      <div id="calc-result" class="hidden"></div>
 	    </div>
 
@@ -1105,7 +1271,19 @@
 	          <option value="dry">건식 (M09)</option>
 	        </select>
 	      </div>
-	      <button class="btn btn-outline btn-sm" onclick="renderCoolant2D()" style="margin-bottom:8px;">분사 시각화</button>
+	      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+	        <div class="form-group">
+	          <label>매체 온도</label>
+	          <select id="coolant-temp-mode" onchange="coolantFormSync()">
+	            <option value="auto">자동 (환경 기준)</option>
+	            <option value="manual">직접 입력</option>
+	          </select>
+	        </div>
+	        <div class="form-group"><label>온도 (°C)</label><input type="number" id="coolant-temp" step="0.5" min="0" max="60" /></div>
+	        <div class="form-group"><label>압력 (bar)</label><input type="number" id="coolant-pressure" step="0.5" min="0" max="150" /></div>
+	        <div class="form-group"><label>유량 (L/min)</label><input type="number" id="coolant-flow" step="0.5" min="0" max="200" /></div>
+	      </div>
+	      <button class="btn btn-sm" onclick="coolantApply()" style="width:100%;margin-bottom:8px;">현재 프로필에 적용</button>
 	      <div id="coolant-info-panel" class="hidden">
 	        <div class="spec-grid">
 	          <div class="spec-item"><div class="label">방식</div><div class="value" id="ci-label">-</div></div>
@@ -1114,30 +1292,91 @@
 	          <div class="spec-item"><div class="label">유량</div><div class="value" id="ci-flow">-</div></div>
 	          <div class="spec-item"><div class="label">노즐 수</div><div class="value" id="ci-nozzle">-</div></div>
 	          <div class="spec-item"><div class="label">분사 타입</div><div class="value" id="ci-spray">-</div></div>
+	          <div class="spec-item"><div class="label">매체 온도</div><div class="value" id="ci-temp">-</div></div>
+	          <div class="spec-item"><div class="label">온도 기준</div><div class="value" id="ci-temp-basis">-</div></div>
 	        </div>
 	      </div>
-	      <div class="coolant-viz-wrap">
-	        <canvas id="coolant-canvas" width="280" height="200"></canvas>
-	        <div id="cool-dry-overlay" style="display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:0.8rem;color:#666;">건식 (냉각 없음)</div>
-	      </div>
+	      <div style="font-size:0.66rem;color:var(--text-muted);margin-top:6px;">냉각 분사는 가운데 뷰포트에서 공구와 함께 표시됩니다 (툴바의 '냉각' 토글).</div>
 	    </div>
 
 	    <div class="panel-section-header" data-section="secCustomTool">
 	      <span>커스텀 공구</span><span class="chevron">▼</span>
 	    </div>
 	    <div class="panel-section-body" id="secCustomTool">
-	      <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px;">
-	        <div class="form-group"><label>이름</label><input type="text" id="cm-name" value="커스텀 Ø8 4날" /></div>
-	        <div class="form-group"><label>모델</label><input type="text" id="cm-model" value="CUSTOM-8F4" /></div>
-	        <div class="form-group"><label>직경</label><input type="number" id="cm-dia" value="8" step="0.5" /></div>
-	        <div class="form-group"><label>날 수</label><input type="number" id="cm-flutes" value="4" /></div>
-	        <div class="form-group"><label>LOC</label><input type="number" id="cm-loc" value="20" /></div>
-	        <div class="form-group"><label>OAL</label><input type="number" id="cm-oal" value="60" /></div>
-	        <div class="form-group"><label>샹크</label><input type="number" id="cm-shank" value="8" /></div>
-	        <div class="form-group"><label>헬릭스°</label><input type="number" id="cm-helix" value="35" /></div>
+	      <div class="ct-sec">모양 (날끝 · 넥)</div>
+	      <div class="ct-grid">
+	        <div class="form-group"><label>날끝 형상</label>
+	          <select id="cm-nose" onchange="toolFormChanged()">
+	            <option value="square">스퀘어</option>
+	            <option value="ball">볼노즈</option>
+	            <option value="corner">코너 R</option>
+	          </select>
+	        </div>
+	        <div class="form-group"><label>코너 R (mm)</label><input type="number" id="cm-cr" value="0.5" step="0.05" min="0.05" oninput="toolFormChanged()" /></div>
 	      </div>
-	      <div class="form-group"><label>코팅</label><input type="text" id="cm-coating" value="AlTiN" /></div>
-	      <button class="btn btn-sm" onclick="createCustomEndmill()" style="width:100%;">공구 생성</button>
+	      <label class="ct-check"><input type="checkbox" id="cm-neck-on" onchange="toolFormChanged()" /> 롱넥 (넥 릴리프)</label>
+	      <div class="ct-grid">
+	        <div class="form-group"><label>넥 직경 (mm)</label><input type="number" id="cm-neck-d" value="7.6" step="0.1" oninput="toolFormChanged()" /></div>
+	        <div class="form-group"><label>넥 유효장 (날끝~)</label><input type="number" id="cm-reach" value="32" step="1" oninput="toolFormChanged()" /></div>
+	      </div>
+	      <div class="ct-sec">형태 (치수 · 날 · 날끝 기하)</div>
+	      <div class="ct-grid">
+	        <div class="form-group"><label>이름</label><input type="text" id="cm-name" value="커스텀 Ø8 4날" oninput="toolFormChanged()" /></div>
+	        <div class="form-group"><label>모델</label><input type="text" id="cm-model" value="CUSTOM-8F4" oninput="toolFormChanged()" /></div>
+	        <div class="form-group"><label>직경 (mm)</label><input type="number" id="cm-dia" value="8" step="0.5" oninput="toolFormChanged()" /></div>
+	        <div class="form-group"><label>날 수</label><input type="number" id="cm-flutes" value="4" min="1" max="12" oninput="toolFormChanged()" /></div>
+	        <div class="form-group"><label>LOC (mm)</label><input type="number" id="cm-loc" value="20" oninput="toolFormChanged()" /></div>
+	        <div class="form-group"><label>OAL (mm)</label><input type="number" id="cm-oal" value="60" oninput="toolFormChanged()" /></div>
+	        <div class="form-group"><label>샹크 (mm)</label><input type="number" id="cm-shank" value="8" oninput="toolFormChanged()" /></div>
+	        <div class="form-group"><label>헬릭스 (°)</label><input type="number" id="cm-helix" value="35" oninput="toolFormChanged()" /></div>
+	        <div class="form-group"><label>경사각 레이크 (°)</label><input type="number" id="cm-rake" step="0.5" placeholder="소재 기본" oninput="toolFormChanged()" /></div>
+	        <div class="form-group"><label>여유각 (°)</label><input type="number" id="cm-clear" step="0.5" placeholder="10" oninput="toolFormChanged()" /></div>
+	        <div class="form-group"><label>날끝 호닝 (µm)</label><input type="number" id="cm-edge" step="0.5" placeholder="등급 기본" oninput="toolFormChanged()" /></div>
+	        <div class="form-group"><label>런아웃 (µm)</label><input type="number" id="cm-runout" step="0.5" placeholder="등급 기본" oninput="toolFormChanged()" /></div>
+	      </div>
+	      <label class="ct-check"><input type="checkbox" id="cm-vp" onchange="toolFormChanged()" /> 부등분할 (채터 억제)</label>
+	      <div class="ct-sec">소재 (모재 · 코팅 · 등급)</div>
+	      <div class="ct-grid">
+	        <div class="form-group"><label>모재</label>
+	          <select id="cm-substrate" onchange="toolFormChanged()">
+	            <option value="carbide">초경 (미립)</option>
+	            <option value="carbide_uf">초경 (초미립)</option>
+	            <option value="hss">고속도강 HSS</option>
+	            <option value="hss_co">코발트 HSS</option>
+	            <option value="cbn">CBN</option>
+	            <option value="pcd">PCD</option>
+	          </select>
+	        </div>
+	        <div class="form-group"><label>코팅</label>
+	          <select id="cm-coating-family" onchange="toolCoatingPicked()">
+	            <option value="AlTiN">AlTiN</option>
+	            <option value="TiAlN">TiAlN</option>
+	            <option value="AlCrN">AlCrN</option>
+	            <option value="TiSiN">TiSiN</option>
+	            <option value="nACo">nACo</option>
+	            <option value="TiCN">TiCN</option>
+	            <option value="TiN">TiN</option>
+	            <option value="CrN">CrN</option>
+	            <option value="ZrN">ZrN</option>
+	            <option value="DLC">DLC</option>
+	            <option value="Diamond">다이아몬드</option>
+	            <option value="">무코팅</option>
+	          </select>
+	        </div>
+	        <div class="form-group"><label>코팅 표기명</label><input type="text" id="cm-coating" value="AlTiN" oninput="toolFormChanged()" /></div>
+	        <div class="form-group"><label>등급</label>
+	          <select id="cm-tier" onchange="toolFormChanged()">
+	            <option value="high">고급형</option>
+	            <option value="low">보급형</option>
+	          </select>
+	        </div>
+	      </div>
+	      <canvas id="cm-preview" width="560" height="240"></canvas>
+	      <div id="cm-phys" style="font-size:0.68rem;"></div>
+	      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px;">
+	        <button class="btn btn-sm" onclick="createCustomEndmill(false)">라이브러리에 저장</button>
+	        <button class="btn btn-sm btn-outline" onclick="createCustomEndmill(true)">저장 후 현재 프로필에 적용</button>
+	      </div>
 	      <div id="cm-result" class="hidden" style="margin-top:6px;"></div>
 	    </div>
 
@@ -1185,7 +1424,10 @@
 	        <div class="form-group"><label>경도 HRC</label><input type="number" id="cw-hrc" min="10" max="70" placeholder="합금강" /></div>
 	        <div class="form-group"><label>공차 (±µm)</label><input type="number" id="cw-tol" min="1" step="1" placeholder="Ra 기준" /></div>
 	      </div>
-	      <button class="btn btn-sm" onclick="createCustomWorkpiece()" style="width:100%;">원소재 생성</button>
+	      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+	        <button class="btn btn-sm" onclick="createCustomWorkpiece(false)">원소재 저장</button>
+	        <button class="btn btn-sm btn-outline" onclick="createCustomWorkpiece(true)">저장 후 현재 프로필에 적용</button>
+	      </div>
 	      <div id="cw-result" class="hidden" style="margin-top:6px;"></div>
 	    </div>
 	  </aside>
@@ -1226,6 +1468,40 @@
 
 	</div>
 
+	<div class="modal-back hidden" id="preset-dialog">
+	  <div class="modal">
+	    <h4>새 프리셋 만들기 — 공구 · 원소재 · 냉각 · 목적을 고르면 현재 환경에서 물리 모델로 절삭 조건을 산정합니다</h4>
+	    <div class="ct-grid">
+	      <div class="form-group"><label>프리셋 이름</label><input type="text" id="pd-name" placeholder="예: SUS304 포켓 황삭" /></div>
+	      <div class="form-group"><label>가공 목적</label>
+	        <select id="pd-purpose"><option value="roughing">황삭</option><option value="finishing">정삭</option></select>
+	      </div>
+	    </div>
+	    <div class="form-group"><label>설명 (비우면 자동)</label><input type="text" id="pd-desc" /></div>
+	    <div class="form-group"><label>공구 (기본 공구 + 라이브러리)</label><select id="pd-tool"></select></div>
+	    <div class="form-group"><label>원소재 (기본 원소재 + 라이브러리)</label><select id="pd-wp"></select></div>
+	    <div class="ct-grid">
+	      <div class="form-group"><label>냉각</label>
+	        <select id="pd-coolant">
+	          <option value="flood">플러드</option>
+	          <option value="air_blast">에어 블로우</option>
+	          <option value="mist">미스트 (MQL)</option>
+	          <option value="through_tool">내부 급유</option>
+	          <option value="dry">건식</option>
+	        </select>
+	      </div>
+	      <div class="form-group"><label>프로필 이름 (비우면 프리셋 이름)</label><input type="text" id="pd-profile-name" /></div>
+	    </div>
+	    <label class="ct-check"><input type="checkbox" id="pd-profile" checked /> 활성 프로젝트에 이 프리셋으로 프로필도 만들고 선택</label>
+	    <div class="pv-row">
+	      <button class="btn btn-sm btn-outline" onclick="presetCreate(true)">조건 미리 계산</button>
+	      <button class="btn btn-sm" onclick="presetCreate(false)">프리셋 만들기</button>
+	      <button class="btn btn-sm btn-outline" onclick="presetDialogClose()" style="margin-left:auto;">닫기</button>
+	    </div>
+	    <div id="pd-result" style="font-size:0.7rem;"></div>
+	  </div>
+	</div>
+
 	<div class="status-bar">
 	  <div class="sb-item">프로파일: <strong id="sb-profile">-</strong></div>
 	  <div class="sb-sep"></div>
@@ -1234,7 +1510,11 @@
 	  <div class="sb-item">총 거리: <strong id="sb-dist">-</strong></div>
 	  <div class="sb-sep"></div>
 	  <div class="sb-item">라인: <strong id="sb-lines">-</strong></div>
-	  <div style="margin-left:auto;" class="sb-item">v0.1.0 | Tauri + Rust</div>
+	  <div class="sb-sep"></div>
+	  <div class="sb-item">환경: <strong id="sb-env">-</strong></div>
+	  <div class="sb-sep"></div>
+	  <div class="sb-item" style="cursor:pointer;" onclick="switchView('settings', document.querySelectorAll('.menu-btn')[4])">모델: <strong id="sb-models">-</strong></div>
+	  <div style="margin-left:auto;" class="sb-item">v0.2.0 | Tauri + Rust</div>
 	</div>
 
 	<script>
@@ -1252,14 +1532,6 @@
 	let tpRotY = 0.35;
 	let tpDragging = false;
 	let tpLastMX = 0, tpLastMY = 0;
-
-	let coolRotX = -0.45;
-	let coolRotY = 0.3;
-	let coolDragging = false;
-	let coolLastX = 0, coolLastY = 0;
-	let coolParticles = [];
-	let coolAnimReq = null;
-	let coolInfo = null;
 
 	function setSectionState(sectionId, isOpen) {
 	  const body = document.getElementById(sectionId);
@@ -1286,8 +1558,15 @@
 	  } else {
 	    precView.classList.remove('visible');
 	  }
+	  const setView = document.getElementById('settings-view');
+	  if (view === 'settings') {
+	    setView.classList.add('visible');
+	    stEnter();
+	  } else {
+	    setView.classList.remove('visible');
+	  }
 
-	  if (view === 'machining' || view === 'precision') {
+	  if (view === 'machining' || view === 'precision' || view === 'settings') {
 	    setSectionState('secPreset', true);
 	    setSectionState('secAnim', view === 'machining');
 	    setSectionState('secToolList', false);
@@ -1554,7 +1833,6 @@
 	      // 3. 아코디언 애니메이션(0.3s) 종료 후 캔버스 등 내부 레이아웃 강제 최신화
 	      setTimeout(() => {
 	        if (typeof resizeCanvas === 'function') resizeCanvas();
-	        if (typeof resizeCoolantCanvas === 'function') resizeCoolantCanvas();
 	      }, 310);
 	    });
 	  });
@@ -1624,25 +1902,7 @@
 	    tpScale = Math.min(scaleX, scaleY) * 0.85;
 	  }
 
-	  if (tpData.length) {
-	    // 2. 애니메이션 재생 도중 레이아웃이 변하면 이전 좌표 위치가 틀어지므로, 애니메이션을 즉시 완료 상태로 처리 (에러 방지)
-	    if (animReq) {
-	      cancelAnimationFrame(animReq);
-	      animReq = null;
-	      setStatus('ready', 'COMPLETE');
-	    }
-	    renderToolpath3D(); // 새로운 스케일에 맞춰 3D 뷰포트 즉시 전체 다시 그리기
-	  }
-	}
-
-	function resizeCoolantCanvas() {
-	  const wrap = document.querySelector('.coolant-viz-wrap');
-	  const canvas = document.getElementById('coolant-canvas');
-	  if (wrap && canvas) {
-	    canvas.width = wrap.clientWidth;
-	    canvas.height = wrap.clientHeight;
-	    if (coolInfo) renderCoolantScene();
-	  }
+	  if (!VP.playing) renderViewport();
 	}
 
 	async function fetchToolpathData() {
@@ -1677,136 +1937,689 @@
 	  const scaleX = (canvas.width - tpPad * 4) / Math.max(tpMaxX, 1);
 	  const scaleY = (canvas.height - tpPad * 4) / Math.max(tpMaxY, 1);
 	  tpScale = Math.min(scaleX, scaleY) * 0.85;
-	  document.getElementById('vp-info').textContent = `세그먼트: ${tpData.length} | X:${tpMaxX.toFixed(0)} Y:${tpMaxY.toFixed(0)} Z:${tpMinZ.toFixed(1)}~${tpMaxZ.toFixed(1)}`;
+	  if (VP.simKey !== vpKey()) VP.sim = null;
+	  vpTimeline();
+	  document.getElementById('vp-info').textContent = `세그먼트: ${tpData.length} | 가공 시간 ${fmt(VP.total, 1)} s | X:${tpMaxX.toFixed(0)} Y:${tpMaxY.toFixed(0)} Z:${tpMinZ.toFixed(1)}~${tpMaxZ.toFixed(1)}`;
 	  setStatus('ready', 'READY');
 	  return true;
 	}
 
-	function drawToolpathSegment(ctx, s, prev, toolRadiusPx) {
-	  const end = { x: s.x || 0, y: s.y || 0, z: s.z || 0 };
-	  const proj = tpProject(end.x, end.y, end.z);
-	  if (prev) {
+	async function renderToolpath2D() {
+	  animPause();
+	  resizeCanvas();
+	  if (!(await fetchToolpathData())) return;
+	  VP.t = Math.min(VP.t, VP.total);
+	  renderViewport();
+	  vpLoadSim(false);
+	}
+
+	function resetViewport() { tpRotX = -0.55; tpRotY = 0.35; if (tpData.length && !VP.playing) renderViewport(); }
+	function fitViewport() { tpRotX = -0.4; tpRotY = 0.0; if (tpData.length && !VP.playing) renderViewport(); }
+
+	const VP = {
+	  t: 0, playing: false, speed: 0, lastTs: 0, raf: null,
+	  segStart: [], segEnd: [], segFrom: [], total: 0, timelineFromSim: false,
+	  sim: null, simKey: '', simSeq: 0,
+	  show: { tool: true, coolant: true, heat: true },
+	  particles: [], spin: 0, partTs: 0,
+	};
+	const VP_RAPID_MM_MIN = 15000;
+
+	function vpArc(s, from) {
+	  const cx = from.x + (s.i || 0), cy = from.y + (s.j || 0);
+	  const r = Math.hypot(from.x - cx, from.y - cy);
+	  const a0 = Math.atan2(from.y - cy, from.x - cx);
+	  const a1 = Math.atan2((s.y || 0) - cy, (s.x || 0) - cx);
+	  const cw = s.kind === 'ArcCW';
+	  let sweep = cw ? a0 - a1 : a1 - a0;
+	  sweep = ((sweep % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+	  if (sweep < 1e-9) sweep = 2 * Math.PI;
+	  return { cx, cy, r, a0, sweep: cw ? -sweep : sweep };
+	}
+
+	function vpIsArc(s) {
+	  return (s.kind === 'ArcCW' || s.kind === 'ArcCCW') && s.i !== null && s.i !== undefined;
+	}
+
+	function vpSegLength(s, from) {
+	  const ez = s.z || 0;
+	  if (vpIsArc(s)) {
+	    const a = vpArc(s, from);
+	    return Math.hypot(a.r * Math.abs(a.sweep), ez - from.z);
+	  }
+	  return Math.hypot((s.x || 0) - from.x, (s.y || 0) - from.y, ez - from.z);
+	}
+
+	function vpPointOnSeg(i, frac) {
+	  const s = tpData[i], from = VP.segFrom[i];
+	  const f = Math.max(0, Math.min(1, frac));
+	  const ez = s.z || 0;
+	  if (vpIsArc(s)) {
+	    const a = vpArc(s, from);
+	    const ang = a.a0 + a.sweep * f;
+	    return { x: a.cx + a.r * Math.cos(ang), y: a.cy + a.r * Math.sin(ang), z: from.z + (ez - from.z) * f };
+	  }
+	  return { x: from.x + ((s.x || 0) - from.x) * f, y: from.y + ((s.y || 0) - from.y) * f, z: from.z + (ez - from.z) * f };
+	}
+
+	function vpStartPoint() {
+	  const loc = (VP.sim && VP.sim.tool) ? VP.sim.tool.loc_mm : (APP.detail ? APP.detail.tool.loc_mm : 20);
+	  return { x: 0, y: 0, z: loc + 10 };
+	}
+
+	function vpTimeline() {
+	  VP.segFrom = []; VP.segStart = []; VP.segEnd = [];
+	  let p = vpStartPoint();
+	  let t = 0;
+	  const simEnd = VP.sim && VP.sim.segment_end_s && VP.sim.segment_end_s.length === tpData.length ? VP.sim.segment_end_s : null;
+	  VP.timelineFromSim = !!simEnd;
+	  tpData.forEach((s, i) => {
+	    VP.segFrom.push(p);
+	    VP.segStart.push(t);
+	    if (simEnd) {
+	      t = Math.max(t, simEnd[i]);
+	    } else {
+	      const len = vpSegLength(s, p);
+	      const feed = s.kind === 'Rapid' ? VP_RAPID_MM_MIN : (s.feed || 0);
+	      if (len > 1e-9 && feed > 0) t += len / feed * 60;
+	    }
+	    VP.segEnd.push(t);
+	    p = { x: s.x || 0, y: s.y || 0, z: s.z || 0 };
+	  });
+	  VP.total = t;
+	  if (VP.t > VP.total + vpCooldown()) VP.t = 0;
+	}
+
+	function vpCooldown() {
+	  return VP.total > 0 ? Math.min(60, Math.max(5, 0.3 * VP.total)) : 0;
+	}
+
+	function vpSegIndexAt(t) {
+	  let lo = 0, hi = VP.segEnd.length - 1;
+	  if (hi < 0) return -1;
+	  while (lo < hi) {
+	    const mid = (lo + hi) >> 1;
+	    if (VP.segEnd[mid] < t) lo = mid + 1; else hi = mid;
+	  }
+	  return lo;
+	}
+
+	function vpPose(t) {
+	  if (!tpData.length) return null;
+	  const tc = Math.min(t, VP.total);
+	  const i = vpSegIndexAt(tc);
+	  if (i < 0) return null;
+	  const t0 = VP.segStart[i], t1 = VP.segEnd[i];
+	  const frac = t1 > t0 ? (tc - t0) / (t1 - t0) : 1;
+	  const p = vpPointOnSeg(i, frac);
+	  const s = tpData[i];
+	  return { x: p.x, y: p.y, z: p.z, seg: i, frac, rpm: s.rpm || 0, feed: s.kind === 'Rapid' ? VP_RAPID_MM_MIN : (s.feed || 0), rapid: s.kind === 'Rapid', after: t > VP.total };
+	}
+
+	function vpSampleAt(t) {
+	  const ss = VP.sim && VP.sim.samples;
+	  if (!ss || !ss.length || t > VP.total) return null;
+	  let lo = 0, hi = ss.length - 1;
+	  while (lo < hi) {
+	    const mid = (lo + hi) >> 1;
+	    if (ss[mid].t_s < t) lo = mid + 1; else hi = mid;
+	  }
+	  const s = ss[lo];
+	  const prev = lo > 0 ? ss[lo - 1] : null;
+	  if (prev && prev.force_n <= 0 && s.force_n > 0 && t < prev.t_s + 0.5 * (s.t_s - prev.t_s)) return prev;
+	  return s;
+	}
+
+	function vpSpeed() {
+	  if (VP.speed > 0) return VP.speed;
+	  const raw = Math.max(1, VP.total / 30);
+	  const nice = [1, 2, 5, 10, 20, 50, 100, 200, 500];
+	  return nice.find(n => n >= raw) || raw;
+	}
+
+	function vpKey() {
+	  return `${getActiveProfile()}|${document.getElementById('tp-pattern').value}|${APP.detail ? APP.detail.modified_at : ''}|${APP.envStamp || ''}`;
+	}
+
+	async function vpLoadSim(force) {
+	  const key = vpKey();
+	  if (!force && VP.sim && VP.simKey === key) return;
+	  const seq = ++VP.simSeq;
+	  const busy = document.getElementById('vp-busy');
+	  busy.textContent = '열·응력 시뮬레이션 계산 중... (경로를 따라 소재 제거·접촉 응력·잔류열 계산)';
+	  busy.classList.remove('hidden');
+	  let sim = null;
+	  try {
+	    sim = await invoke('viewport_sim', { profileName: getActiveProfile(), patternKey: document.getElementById('tp-pattern').value });
+	  } catch (e) {
+	    appendLog(`뷰포트 시뮬레이션 실패: ${e}`);
+	  }
+	  if (seq !== VP.simSeq) return;
+	  busy.classList.add('hidden');
+	  if (!sim) return;
+	  VP.sim = sim;
+	  VP.simKey = key;
+	  vpTimeline();
+	  vpInitParticles();
+	  if (sim.warnings && sim.warnings.length) sim.warnings.forEach(w => appendLog('⚠ ' + w));
+	  (sim.checks || []).forEach(c => appendLog('물리 확인: ' + c));
+	  renderViewport();
+	}
+
+	function vpTool() {
+	  if (VP.sim && VP.sim.tool) return VP.sim.tool;
+	  const d = APP.detail;
+	  if (!d) return null;
+	  const t = d.tool;
+	  const nose = t.nose === 'Ball' ? 'ball' : (t.nose && t.nose.CornerRadius ? 'corner' : 'square');
+	  return {
+	    diameter_mm: t.diameter_mm, loc_mm: t.loc_mm, oal_mm: t.oal_mm, shank_mm: t.shank_diameter_mm, stickout_mm: d.stickout_mm,
+	    flutes: t.flute_count, helix_deg: t.helix_angle_deg, nose,
+	    corner_r_mm: nose === 'ball' ? t.diameter_mm / 2 : (nose === 'corner' ? t.nose.CornerRadius.radius_mm : 0),
+	    neck_diameter_mm: t.neck_diameter_mm || 0, reach_mm: t.reach_mm || 0, coating: t.coating_name || '', color_hex: '#4b4a5c', rpm: d.conditions.spindle_rpm,
+	  };
+	}
+
+	function vpCoolant() {
+	  if (VP.sim && VP.sim.coolant) return VP.sim.coolant;
+	  return APP.detail ? APP.detail.coolant : null;
+	}
+
+	function vpLineDash(ctx, rapid) {
+	  if (rapid) { ctx.setLineDash([4, 4]); } else { ctx.setLineDash([]); }
+	}
+
+	function vpDrawSegments(ctx, upto, style) {
+	  const vt = vpTool();
+	  const toolRadiusPx = Math.max(1.5, ((vt ? vt.diameter_mm : 6) / 2) * tpScale * 0.9);
+	  for (let i = 0; i < tpData.length; i++) {
+	    if (upto !== null && VP.segStart[i] >= upto) break;
+	    const s = tpData[i];
+	    const from = VP.segFrom[i];
+	    if (!from) continue;
+	    let frac = 1;
+	    if (upto !== null && VP.segEnd[i] > upto) {
+	      const t0 = VP.segStart[i], t1 = VP.segEnd[i];
+	      frac = t1 > t0 ? (upto - t0) / (t1 - t0) : 1;
+	    }
+	    const rapid = s.kind === 'Rapid';
 	    ctx.beginPath();
-	    ctx.moveTo(prev.px, prev.py);
-	    if (s.kind === "Rapid") {
-	      ctx.strokeStyle = "#333";
+	    const p0 = tpProject(from.x, from.y, from.z);
+	    ctx.moveTo(p0.px, p0.py);
+	    const n = vpIsArc(s) ? Math.min(180, Math.max(6, Math.ceil(Math.abs(vpArc(s, from).sweep) * 24 * frac))) : 1;
+	    for (let k = 1; k <= n; k++) {
+	      const p = vpPointOnSeg(i, frac * k / n);
+	      const q = tpProject(p.x, p.y, p.z);
+	      ctx.lineTo(q.px, q.py);
+	    }
+	    if (rapid) {
+	      ctx.strokeStyle = style === 'done' ? 'rgba(160,160,180,0.6)' : 'rgba(80,80,100,0.5)';
 	      ctx.lineWidth = 1;
-	      ctx.setLineDash([4, 4]);
 	    } else {
-	      const depthRatio = Math.min(Math.max(Math.abs(end.z) / 10, 0.2), 1.0);
-	      ctx.strokeStyle = `rgba(0, 212, 255, ${depthRatio})`;
-	      ctx.lineWidth = toolRadiusPx * 2;
-	      ctx.setLineDash([]);
+	      const depth = Math.min(Math.max(Math.abs(s.z || 0) / 10, 0.25), 1.0);
+	      ctx.strokeStyle = style === 'done' ? `rgba(0, 212, 255, ${0.55 + 0.45 * depth})` : `rgba(0, 212, 255, ${0.10 + 0.12 * depth})`;
+	      ctx.lineWidth = style === 'done' ? toolRadiusPx * 2 : Math.max(1, toolRadiusPx * 0.8);
 	    }
-	    if ((s.kind === "ArcCW" || s.kind === "ArcCCW") && s.i !== null && s.i !== undefined && prev.x !== undefined) {
-	      const cx = prev.x + s.i;
-	      const cy = prev.y + (s.j || 0);
-	      const r = Math.hypot(prev.x - cx, prev.y - cy);
-	      const a0 = Math.atan2(prev.y - cy, prev.x - cx);
-	      const a1 = Math.atan2(end.y - cy, end.x - cx);
-	      const cw = s.kind === "ArcCW";
-	      let sweep = cw ? a0 - a1 : a1 - a0;
-	      sweep = ((sweep % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
-	      if (sweep < 1e-9) sweep = 2 * Math.PI;
-	      const n = Math.min(360, Math.max(8, Math.ceil(sweep * r / 0.5)));
-	      for (let k = 1; k <= n; k++) {
-	        const t = k / n;
-	        const a = a0 + (cw ? -1 : 1) * sweep * t;
-	        const p = tpProject(cx + r * Math.cos(a), cy + r * Math.sin(a), prev.z + (end.z - prev.z) * t);
-	        ctx.lineTo(p.px, p.py);
-	      }
-	    } else {
-	      ctx.lineTo(proj.px, proj.py);
-	    }
+	    vpLineDash(ctx, rapid);
 	    ctx.stroke();
 	    ctx.setLineDash([]);
 	  }
-	  return { px: proj.px, py: proj.py, x: end.x, y: end.y, z: end.z };
 	}
 
-	function renderToolpath3D() {
-	  const canvas = document.getElementById("tp-canvas");
-	  const ctx = canvas.getContext("2d");
-	  ctx.fillStyle = "#0a0a14";
-	  ctx.fillRect(0, 0, canvas.width, canvas.height);
-	  ctx.lineCap = "round";
-	  ctx.lineJoin = "round";
+	function vpDrawStock(ctx) {
+	  const st = VP.sim ? VP.sim.stock : (APP.detail ? APP.detail.workpiece : null);
+	  if (!st) return;
+	  const w = st.width_mm, h = st.height_mm, th = st.thickness_mm;
+	  const top = [[0, 0], [w, 0], [w, h], [0, h]];
+	  ctx.strokeStyle = 'rgba(200,200,220,0.25)';
+	  ctx.lineWidth = 1;
+	  const poly = (pts, z) => {
+	    ctx.beginPath();
+	    pts.forEach(([x, y], k) => { const p = tpProject(x, y, z); k ? ctx.lineTo(p.px, p.py) : ctx.moveTo(p.px, p.py); });
+	    ctx.closePath();
+	  };
+	  poly(top, -th); ctx.stroke();
+	  poly(top, 0); ctx.fillStyle = 'rgba(120,130,150,0.06)'; ctx.fill(); ctx.stroke();
+	  top.forEach(([x, y]) => {
+	    const a = tpProject(x, y, 0), b = tpProject(x, y, -th);
+	    ctx.beginPath(); ctx.moveTo(a.px, a.py); ctx.lineTo(b.px, b.py); ctx.stroke();
+	  });
+	}
 
-	  ctx.strokeStyle = "#141428";
+	function vpHeatRGBA(k) {
+	  const t = Math.max(0, Math.min(1, k));
+	  const stops = [[120, 0, 0, 0.0], [192, 57, 43, 0.55], [255, 140, 0, 0.75], [255, 217, 61, 0.88], [255, 255, 255, 0.95]];
+	  const p = t * (stops.length - 1), i = Math.min(stops.length - 2, Math.floor(p)), f = p - i;
+	  return stops[i].map((v, n) => v + (stops[i + 1][n] - v) * f);
+	}
+
+	function vpHeatColor(k) {
+	  const c = vpHeatRGBA(k);
+	  return `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${c[3].toFixed(3)})`;
+	}
+
+	function vpHeatField(t) {
+	  const sim = VP.sim;
+	  if (!sim || !sim.heat_packets || !sim.heat_packets.length) return null;
+	  const hp = sim.heat;
+	  const kappa = hp.kappa_m2_s, rhoc = hp.rho_c, eff = Math.max(1, hp.effusivity), h = hp.h_surface;
+	  const st = sim.stock;
+	  const margin = Math.max(2, sim.tool.diameter_mm);
+	  const x0 = -margin, y0 = -margin, x1 = st.width_mm + margin, y1 = st.height_mm + margin;
+	  const cell = Math.max(0.6, Math.max(x1 - x0, y1 - y0) / 72);
+	  const nx = Math.ceil((x1 - x0) / cell), ny = Math.ceil((y1 - y0) / cell);
+	  const val = new Float32Array(nx * ny);
+	  const zs = new Float32Array(nx * ny);
+	  let peak = 0;
+	  for (const p of sim.heat_packets) {
+	    const age = t - p.t_s;
+	    if (age < 0) continue;
+	    const tau = age + Math.max(p.tau0_s, 1e-4);
+	    const fourKt = 4 * kappa * tau;
+	    const conv = Math.exp(-2 * h * Math.sqrt(age) / (Math.sqrt(Math.PI) * eff));
+	    const amp = 2 * p.q_j / (rhoc * Math.pow(Math.PI * fourKt, 1.5)) * conv;
+	    if (amp < 0.3) continue;
+	    const rMax = Math.sqrt(fourKt * Math.log(amp / 0.3)) * 1000;
+	    const i0 = Math.max(0, Math.floor((p.x - rMax - x0) / cell)), i1 = Math.min(nx - 1, Math.ceil((p.x + rMax - x0) / cell));
+	    const j0 = Math.max(0, Math.floor((p.y - rMax - y0) / cell)), j1 = Math.min(ny - 1, Math.ceil((p.y + rMax - y0) / cell));
+	    for (let j = j0; j <= j1; j++) {
+	      const cy = y0 + (j + 0.5) * cell;
+	      for (let i = i0; i <= i1; i++) {
+	        const cx = x0 + (i + 0.5) * cell;
+	        const r2 = ((cx - p.x) ** 2 + (cy - p.y) ** 2) * 1e-6;
+	        const e = r2 / fourKt;
+	        if (e > 20) continue;
+	        const v = amp * Math.exp(-e);
+	        const k = j * nx + i;
+	        val[k] += v;
+	        zs[k] += v * p.z;
+	      }
+	    }
+	  }
+	  for (let k = 0; k < val.length; k++) {
+	    if (val[k] > 0) { zs[k] /= val[k]; if (val[k] > peak) peak = val[k]; }
+	  }
+	  return { x0, y0, cell, nx, ny, val, zs, peak };
+	}
+
+	function vpDrawHeat(ctx, field, scaleMax) {
+	  if (!field || field.peak < 0.5) return;
+	  let wz = 0, ww = 0;
+	  for (let k = 0; k < field.val.length; k++) { if (field.val[k] > 0.5) { wz += field.zs[k] * field.val[k]; ww += field.val[k]; } }
+	  const z = ww > 0 ? wz / ww : 0;
+	  const off = document.createElement('canvas');
+	  off.width = field.nx; off.height = field.ny;
+	  const octx = off.getContext('2d');
+	  const img = octx.createImageData(field.nx, field.ny);
+	  const lg = Math.log1p(scaleMax);
+	  for (let j = 0; j < field.ny; j++) {
+	    for (let i = 0; i < field.nx; i++) {
+	      const v = field.val[j * field.nx + i];
+	      const o = (j * field.nx + i) * 4;
+	      if (v < 0.5) { img.data[o + 3] = 0; continue; }
+	      const m = vpHeatRGBA(Math.log1p(v) / lg);
+	      img.data[o] = m[0]; img.data[o + 1] = m[1]; img.data[o + 2] = m[2]; img.data[o + 3] = Math.round(Math.min(1, m[3] + 0.15) * 255);
+	    }
+	  }
+	  octx.putImageData(img, 0, 0);
+	  const x1 = field.x0 + field.nx * field.cell, y1 = field.y0 + field.ny * field.cell;
+	  const p00 = tpProject(field.x0, field.y0, z), p10 = tpProject(x1, field.y0, z), p01 = tpProject(field.x0, y1, z);
+	  ctx.save();
+	  ctx.setTransform((p10.px - p00.px) / field.nx, (p10.py - p00.py) / field.nx, (p01.px - p00.px) / field.ny, (p01.py - p00.py) / field.ny, p00.px, p00.py);
+	  ctx.imageSmoothingEnabled = true;
+	  ctx.drawImage(off, 0, 0);
+	  ctx.restore();
+	}
+
+	function vpHull(pts) {
+	  const p = pts.slice().sort((a, b) => a.px - b.px || a.py - b.py);
+	  const cross = (o, a, b) => (a.px - o.px) * (b.py - o.py) - (a.py - o.py) * (b.px - o.px);
+	  const lower = [], upper = [];
+	  for (const q of p) { while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop(); lower.push(q); }
+	  for (let i = p.length - 1; i >= 0; i--) { const q = p[i]; while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop(); upper.push(q); }
+	  upper.pop(); lower.pop();
+	  return lower.concat(upper);
+	}
+
+	function vpCylinder(ctx, cx, cy, z0, z1, r, fill, stroke) {
+	  const pts = [];
+	  for (let k = 0; k < 20; k++) {
+	    const a = k / 20 * Math.PI * 2;
+	    pts.push(tpProject(cx + r * Math.cos(a), cy + r * Math.sin(a), z0));
+	    pts.push(tpProject(cx + r * Math.cos(a), cy + r * Math.sin(a), z1));
+	  }
+	  const hull = vpHull(pts);
+	  ctx.beginPath();
+	  hull.forEach((q, k) => k ? ctx.lineTo(q.px, q.py) : ctx.moveTo(q.px, q.py));
+	  ctx.closePath();
+	  ctx.fillStyle = fill;
+	  ctx.fill();
+	  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1; ctx.stroke(); }
+	}
+
+	function vpDrawTool(ctx, pose) {
+	  const tool = vpTool();
+	  if (!tool || !pose) return;
+	  const r = tool.diameter_mm / 2;
+	  const x = pose.x, y = pose.y, z = pose.z;
+	  const lift = pose.after ? Math.min(30, (VP.t - VP.total) * 4) : 0;
+	  const zt = z + lift;
+	  const shankTop = zt + Math.min(tool.stickout_mm, tool.loc_mm + 3 * tool.diameter_mm + 20);
+	  const neckEnd = tool.reach_mm > tool.loc_mm ? zt + tool.reach_mm : zt + tool.loc_mm;
+	  vpCylinder(ctx, x, y, neckEnd, shankTop, tool.shank_mm / 2, 'rgba(176,180,190,0.92)', 'rgba(230,230,240,0.35)');
+	  if (tool.reach_mm > tool.loc_mm && tool.neck_diameter_mm > 0) {
+	    vpCylinder(ctx, x, y, zt + tool.loc_mm, neckEnd, tool.neck_diameter_mm / 2, 'rgba(150,154,165,0.95)', 'rgba(230,230,240,0.3)');
+	  }
+	  const cr = tool.nose === 'ball' ? r : (tool.nose === 'corner' ? Math.min(tool.corner_r_mm, r) : 0);
+	  vpCylinder(ctx, x, y, zt + cr, zt + tool.loc_mm, r, tool.color_hex + 'ee', 'rgba(255,255,255,0.25)');
+	  if (cr > 0) {
+	    const pts = [];
+	    for (let k = 0; k <= 8; k++) {
+	      const phi = k / 8 * Math.PI / 2;
+	      const rr = (r - cr) + cr * Math.sin(phi), zz = zt + cr - cr * Math.cos(phi);
+	      for (let m = 0; m < 16; m++) { const a = m / 16 * Math.PI * 2; pts.push(tpProject(x + rr * Math.cos(a), y + rr * Math.sin(a), zz)); }
+	    }
+	    const hull = vpHull(pts);
+	    ctx.beginPath(); hull.forEach((q, k) => k ? ctx.lineTo(q.px, q.py) : ctx.moveTo(q.px, q.py)); ctx.closePath();
+	    ctx.fillStyle = tool.color_hex + 'ee'; ctx.fill();
+	  }
+	  const center = tpProject(x, y, zt + tool.loc_mm / 2);
+	  const tanH = Math.tan((tool.helix_deg || 30) * Math.PI / 180);
+	  ctx.lineWidth = 1.2;
+	  for (let f = 0; f < tool.flutes; f++) {
+	    ctx.beginPath();
+	    let started = false;
+	    for (let k = 0; k <= 24; k++) {
+	      const zz = cr + (tool.loc_mm - cr) * k / 24;
+	      const a = VP.spin + f * 2 * Math.PI / tool.flutes + zz * tanH / Math.max(r, 0.1);
+	      const q = tpProject(x + r * 1.01 * Math.cos(a), y + r * 1.01 * Math.sin(a), zt + zz);
+	      if (q.depth > center.depth + 0.2 * r * tpScale) { started = false; continue; }
+	      if (!started) { ctx.moveTo(q.px, q.py); started = true; } else ctx.lineTo(q.px, q.py);
+	    }
+	    ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+	    ctx.stroke();
+	  }
+	}
+
+	function vpDrawStress(ctx, pose, sample) {
+	  const tool = VP.sim ? VP.sim.tool : null;
+	  if (!tool || !pose || !sample || sample.force_n <= 0 || pose.after) return;
+	  const r = tool.diameter_mm / 2;
+	  const zc = pose.z + Math.max(0.2, Math.min(sample.ap_mm || r, tool.loc_mm)) / 2;
+	  const intensity = Math.max(0.15, Math.min(1, sample.force_peak_n / Math.max(1, VP.sim.max_force_n)));
+	  const span = Math.min(2 * Math.PI, Math.max(0.15, (sample.engage_deg || 360) * Math.PI / 180));
+	  const full = (Math.abs(sample.contact_dx) + Math.abs(sample.contact_dy)) < 1e-6 || span >= 2 * Math.PI - 1e-3;
+	  const mid = full ? 0 : Math.atan2(sample.contact_dy, sample.contact_dx);
+	  const a0 = full ? 0 : mid - span / 2, a1 = full ? 2 * Math.PI : mid + span / 2;
+	  const n = 28;
+	  ctx.beginPath();
+	  const c0 = tpProject(pose.x, pose.y, zc);
+	  ctx.moveTo(c0.px, c0.py);
+	  for (let k = 0; k <= n; k++) {
+	    const a = a0 + (a1 - a0) * k / n;
+	    const q = tpProject(pose.x + r * 1.15 * Math.cos(a), pose.y + r * 1.15 * Math.sin(a), zc);
+	    ctx.lineTo(q.px, q.py);
+	  }
+	  ctx.closePath();
+	  ctx.fillStyle = `rgba(255,${Math.round(120 - 90 * intensity)},40,${(0.25 + 0.45 * intensity).toFixed(2)})`;
+	  ctx.fill();
+	  ctx.beginPath();
+	  for (let k = 0; k <= n; k++) {
+	    const a = a0 + (a1 - a0) * k / n;
+	    const q = tpProject(pose.x + r * 1.15 * Math.cos(a), pose.y + r * 1.15 * Math.sin(a), zc);
+	    k ? ctx.lineTo(q.px, q.py) : ctx.moveTo(q.px, q.py);
+	  }
+	  ctx.strokeStyle = `rgba(255,${Math.round(200 - 150 * intensity)},60,0.95)`;
+	  ctx.lineWidth = 2 + 4 * intensity;
+	  ctx.stroke();
+	}
+
+	function vpNozzles() {
+	  const c = vpCoolant();
+	  if (!c) return [];
+	  const n = Math.max(1, c.nozzle_count || 1);
+	  const d = Math.max(10, c.nozzle_distance_mm || 30);
+	  const el = Math.max(10, Math.min(80, c.nozzle_angle_deg || 40)) * Math.PI / 180;
+	  const out = [];
+	  for (let k = 0; k < n; k++) {
+	    const az = (135 + k * 360 / n) * Math.PI / 180;
+	    out.push({ dx: d * Math.cos(el) * Math.cos(az), dy: d * Math.cos(el) * Math.sin(az), dz: d * Math.sin(el) });
+	  }
+	  return out;
+	}
+
+	function vpInitParticles() {
+	  VP.particles = [];
+	  const c = vpCoolant();
+	  if (!c || c.spray_type === 'none') return;
+	  const count = { liquid_stream: 140, mist_particles: 220, gas: 90, internal_jet: 120 }[c.spray_type] || 100;
+	  for (let i = 0; i < count; i++) VP.particles.push(vpSpawn(c, Math.random()));
+	}
+
+	function vpSpawn(c, age) {
+	  const noz = vpNozzles();
+	  const speed = 40 + 25 * Math.sqrt(Math.max(0.5, c.pressure_bar || 1));
+	  if (c.spray_type === 'internal_jet') {
+	    const a = Math.random() * Math.PI * 2;
+	    return { x: 0, y: 0, z: 0.5, vx: Math.cos(a) * speed * 0.9, vy: Math.sin(a) * speed * 0.9, vz: -speed * 0.25 + Math.random() * speed * 0.2, life: age, max: 0.35 + Math.random() * 0.25, size: 1.4 + Math.random() };
+	  }
+	  const nz = noz[Math.floor(Math.random() * noz.length)] || { dx: 20, dy: 20, dz: 20 };
+	  const len = Math.hypot(nz.dx, nz.dy, nz.dz) || 1;
+	  const spread = c.spray_type === 'mist_particles' ? 0.22 : (c.spray_type === 'gas' ? 0.12 : 0.05);
+	  const ux = -nz.dx / len + (Math.random() - 0.5) * spread, uy = -nz.dy / len + (Math.random() - 0.5) * spread, uz = -nz.dz / len + (Math.random() - 0.5) * spread;
+	  const s = speed * (c.spray_type === 'gas' ? 1.6 : 1);
+	  return { x: nz.dx, y: nz.dy, z: nz.dz, vx: ux * s, vy: uy * s, vz: uz * s, life: age * 0.9, max: (len / s) * (1.2 + Math.random() * 0.6), size: c.spray_type === 'mist_particles' ? 0.8 + Math.random() * 0.8 : 1.4 + Math.random() * 1.2 };
+	}
+
+	function vpStepParticles(dt) {
+	  const c = vpCoolant();
+	  if (!c || c.spray_type === 'none') return;
+	  const liquid = c.spray_type === 'liquid_stream' || c.spray_type === 'internal_jet';
+	  for (let i = 0; i < VP.particles.length; i++) {
+	    const p = VP.particles[i];
+	    p.life += dt;
+	    if (p.life > p.max) { VP.particles[i] = vpSpawn(c, 0); continue; }
+	    if (liquid) p.vz -= 400 * dt;
+	    p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+	    if (p.z < 0) {
+	      p.z = 0;
+	      const a = Math.random() * Math.PI * 2, sp = Math.hypot(p.vx, p.vy, p.vz) * 0.35;
+	      p.vx = Math.cos(a) * sp; p.vy = Math.sin(a) * sp; p.vz = Math.abs(p.vz) * 0.15;
+	    }
+	  }
+	}
+
+	function vpDrawCoolant(ctx, pose) {
+	  const c = vpCoolant();
+	  if (!c || !pose) return;
+	  const lbl = document.getElementById('tp-coolant-label');
+	  const ov = document.getElementById('vp-overlay');
+	  ov.style.display = 'block';
+	  lbl.textContent = `${c.label} · ${c.m_code} · ${fmt(c.temperature_c, 1)} °C${c.temperature_auto ? ' (자동)' : ''}${c.spray_type !== 'none' ? ` · ${fmt(c.pressure_bar, 1)} bar` : ''}`;
+	  if (c.spray_type === 'none') return;
+	  const zt = pose.z + (pose.after ? Math.min(30, (VP.t - VP.total) * 4) : 0);
+	  if (c.spray_type !== 'internal_jet') {
+	    for (const nz of vpNozzles()) {
+	      const q = tpProject(pose.x + nz.dx, pose.y + nz.dy, zt + nz.dz);
+	      ctx.beginPath(); ctx.arc(q.px, q.py, 3, 0, Math.PI * 2);
+	      ctx.fillStyle = '#ccd'; ctx.fill();
+	    }
+	  }
+	  for (const p of VP.particles) {
+	    const q = tpProject(pose.x + p.x, pose.y + p.y, zt + p.z);
+	    const alpha = Math.max(0, 1 - p.life / p.max);
+	    if (c.spray_type === 'gas') {
+	      const q2 = tpProject(pose.x + p.x - p.vx * 0.02, pose.y + p.y - p.vy * 0.02, zt + p.z - p.vz * 0.02);
+	      ctx.beginPath(); ctx.moveTo(q2.px, q2.py); ctx.lineTo(q.px, q.py);
+	      ctx.strokeStyle = c.color_hex + Math.floor(alpha * 140).toString(16).padStart(2, '0');
+	      ctx.lineWidth = 1; ctx.stroke();
+	    } else {
+	      ctx.beginPath();
+	      ctx.arc(q.px, q.py, Math.max(0.6, p.size * Math.min(2, tpScale * 0.6)), 0, Math.PI * 2);
+	      ctx.fillStyle = c.color_hex + Math.floor(alpha * 200).toString(16).padStart(2, '0');
+	      ctx.fill();
+	    }
+	  }
+	}
+
+	function vpLegend(pose, sample, field, scaleMax) {
+	  const el = document.getElementById('vp-legend');
+	  const sim = VP.sim;
+	  if (!sim) { el.classList.add('hidden'); return; }
+	  el.classList.remove('hidden');
+	  const cutting = sample && sample.force_n > 0 && !(pose && pose.after);
+	  const lines = [];
+	  if (VP.show.heat) {
+	    lines.push(`<b>소재 표면 과열 (잔류열)</b><div class="lg-bar"></div><div class="lg-scale"><span>0.5 K</span><span>${fmt(scaleMax / 3, 0)} K</span><span>${fmt(scaleMax, 0)} K</span></div>`);
+	  }
+	  if (cutting) {
+	    lines.push(`접촉 중 · 절삭력 <b>${fmt(sample.force_n, 0)}</b> N (피크 ${fmt(sample.force_peak_n, 0)}) · 맞물림 ${fmt(sample.engage_deg, 0)}°`);
+	    lines.push(`날끝 <b>${fmt(sample.temp_c, 0)}</b> °C · 절삭 지점 소재 <b>${fmt(sample.wp_local_c, 0)}</b> °C (예열 ${fmt(sample.preheat_c, 1)} K) · 입열 ${fmt(sample.wp_heat_w, 0)} W`);
+	  } else if (pose && pose.after) {
+	    lines.push(`가공 종료 후 ${fmt(VP.t - VP.total, 1)} s · 공구 이탈 → 응력 0 · 잔류열 확산·냉각 중`);
+	  } else {
+	    lines.push(`공중/급이송 구간 · 접촉 없음 → 절삭력·응력 0 · 지나간 자리의 열만 감쇠`);
+	  }
+	  lines.push(`소재 덩어리 ${fmt(sample ? sample.wp_temp_c : sim.bulk_c, 1)} °C · 실내 ${fmt(sim.ambient_c, 1)} °C · 최대 예열 ${fmt(sim.max_preheat_c, 0)} K`);
+	  if (field && field.peak >= 0.5) lines.push(`현재 화면 최대 과열 ${fmt(field.peak, 1)} K`);
+	  el.innerHTML = lines.join('<br>');
+	}
+
+	function renderViewport(dtReal) {
+	  const canvas = document.getElementById('tp-canvas');
+	  const ctx = canvas.getContext('2d');
+	  ctx.setLineDash([]);
+	  ctx.fillStyle = '#0a0a14';
+	  ctx.fillRect(0, 0, canvas.width, canvas.height);
+	  ctx.lineCap = 'round';
+	  ctx.lineJoin = 'round';
+	  ctx.strokeStyle = '#141428';
 	  ctx.lineWidth = 0.5;
 	  for (let gx = 0; gx <= tpMaxX + 20; gx += 20) {
-	    const p1 = tpProject(gx, 0, 0);
-	    const p2 = tpProject(gx, tpMaxY, 0);
+	    const p1 = tpProject(gx, 0, 0), p2 = tpProject(gx, tpMaxY, 0);
 	    ctx.beginPath(); ctx.moveTo(p1.px, p1.py); ctx.lineTo(p2.px, p2.py); ctx.stroke();
 	  }
 	  for (let gy = 0; gy <= tpMaxY + 20; gy += 20) {
-	    const p1 = tpProject(0, gy, 0);
-	    const p2 = tpProject(tpMaxX, gy, 0);
+	    const p1 = tpProject(0, gy, 0), p2 = tpProject(tpMaxX, gy, 0);
 	    ctx.beginPath(); ctx.moveTo(p1.px, p1.py); ctx.lineTo(p2.px, p2.py); ctx.stroke();
 	  }
-
-	  let prev = null;
-	  const toolRadiusPx = Math.max(2, 3 * tpScale);
-	  for (const s of tpData) {
-	    prev = drawToolpathSegment(ctx, s, prev, toolRadiusPx);
+	  if (!tpData.length) return;
+	  vpDrawStock(ctx);
+	  const t = VP.t;
+	  vpDrawSegments(ctx, null, 'all');
+	  vpDrawSegments(ctx, Math.min(t, VP.total), 'done');
+	  let field = null;
+	  let scaleMax = 30;
+	  if (VP.show.heat && VP.sim) {
+	    field = vpHeatField(t);
+	    scaleMax = Math.max(30, Math.min(600, 1.2 * Math.max(VP.sim.max_preheat_c || 0, field ? Math.min(field.peak, 600) : 0)));
+	    vpDrawHeat(ctx, field, scaleMax);
 	  }
+	  const pose = vpPose(t);
+	  const sample = vpSampleAt(t);
+	  if (VP.show.tool) vpDrawTool(ctx, pose);
+	  if (VP.show.heat) vpDrawStress(ctx, pose, sample);
+	  if (VP.show.coolant) {
+	    if (dtReal) vpStepParticles(dtReal);
+	    vpDrawCoolant(ctx, pose);
+	  } else {
+	    document.getElementById('vp-overlay').style.display = 'none';
+	  }
+	  if (pose) updateDRO(pose.x, pose.y, pose.z, pose.rapid ? 0 : pose.rpm, pose.feed);
+	  vpLegend(pose, sample, field, scaleMax);
+	  const end = VP.total + vpCooldown();
+	  document.getElementById('vt-time').textContent = `${fmt(Math.min(t, VP.total), 1)} / ${fmt(VP.total, 1)} s ×${fmt(vpSpeed(), vpSpeed() < 1 ? 2 : 0)}${t > VP.total ? ` (+${fmt(t - VP.total, 0)} s 냉각)` : ''}`;
+	  const seek = document.getElementById('vt-seek');
+	  if (document.activeElement !== seek) seek.value = end > 0 ? Math.round(t / end * 1000) : 0;
 	}
 
-	async function renderToolpath2D() {
-	  if (animReq) cancelAnimationFrame(animReq);
-	  resizeCanvas();
-	  if (!(await fetchToolpathData())) return;
-	  renderToolpath3D();
+	function renderToolpath3D() {
+	  renderViewport();
 	}
 
-	function resetViewport() { tpRotX = -0.55; tpRotY = 0.35; if (tpData.length) renderToolpath3D(); }
-	function fitViewport() { tpRotX = -0.4; tpRotY = 0.0; if (tpData.length) renderToolpath3D(); }
+	function vpFrame(ts) {
+	  if (!VP.playing) return;
+	  const dt = VP.lastTs ? Math.min(0.1, (ts - VP.lastTs) / 1000) : 0;
+	  VP.lastTs = ts;
+	  const tool = vpTool();
+	  if (tool) VP.spin += dt * Math.min(40, (tool.rpm || 0) / 60 * 2 * Math.PI) * 0.15;
+	  VP.t += dt * vpSpeed();
+	  const end = VP.total + vpCooldown();
+	  if (VP.t >= end) {
+	    VP.t = end;
+	    VP.playing = false;
+	    setStatus('ready', 'COMPLETE');
+	    document.getElementById('vt-play').textContent = '⏵ 재생';
+	    document.getElementById('vt-btn-anim').textContent = '⏵ 애니메이션';
+	  }
+	  renderViewport(dt);
+	  if (VP.playing) VP.raf = requestAnimationFrame(vpFrame);
+	}
+
+	function animPlay() {
+	  if (!tpData.length) return;
+	  if (VP.t >= VP.total + vpCooldown() - 1e-6) VP.t = 0;
+	  VP.playing = true;
+	  VP.lastTs = 0;
+	  setStatus('busy', 'RUNNING');
+	  document.getElementById('vt-play').textContent = '⏸ 일시정지';
+	  document.getElementById('vt-btn-anim').textContent = '⏸ 일시정지';
+	  if (VP.raf) cancelAnimationFrame(VP.raf);
+	  VP.raf = requestAnimationFrame(vpFrame);
+	}
+
+	function animPause() {
+	  VP.playing = false;
+	  if (VP.raf) cancelAnimationFrame(VP.raf);
+	  VP.raf = null;
+	  setStatus('ready', 'PAUSED');
+	  document.getElementById('vt-play').textContent = '⏵ 재생';
+	  document.getElementById('vt-btn-anim').textContent = '⏵ 애니메이션';
+	}
+
+	function animToggle() {
+	  if (VP.playing) animPause(); else animPlay();
+	}
 
 	async function animateToolpath() {
-	  if (animReq) cancelAnimationFrame(animReq);
-	  
 	  try {
-	    if ((!tpData || tpData.length === 0) && !(await fetchToolpathData())) {
-	      return;
-	    }
+	    if ((!tpData || tpData.length === 0) && !(await fetchToolpathData())) return;
 	  } catch (e) {
 	    setStatus('error', 'ANIM ERROR');
 	    appendLog(`애니메이션 준비 오류: ${e}`);
 	    return;
 	  }
-	  
-	  const canvas = document.getElementById("tp-canvas");
-	  const ctx = canvas.getContext("2d");
-	  ctx.lineCap = "round";
-	  currentAnimFrame = 0;
-	  let prev = null;
-	  const toolRadiusPx = Math.max(2, 3 * tpScale);
-	  ctx.fillStyle = "#0a0a14";
-	  ctx.fillRect(0, 0, canvas.width, canvas.height);
-	  setStatus('busy', 'RUNNING');
+	  animToggle();
+	}
 
-	  function step() {
-	    try {
-	      if (currentAnimFrame < tpData.length) {
-	        const s = tpData[currentAnimFrame];
-	        prev = drawToolpathSegment(ctx, s, prev, toolRadiusPx);
-	        ctx.beginPath();
-	        ctx.arc(prev.px, prev.py, toolRadiusPx, 0, Math.PI * 2);
-	        ctx.fillStyle = "#ff6b6b";
-	        ctx.fill();
-	        updateDRO(s.x || 0, s.y || 0, s.z || 0, s.rpm || 0, s.feed || 0);
-	        currentAnimFrame++;
-	        animReq = requestAnimationFrame(step);
-	      } else {
-	        setStatus('ready', 'COMPLETE');
-	      }
-	    } catch (e) {
-	      cancelAnimationFrame(animReq);
-	      setStatus('error', 'ERROR');
-	      appendLog(`애니메이션 렌더링 중 오류 발생: ${e}`);
-	    }
-	  }
-	  animReq = requestAnimationFrame(step);
+	function animStop() {
+	  animPause();
+	  VP.t = 0;
+	  setStatus('ready', 'READY');
+	  renderViewport();
+	}
+
+	function animSeek(v) {
+	  const end = VP.total + vpCooldown();
+	  VP.t = end * (parseFloat(v) || 0) / 1000;
+	  if (!VP.playing) renderViewport();
+	}
+
+	function animSetSpeed(v) {
+	  VP.speed = parseFloat(v) || 0;
+	  vpSaveUi();
+	  if (!VP.playing) renderViewport();
+	}
+
+	function vpToggle(which) {
+	  VP.show[which] = !VP.show[which];
+	  document.getElementById('tg-' + which).classList.toggle('active', VP.show[which]);
+	  vpSaveUi();
+	  if (!VP.playing) renderViewport();
+	}
+
+	function vpSaveUi() {
+	  invoke('settings_set_ui', { ui: { anim_speed: VP.speed, show_tool: VP.show.tool, show_coolant: VP.show.coolant, show_heat: VP.show.heat } }).catch(() => {});
 	}
 
 	function getActiveProfile() {
@@ -1863,55 +2676,235 @@
 	  }
 	}
 
+	const APP = { detail: null, ctx: null, calc: null, tools: [], workpieces: [], presets: [], envStamp: '', settings: null };
+	const COOLANT_DEFAULTS = {
+	  air_blast: { pressure: 6, flow: 0 }, flood: { pressure: 2, flow: 12 }, mist: { pressure: 4, flow: 0.05 },
+	  through_tool: { pressure: 20, flow: 8 }, dry: { pressure: 0, flow: 0 },
+	};
+
+	async function refreshProfileContext(opts) {
+	  opts = opts || {};
+	  let d = null;
+	  try { d = await invoke('profile_detail', { profileName: getActiveProfile() }); } catch (e) { appendLog(`프로필 정보 실패: ${e}`); }
+	  if (!d) return null;
+	  APP.detail = d;
+	  renderParamPanel(d);
+	  calcSync(false);
+	  coolantFormFromDetail(d);
+	  if (!VP.sim) vpInitParticles();
+	  document.getElementById('sb-env').textContent = `${fmt(d.environment.ambient_c, 1)} °C · ${fmt(d.environment.humidity_pct, 0)} %`;
+	  if (opts.recalc !== false && APP.calc) calculateConditions();
+	  return d;
+	}
+
+	function renderParamPanel(d) {
+	  const c = d.conditions, t = d.tool, w = d.workpiece, e = d.environment;
+	  const basis = d.coolant.temperature_auto ? (e.chiller_c !== null && e.chiller_c !== undefined && (d.coolant.key === 'flood' || d.coolant.key === 'through_tool') ? '칠러' : '자동') : '지정';
+	  document.getElementById('param-profile').innerHTML = [
+	    `<b>${esc(d.name)}</b>`,
+	    `공구 <b>${esc(t.name)}</b> · Ø${fmt(t.diameter_mm, 2)} ${t.flute_count}날 · ${esc(t.coating_name || '무코팅')} · ${esc(d.context.substrate)} · 돌출 ${fmt(d.stickout_mm, 1)} mm`,
+	    `형상 ${esc(d.tool_label.split(' · ').slice(1).join(' · ') || '-')}`,
+	    `소재 <b>${esc(w.name)}</b> · ${esc(w.material)} · ${fmt(w.width_mm, 0)}×${fmt(w.height_mm, 0)}×${fmt(w.thickness_mm, 0)} mm · 공차 ±${fmt(w.tolerance_mm * 1000, 0)} µm`,
+	    `냉각 <b>${esc(d.coolant.label)}</b> · ${fmt(d.coolant.temperature_c, 1)} °C (${basis})`,
+	    `조건 S${c.spindle_rpm} · F${fmt(c.feed_rate_mm_min, 0)} · ap ${fmt(c.axial_doc_mm, 2)} · ae ${fmt(c.radial_doc_mm, 2)} mm · ${d.context.purpose === 'finishing' ? '정삭' : '황삭'}`,
+	  ].join('<br>');
+	  const qa = document.getElementById('qp-ambient'), qr = document.getElementById('qp-rh');
+	  if (document.activeElement !== qa) qa.value = e.ambient_c;
+	  if (document.activeElement !== qr) qr.value = e.humidity_pct;
+	  document.getElementById('qp-env').textContent = `이슬점·칠러·기준 온도 등은 상단 '⚙ 모델·환경'에서 설정합니다.`;
+	}
+
+	function calcSync(force) {
+	  const d = APP.detail;
+	  if (!d) return;
+	  const x = d.context;
+	  APP.ctx = x;
+	  const box = document.getElementById('calc-context');
+	  box.innerHTML = `<b>${esc(x.profile_name)}</b> 기준 · ${esc(x.tool_name)} (${esc(x.tool_label)} · ${esc(x.coating)} · ${esc(x.substrate)})<br>${esc(x.workpiece_label)} · ${esc(x.coolant_label)} ${fmt(x.coolant_c, 1)} °C · ${esc(x.environment_label)}`;
+	  const set = (id, v) => { const el = document.getElementById(id); if (force || document.activeElement !== el) el.value = v; };
+	  set('calc-workpiece', x.workpiece_key);
+	  set('calc-diameter', x.diameter_mm);
+	  set('calc-flutes', x.flute_count);
+	  if (x.hardness_hrc !== null && x.hardness_hrc !== undefined) set('calc-hrc', x.hardness_hrc);
+	  set('calc-tier', x.is_high_end ? 'high' : 'low');
+	  set('calc-coolant', x.coolant_key);
+	  if (force) set('calc-purpose', '');
+	  if (force) { APP.calc = null; const r = document.getElementById('calc-result'); r.classList.add('hidden'); r.innerHTML = ''; }
+	}
+
+	function calcOverrides() {
+	  const x = APP.ctx;
+	  const ov = {};
+	  if (!x) return ov;
+	  const wp = document.getElementById('calc-workpiece').value;
+	  const dia = parseFloat(document.getElementById('calc-diameter').value);
+	  const fl = parseInt(document.getElementById('calc-flutes').value);
+	  const hrc = parseInt(document.getElementById('calc-hrc').value);
+	  const high = document.getElementById('calc-tier').value === 'high';
+	  const cool = document.getElementById('calc-coolant').value;
+	  const purpose = document.getElementById('calc-purpose').value;
+	  if (wp !== x.workpiece_key || (wp === 'alloy_steel' && isFinite(hrc) && hrc !== x.hardness_hrc)) { ov.workpiece = wp; if (isFinite(hrc)) ov.hardness_hrc = hrc; }
+	  if (isFinite(dia) && Math.abs(dia - x.diameter_mm) > 1e-9) ov.diameter_mm = dia;
+	  if (isFinite(fl) && fl !== x.flute_count) ov.flute_count = fl;
+	  if (high !== x.is_high_end) ov.is_high_end = high;
+	  if (cool !== x.coolant_key) ov.coolant = cool;
+	  if (purpose) ov.purpose = purpose;
+	  return ov;
+	}
+
 	async function calculateConditions() {
-	  const workpiece = document.getElementById("calc-workpiece").value;
+	  const box = document.getElementById("calc-result");
 	  const diameter = parseFloat(document.getElementById("calc-diameter").value);
 	  const flutes = parseInt(document.getElementById("calc-flutes").value);
-	  const isHighEnd = document.getElementById("calc-tier").value === "high";
+	  const workpiece = document.getElementById("calc-workpiece").value;
 	  const hrcRaw = parseInt(document.getElementById("calc-hrc").value);
-	  const hardnessHrc = isNaN(hrcRaw) ? null : hrcRaw;
-	  const box = document.getElementById("calc-result");
-
 	  if (isNaN(diameter) || diameter <= 0 || isNaN(flutes) || flutes <= 0) {
 	    box.classList.remove("hidden");
 	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: 유효한 직경과 날 수를 입력하세요.</div>`;
 	    return;
 	  }
-	  if (workpiece === "alloy_steel" && (hardnessHrc === null || hardnessHrc < 10 || hardnessHrc > 70)) {
+	  if (workpiece === "alloy_steel" && (isNaN(hrcRaw) || hrcRaw < 10 || hrcRaw > 70)) {
 	    box.classList.remove("hidden");
 	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: 합금강·금형강은 경도(HRC 10~70)를 입력하세요.</div>`;
 	    return;
 	  }
-
-	  let result;
+	  if (!APP.detail) await refreshProfileContext({ recalc: false });
+	  box.classList.remove("hidden");
+	  box.innerHTML = `<div style="color:var(--text-muted);font-size:0.75rem;">물리 모델로 계산 중...</div>`;
+	  let r;
 	  try {
-	    result = await invoke("calculate_cutting_conditions", {
-	      workpiece, diameterMm: diameter, fluteCount: flutes, isHighEnd,
-	      hardnessHrc: workpiece === "alloy_steel" ? hardnessHrc : null,
-	    });
+	    r = await invoke("calc_run", { profileName: getActiveProfile(), overrides: calcOverrides() });
 	  } catch (e) {
-	    box.classList.remove("hidden");
-	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">계산 오류: ${e}</div>`;
+	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">계산 오류: ${esc(e)}</div>`;
 	    return;
 	  }
-	  if (!result) return;
-	  box.classList.remove("hidden");
-	  box.innerHTML = `
-	    <div class="result-row"><span class="rlabel">절삭 속도</span><span class="rvalue">${result.cutting_speed_m_min.toFixed(1)} m/min</span></div>
-	    <div class="result-row"><span class="rlabel">스핀들</span><span class="rvalue" style="color:var(--warning)">${result.spindle_rpm} RPM</span></div>
-	    <div class="result-row"><span class="rlabel">이송</span><span class="rvalue" style="color:var(--accent)">${result.feed_rate_mm_min.toFixed(0)} mm/min</span></div>
-	    <div class="result-row"><span class="rlabel">칩/날</span><span class="rvalue">${result.feed_per_tooth_mm.toFixed(3)} mm</span></div>
-	    <div class="result-row"><span class="rlabel">절입 (축)</span><span class="rvalue">${result.axial_doc_mm.toFixed(1)} mm</span></div>
-	    <div class="result-row"><span class="rlabel">절입 (반경)</span><span class="rvalue">${result.radial_doc_mm.toFixed(1)} mm</span></div>
-	    <div class="result-row"><span class="rlabel">MRR</span><span class="rvalue" style="color:var(--danger)">${result.mrr_cm3_min.toFixed(2)} cm³/min</span></div>
-	    <div class="result-row"><span class="rlabel">절삭력 (피크)</span><span class="rvalue">${result.cutting_force_n.toFixed(1)} N</span></div>
-	    <div class="result-row"><span class="rlabel">동력</span><span class="rvalue">${result.spindle_power_kw.toFixed(2)} kW</span></div>
-	    <div class="result-row"><span class="rlabel">휨량</span><span class="rvalue" style="color:var(--danger)">${result.tool_deflection_mm.toFixed(4)} mm</span></div>
-	    <div class="result-row"><span class="rlabel">날끝 온도</span><span class="rvalue">${result.interface_temp_c.toFixed(0)} °C</span></div>
-	    <div class="result-row"><span class="rlabel">공구 수명</span><span class="rvalue">${result.tool_life_min === null ? '-' : result.tool_life_min.toFixed(1) + ' min'}</span></div>
-	    <div class="result-row"><span class="rlabel">벽면 휨 오차</span><span class="rvalue">${result.wall_error_um.toFixed(1)} µm</span></div>
-	  `;
-	  updateDRO(0, 0, 0, result.spindle_rpm, result.feed_rate_mm_min);
+	  if (!r) return;
+	  APP.calc = r;
+	  renderCalc(r);
+	  updateDRO(0, 0, 0, r.recommended.spindle_rpm, r.recommended.feed_rate_mm_min);
+	}
+
+	function renderCalc(r) {
+	  const box = document.getElementById("calc-result");
+	  const c = r.recommended, a = r.analysis, cur = r.current, ca = r.current_analysis, e = r.environment;
+	  const row = (k, v, col) => `<div class="result-row"><span class="rlabel">${esc(k)}</span><span class="rvalue"${col ? ` style="color:${col}"` : ''}>${v}</span></div>`;
+	  const life = v => v === null || v === undefined ? '-' : fmt(v, 1) + ' min';
+	  const ovs = r.overrides.length ? `<div class="ctx-box"><span class="ov">가정 변경 (프로필은 그대로): ${r.overrides.map(esc).join(' · ')}</span></div>` : '';
+	  box.innerHTML = ovs
+	    + `<div class="calc-sec">추천 절삭 조건 (${r.purpose === 'finishing' ? '정삭' : '황삭'})</div>`
+	    + row('절삭 속도', `${fmt(c.cutting_speed_m_min, 1)} m/min`)
+	    + row('스핀들', `${c.spindle_rpm} RPM`, 'var(--warning)')
+	    + row('이송', `${fmt(c.feed_rate_mm_min, 0)} mm/min`, 'var(--accent)')
+	    + row('칩/날', `${fmt(c.feed_per_tooth_mm, 4)} mm`)
+	    + row('절입 (축 · 반경)', `${fmt(c.axial_doc_mm, 2)} · ${fmt(c.radial_doc_mm, 2)} mm`)
+	    + `<div class="calc-sec">물리 해석 (추천 조건)</div>`
+	    + row('MRR', `${fmt(a.mrr_cm3_min, 2)} cm³/min`, 'var(--danger)')
+	    + row('절삭력 (평균 · 피크)', `${fmt(a.force_mean_n, 0)} · ${fmt(a.force_peak_n, 0)} N`)
+	    + row('동력 / 가용', `${fmt(a.spindle_power_kw, 2)} / ${fmt(a.available_power_kw, 2)} kW`, a.spindle_power_kw > a.available_power_kw ? 'var(--danger)' : null)
+	    + row('휨 (피크 · 벽면)', `${fmt(a.deflection_peak_um, 1)} · ${fmt(a.wall_deflection_um, 1)} µm`)
+	    + row('날끝 온도 (건식 → 현재)', `${fmt(a.interface_dry_c, 0)} → ${fmt(a.interface_c, 0)} °C`)
+	    + row('냉각 저감 · 공구 몸체', `${fmt(a.coolant_reduction_pct, 1)} % · ${fmt(a.tool_body_c, 1)} °C`)
+	    + row('계면 μ · 지배 마모', `${fmt(a.mu_eff, 3)} · ${esc(a.dominant_wear || '-')} ${fmt(a.dominant_share * 100, 0)}%`)
+	    + row('공구 수명', life(a.tool_life_min))
+	    + row('열균열 · 구성인선', `${fmt(a.thermal_crack_risk, 2)} · ${fmt(a.bue_risk, 2)}`)
+	    + row('채터 여유', a.chatter_margin === null ? '-' : `${fmt(a.chatter_margin, 2)} 배 ${a.stable ? '(안정)' : '(채터)'}`, a.stable ? null : 'var(--danger)')
+	    + row('오차 예산 / 공차', `${fmt(a.error_budget_um, 1)} / ${fmt(a.tolerance_um, 0)} µm (${fmt(a.utilization * 100, 0)}%)`, a.utilization > 1 ? 'var(--danger)' : null)
+	    + row('· 그중 환경(측정 온도차)', `${fmt(Math.abs(a.environment_um), 1)} µm`)
+	    + row('면조도 Ra', `${fmt(a.ra_um, 2)} µm`)
+	    + `<div class="calc-sec">작업장 환경 영향</div>`
+	    + row('실내 · 습도 · 이슬점', `${fmt(e.ambient_c, 1)} °C · ${fmt(e.humidity_pct, 0)} % · ${fmt(e.dew_point_c, 1)} °C`)
+	    + row('냉각 매체 온도', `${fmt(e.coolant_c, 1)} °C`)
+	    + `<div class="calc-note">${esc(e.coolant_basis)}</div>`
+	    + row('계면 습도 계수 (마찰 · 산화)', `×${fmt(e.friction_factor, 3)} · ×${fmt(e.oxidation_factor, 3)}`)
+	    + row('측정 온도차 치수 편차 · 10분 열변위', `${fmt(-e.scale_error_um, 1)} · ${fmt(e.drift_um, 2)} µm`)
+	    + (e.condensation ? row('결로', '위험', 'var(--danger)') : '')
+	    + (e.corrosion ? row('가공 후 녹', '위험', 'var(--warning)') : '')
+	    + `<div class="calc-sec">현재 프로필 조건과 비교</div>`
+	    + row('S · F', `${cur.spindle_rpm} · ${fmt(cur.feed_rate_mm_min, 0)} → ${c.spindle_rpm} · ${fmt(c.feed_rate_mm_min, 0)}`)
+	    + row('ap · ae', `${fmt(cur.axial_doc_mm, 2)} · ${fmt(cur.radial_doc_mm, 2)} → ${fmt(c.axial_doc_mm, 2)} · ${fmt(c.radial_doc_mm, 2)}`)
+	    + row('수명', `${life(ca.tool_life_min)} → ${life(a.tool_life_min)}`)
+	    + row('날끝 온도', `${fmt(ca.interface_c, 0)} → ${fmt(a.interface_c, 0)} °C`)
+	    + row('오차 예산 사용률', `${fmt(ca.utilization * 100, 0)} → ${fmt(a.utilization * 100, 0)} %`)
+	    + (a.compat.length ? `<div class="calc-sec">소재 궁합</div>${a.compat.map(m => `<div class="calc-note" style="color:var(--warning)">${esc(m)}</div>`).join('')}` : '')
+	    + (r.notes.length ? `<div class="calc-sec">메모</div>${r.notes.slice(0, 10).map(n => `<div class="calc-note">${esc(n)}</div>`).join('')}` : '');
+	}
+
+	async function calcApply() {
+	  let r;
+	  try {
+	    r = await invoke('calc_apply', { profileName: getActiveProfile(), overrides: calcOverrides() });
+	  } catch (e) {
+	    appendLog(`프로필 적용 실패: ${e}`);
+	    const box = document.getElementById('calc-result');
+	    box.classList.remove('hidden');
+	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">적용 오류: ${esc(e)}</div>`;
+	    return;
+	  }
+	  appendLog(`추천 조건을 '${r.profile.name}' 에 적용: S${r.outcome.recommended.spindle_rpm} · F${fmt(r.outcome.recommended.feed_rate_mm_min, 0)}${r.outcome.overrides.length ? ' · ' + r.outcome.overrides.join(', ') : ''}`);
+	  APP.calc = r.outcome;
+	  APP.detail = r.profile;
+	  renderParamPanel(r.profile);
+	  calcSync(true);
+	  APP.calc = r.outcome;
+	  renderCalc(r.outcome);
+	  await loadLeftPanel();
+	  renderToolpath2D();
+	}
+
+	function coolantFormFromDetail(d) {
+	  const c = d.coolant;
+	  const sel = document.getElementById('coolant-select');
+	  if (document.activeElement !== sel) sel.value = c.key;
+	  document.getElementById('coolant-temp-mode').value = c.temperature_auto ? 'auto' : 'manual';
+	  document.getElementById('coolant-temp').value = fmt(c.temperature_c, 1);
+	  document.getElementById('coolant-pressure').value = c.pressure_bar;
+	  document.getElementById('coolant-flow').value = c.flow_rate_l_min;
+	  coolantFormSync();
+	  renderCoolantInfo(c);
+	}
+
+	function coolantFormSync() {
+	  const manual = document.getElementById('coolant-temp-mode').value === 'manual';
+	  document.getElementById('coolant-temp').disabled = !manual;
+	}
+
+	function renderCoolantInfo(c) {
+	  document.getElementById("coolant-info-panel").classList.remove("hidden");
+	  document.getElementById("ci-label").textContent = c.label;
+	  document.getElementById("ci-mcode").textContent = c.m_code;
+	  document.getElementById("ci-pressure").textContent = fmt(c.pressure_bar, 1) + " bar";
+	  document.getElementById("ci-flow").textContent = fmt(c.flow_rate_l_min, 2) + " L/min";
+	  document.getElementById("ci-nozzle").textContent = c.nozzle_count + "개";
+	  document.getElementById("ci-spray").textContent = c.spray_type;
+	  document.getElementById("ci-temp").textContent = fmt(c.temperature_c, 1) + " °C";
+	  document.getElementById("ci-temp-basis").textContent = c.temperature_auto ? '환경 자동' : '직접 지정';
+	}
+
+	async function coolantApply() {
+	  const key = document.getElementById('coolant-select').value;
+	  const manual = document.getElementById('coolant-temp-mode').value === 'manual';
+	  const num = id => { const v = parseFloat(document.getElementById(id).value); return isFinite(v) ? v : null; };
+	  let d;
+	  try {
+	    d = await invoke('profile_set_coolant', {
+	      profileName: getActiveProfile(), coolantKey: key,
+	      temperatureC: manual ? num('coolant-temp') : null,
+	      pressureBar: num('coolant-pressure'), flowRateLMin: num('coolant-flow'),
+	    });
+	  } catch (e) { appendLog(`냉각 적용 실패: ${e}`); return; }
+	  appendLog(`냉각 '${d.coolant.label}' (${fmt(d.coolant.temperature_c, 1)} °C) → '${d.name}'`);
+	  await afterProfileChange(d);
+	}
+
+	async function afterProfileChange(d) {
+	  APP.detail = d;
+	  renderParamPanel(d);
+	  calcSync(false);
+	  coolantFormFromDetail(d);
+	  await loadLeftPanel();
+	  if (APP.calc) calculateConditions();
+	  renderToolpath2D();
+	  if (document.getElementById('precision-view').classList.contains('visible')) pvEnter();
 	}
 
 	async function loadLeftPanel() {
@@ -1921,56 +2914,791 @@
 	  if (entries) {
 	    const keep = entries.some(p => p.name === activeName);
 	    document.getElementById('preset-tree').innerHTML = entries.map((p, i) => `
-	      <div class="tree-item ${(keep ? p.name === activeName : i === 0) ? 'active' : ''}" data-name="${esc(p.name)}" onclick="selectPreset(this)">
+	      <div class="tree-item ${(keep ? p.name === activeName : i === 0) ? 'active' : ''}" data-name="${esc(p.name)}" onclick="selectPreset(this)" title="${esc(p.endmill.model)} / ${esc(p.workpiece)} / ${esc(p.coolant)}">
 	        <span class="tree-icon">📋</span>${esc(p.name)}
 	      </div>
 	    `).join('');
 	  }
-	  const tools = await invoke("list_mockup_settings");
-	  if (tools) {
-	    document.getElementById('tool-tree').innerHTML = tools.map(t => `
-	      <div class="tree-item" onclick="selectTool(this, '${esc(t.model)}')">
-	        <span class="tree-icon">🔧</span>${esc(t.name)}
-	        <span class="tree-badge">Ø${t.diameter_mm}</span>
-	      </div>
-	    `).join('');
-	  }
-	  const workpieces = await invoke("list_workpiece_setups");
-	  if (workpieces) {
-	    document.getElementById('workpiece-tree').innerHTML = workpieces.map(w => `
-	      <div class="tree-item"><span class="tree-icon">📦</span>${esc(w.name)}</div>
-	    `).join('');
-	  }
+	  const d = APP.detail;
+	  try { APP.tools = await invoke('tool_catalog') || []; } catch (e) { APP.tools = []; }
+	  document.getElementById('tool-tree').innerHTML = ['builtin', 'library'].map(src => {
+	    const list = APP.tools.filter(t => t.source === src);
+	    if (!list.length) return '';
+	    return `<div class="tree-group">${src === 'builtin' ? '기본 공구' : '라이브러리 · 사용자 공구'}</div>` + list.map(t => `
+	      <div class="tree-item ${d && t.setting.name === d.tool.name && Math.abs(t.setting.diameter_mm - d.tool.diameter_mm) < 1e-9 ? 'active' : ''}" data-key="${esc(t.key)}" onclick="selectTool(this, '${esc(t.key)}')" title="${esc(t.shape)} · ${esc(t.coating_family)} · ${esc(t.substrate)}">
+	        <span class="tree-icon">🔧</span>${esc(t.label)}
+	        <span class="tree-badge">Ø${fmt(t.setting.diameter_mm, 2).replace(/\.?0+$/, '')}</span>
+	        ${t.deletable ? `<button class="tree-del" title="라이브러리에서 삭제" onclick="event.stopPropagation(); toolDelete(${t.endmill_id}, this)">✕</button>` : ''}
+	      </div>`).join('');
+	  }).join('');
+	  try { APP.workpieces = await invoke('workpiece_catalog') || []; } catch (e) { APP.workpieces = []; }
+	  document.getElementById('workpiece-tree').innerHTML = APP.workpieces.map(w => `
+	    <div class="tree-item ${d && w.name === d.workpiece.name ? 'active' : ''}" onclick="selectWorkpiece('${esc(w.key)}')" title="${esc(w.label)} · ${fmt(w.setup.width_mm, 0)}×${fmt(w.setup.height_mm, 0)}×${fmt(w.setup.thickness_mm, 0)} mm">
+	      <span class="tree-icon">📦</span>${esc(w.name)}<span class="tree-src">${w.source === 'library' ? '라이브러리' : ''}</span>
+	      ${w.deletable ? `<button class="tree-del" title="라이브러리에서 삭제" onclick="event.stopPropagation(); workpieceDelete(${w.workpiece_id}, this)">✕</button>` : ''}
+	    </div>`).join('');
 	  const coolants = await invoke("list_coolant_options");
 	  if (coolants) {
 	    document.getElementById('coolant-tree').innerHTML = coolants.map(c => `
-	      <div class="tree-item" onclick="selectCoolant('${c.key}')">
+	      <div class="tree-item ${d && d.coolant.key === c.key ? 'active' : ''}" onclick="selectCoolant('${c.key}')">
 	        <span class="tree-icon">💧</span>${c.label}
 	        <span class="tree-badge">${c.m_code}</span>
 	      </div>
 	    `).join('');
 	  }
+	  if (!document.getElementById('preset-lib').classList.contains('hidden')) presetLibraryRender();
 	}
 
-	function selectPreset(el) {
+	async function selectPreset(el) {
 	  document.querySelectorAll('#preset-tree .tree-item').forEach(t => t.classList.remove('active'));
 	  el.classList.add('active');
 	  document.getElementById('sb-profile').textContent = el.dataset.name;
+	  try { await invoke('ws_select_profile', { profileName: el.dataset.name }); } catch (e) { appendLog(`프로필 선택 실패: ${e}`); }
+	  const d = await refreshProfileContext({ recalc: true });
+	  if (d) await loadLeftPanel();
 	  renderToolpath2D();
 	  if (document.getElementById('precision-view').classList.contains('visible')) pvEnter();
 	}
 
-	function selectTool(el, model) {
+	async function selectTool(el, key) {
 	  document.querySelectorAll('#tool-tree .tree-item').forEach(t => t.classList.remove('active'));
 	  el.classList.add('active');
-	  selectToolDetail(model);
-	  renderToolpath2D();
+	  selectToolDetail(key);
+	  let d;
+	  try { d = await invoke('profile_set_tool', { profileName: getActiveProfile(), toolKey: key, recommend: true }); }
+	  catch (e) { appendLog(`공구 적용 실패: ${e}`); return; }
+	  appendLog(`공구 '${d.tool.name}' → '${d.name}' (절삭 조건 재산정: S${d.conditions.spindle_rpm} · F${fmt(d.conditions.feed_rate_mm_min, 0)})`);
+	  await afterProfileChange(d);
 	}
 
-	function selectCoolant(key) {
+	async function selectWorkpiece(key) {
+	  let d;
+	  try { d = await invoke('profile_set_workpiece', { profileName: getActiveProfile(), workpieceKey: key, recommend: true }); }
+	  catch (e) { appendLog(`원소재 적용 실패: ${e}`); return; }
+	  appendLog(`원소재 '${d.workpiece.name}' → '${d.name}' (절삭 조건 재산정)`);
+	  await afterProfileChange(d);
+	}
+
+	async function selectCoolant(key) {
 	  document.getElementById('coolant-select').value = key;
-	  renderCoolant2D();
-	  renderToolpath2D();
+	  const def = COOLANT_DEFAULTS[key] || { pressure: 0, flow: 0 };
+	  document.getElementById('coolant-temp-mode').value = 'auto';
+	  document.getElementById('coolant-pressure').value = def.pressure;
+	  document.getElementById('coolant-flow').value = def.flow;
+	  coolantFormSync();
+	  await coolantApply();
+	}
+
+	function selectToolDetail(key) {
+	  const found = APP.tools.find(t => t.key === key);
+	  if (!found) return;
+	  const s = found.setting;
+	  const panel = document.getElementById("tool-spec-panel");
+	  panel.innerHTML = `
+	    <div style="font-size:0.78rem; font-weight:700; color:var(--accent); margin-bottom:6px;">
+	      ${esc(found.label)} <span class="badge ${s.is_high_end ? 'badge-high' : 'badge-mid'}">${s.is_high_end ? '고급형' : '보급형'}</span>
+	    </div>
+	    <div class="spec-grid">
+	      <div class="spec-item"><div class="label">모델</div><div class="value">${esc(s.model)}</div></div>
+	      <div class="spec-item"><div class="label">직경 · 날</div><div class="value">${fmt(s.diameter_mm, 2)} mm · ${s.flute_count}</div></div>
+	      <div class="spec-item"><div class="label">LOC · OAL</div><div class="value">${fmt(s.loc_mm, 1)} · ${fmt(s.oal_mm, 1)}</div></div>
+	      <div class="spec-item"><div class="label">헬릭스</div><div class="value">${fmt(s.helix_angle_deg, 0)}°${s.variable_pitch ? ' 부등' : ''}</div></div>
+	      <div class="spec-item"><div class="label">형상</div><div class="value">${esc(found.shape)}</div></div>
+	      <div class="spec-item"><div class="label">코팅</div><div class="value">${esc(s.coating_name || '무코팅')}</div></div>
+	      <div class="spec-item"><div class="label">모재</div><div class="value">${esc(found.substrate)}</div></div>
+	      <div class="spec-item"><div class="label">레이크 · 여유각</div><div class="value">${s.rake_deg === null || s.rake_deg === undefined ? '소재 기본' : fmt(s.rake_deg, 1) + '°'} · ${s.clearance_deg === null || s.clearance_deg === undefined ? '10°' : fmt(s.clearance_deg, 1) + '°'}</div></div>
+	    </div>
+	  `;
+	}
+
+	async function toolDelete(id, btn) {
+	  if (btn.dataset.armed !== '1') { btn.dataset.armed = '1'; btn.textContent = '삭제?'; setTimeout(() => { btn.dataset.armed = ''; btn.textContent = '✕'; }, 3000); return; }
+	  try { await invoke('tool_delete', { endmillId: id }); appendLog(`앤드밀 #${id} 삭제`); } catch (e) { appendLog(`삭제 실패: ${e}`); }
+	  loadLeftPanel();
+	}
+
+	async function workpieceDelete(id, btn) {
+	  if (btn.dataset.armed !== '1') { btn.dataset.armed = '1'; btn.textContent = '삭제?'; setTimeout(() => { btn.dataset.armed = ''; btn.textContent = '✕'; }, 3000); return; }
+	  try { await invoke('workpiece_delete', { workpieceId: id }); appendLog(`공작물 #${id} 삭제`); } catch (e) { appendLog(`삭제 실패: ${e}`); }
+	  loadLeftPanel();
+	}
+
+	function toolFormSetting() {
+	  const num = id => { const v = parseFloat(document.getElementById(id).value); return isFinite(v) ? v : null; };
+	  const nose = document.getElementById('cm-nose').value;
+	  const neckOn = document.getElementById('cm-neck-on').checked;
+	  const coating = document.getElementById('cm-coating').value.trim();
+	  return {
+	    name: document.getElementById('cm-name').value.trim(),
+	    model: document.getElementById('cm-model').value.trim(),
+	    diameter_mm: num('cm-dia') || 0,
+	    flute_count: parseInt(document.getElementById('cm-flutes').value) || 0,
+	    loc_mm: num('cm-loc') || 0,
+	    oal_mm: num('cm-oal') || 0,
+	    shank_diameter_mm: num('cm-shank') || 0,
+	    helix_angle_deg: num('cm-helix') ?? 0,
+	    coating_name: coating ? coating : null,
+	    is_high_end: document.getElementById('cm-tier').value === 'high',
+	    nose: nose === 'ball' ? 'Ball' : nose === 'corner' ? { CornerRadius: { radius_mm: num('cm-cr') || 0 } } : 'Square',
+	    stickout_mm: null,
+	    runout_um: num('cm-runout'),
+	    variable_pitch: document.getElementById('cm-vp').checked,
+	    substrate: { carbide: 'Carbide', carbide_uf: 'CarbideUltraFine', hss: 'Hss', hss_co: 'HssCobalt', cbn: 'Cbn', pcd: 'Pcd' }[document.getElementById('cm-substrate').value],
+	    rake_deg: num('cm-rake'),
+	    clearance_deg: num('cm-clear'),
+	    edge_radius_um: num('cm-edge'),
+	    neck_diameter_mm: neckOn ? num('cm-neck-d') : null,
+	    reach_mm: neckOn ? num('cm-reach') : null,
+	  };
+	}
+
+	function toolCoatingPicked() {
+	  const fam = document.getElementById('cm-coating-family').value;
+	  document.getElementById('cm-coating').value = fam;
+	  toolFormChanged();
+	}
+
+	let toolPreviewTimer = null;
+	function toolFormChanged() {
+	  const nose = document.getElementById('cm-nose').value;
+	  document.getElementById('cm-cr').disabled = nose !== 'corner';
+	  const neck = document.getElementById('cm-neck-on').checked;
+	  document.getElementById('cm-neck-d').disabled = !neck;
+	  document.getElementById('cm-reach').disabled = !neck;
+	  drawToolPreview(toolFormSetting(), null);
+	  if (toolPreviewTimer) clearTimeout(toolPreviewTimer);
+	  toolPreviewTimer = setTimeout(async () => {
+	    let pv = null;
+	    try { pv = await invoke('tool_preview', { setting: toolFormSetting() }); } catch (e) { pv = { valid: false, error: String(e) }; }
+	    if (pv) renderToolPreview(pv);
+	  }, 300);
+	}
+
+	function drawToolPreview(s) {
+	  const cv = document.getElementById('cm-preview');
+	  if (!cv) return;
+	  const ctx = cv.getContext('2d');
+	  const W = cv.width, H = cv.height;
+	  ctx.fillStyle = '#0a0a14';
+	  ctx.fillRect(0, 0, W, H);
+	  if (!(s.oal_mm > 0 && s.diameter_mm > 0)) return;
+	  const maxD = Math.max(s.diameter_mm, s.shank_diameter_mm || s.diameter_mm);
+	  const sc = Math.min((W - 40) / s.oal_mm, (H - 50) / maxD);
+	  const cy = H / 2, x0 = 20;
+	  const X = mm => x0 + mm * sc;
+	  const r = s.diameter_mm / 2 * sc;
+	  const fam = (s.coating_name || '').toLowerCase();
+	  const coatColor = fam.includes('tin') && !fam.includes('al') ? '#d4af37' : fam.includes('dlc') ? '#2b2b30' : fam.includes('diamond') ? '#9aa4ad' : fam.includes('alcr') || fam.includes('crn') ? '#8c96a3' : fam ? '#4b4a5c' : '#b8bcc2';
+	  const neck = s.neck_diameter_mm && s.reach_mm && s.reach_mm > s.loc_mm;
+	  const reach = neck ? s.reach_mm : s.loc_mm;
+	  ctx.fillStyle = '#9aa0aa';
+	  const rs = (s.shank_diameter_mm || s.diameter_mm) / 2 * sc;
+	  ctx.fillRect(X(reach), cy - rs, X(s.oal_mm) - X(reach), 2 * rs);
+	  if (neck) {
+	    const rn = s.neck_diameter_mm / 2 * sc;
+	    ctx.fillStyle = '#80868f';
+	    ctx.fillRect(X(s.loc_mm), cy - rn, X(reach) - X(s.loc_mm), 2 * rn);
+	  }
+	  const cr = s.nose === 'Ball' ? s.diameter_mm / 2 : (s.nose && s.nose.CornerRadius ? Math.min(s.nose.CornerRadius.radius_mm, s.diameter_mm / 2) : 0);
+	  const crp = cr * sc;
+	  ctx.fillStyle = coatColor;
+	  ctx.beginPath();
+	  ctx.moveTo(X(s.loc_mm), cy - r);
+	  ctx.lineTo(X(0) + crp, cy - r);
+	  if (crp > 0) ctx.arcTo(X(0), cy - r, X(0), cy - r + crp, crp); else ctx.lineTo(X(0), cy - r);
+	  ctx.lineTo(X(0), cy + r - crp);
+	  if (crp > 0) ctx.arcTo(X(0), cy + r, X(0) + crp, cy + r, crp); else ctx.lineTo(X(0), cy + r);
+	  ctx.lineTo(X(s.loc_mm), cy + r);
+	  ctx.closePath();
+	  ctx.fill();
+	  const tanH = Math.tan((s.helix_angle_deg || 0) * Math.PI / 180);
+	  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+	  ctx.lineWidth = 1;
+	  const pitch = tanH > 0.01 ? Math.PI * s.diameter_mm / tanH / Math.max(1, s.flute_count) : s.loc_mm;
+	  for (let z = 0; z < s.loc_mm + pitch; z += pitch) {
+	    ctx.beginPath();
+	    ctx.moveTo(X(z), cy - r);
+	    ctx.lineTo(X(z + (tanH > 0.01 ? s.diameter_mm / tanH : 0)), cy + r);
+	    ctx.stroke();
+	  }
+	  ctx.fillStyle = '#aab';
+	  ctx.font = '11px Consolas, monospace';
+	  ctx.fillText(`Ø${s.diameter_mm} · LOC ${s.loc_mm}${neck ? ` · 넥 Ø${s.neck_diameter_mm}×${s.reach_mm}` : ''} · OAL ${s.oal_mm}`, 8, H - 8);
+	}
+
+	function renderToolPreview(pv) {
+	  const box = document.getElementById('cm-phys');
+	  if (!pv.valid) { box.innerHTML = `<div style="color:var(--danger);">${esc(pv.error || '입력 확인')}</div>`; return; }
+	  box.innerHTML = pvKv([
+	    ['속성 라벨', pv.label],
+	    ['돌출 · 강성', `${fmt(pv.stickout_mm, 1)} mm · ${fmt(pv.stiffness_n_per_um, 2)} N/µm`],
+	    ['100 N 당 휨 · 1차 고유진동수', `${fmt(pv.deflection_um_per_100n, 1)} µm · ${fmt(pv.fn_hz, 0)} Hz`],
+	    ['질량', `${fmt(pv.mass_g, 1)} g`],
+	    ['코팅 · 허용 온도', `${pv.coating_family} · ${fmt(pv.coating_max_c, 0)} °C`],
+	    ['모재 · 허용 온도', `${pv.substrate_label} · ${fmt(pv.substrate_max_c, 0)} °C`],
+	    ['적합 소재', pv.suited.join(', ') || '-'],
+	  ]) + (pv.cautions.length ? `<div style="margin-top:4px;">${pv.cautions.map(c => `<div class="calc-note" style="color:var(--warning)">${esc(c)}</div>`).join('')}</div>` : '');
+	}
+
+	async function createCustomEndmill(apply) {
+	  const box = document.getElementById("cm-result");
+	  box.classList.remove("hidden");
+	  const s = toolFormSetting();
+	  if (!s.name) { box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: 공구 이름을 입력해주세요.</div>`; return; }
+	  box.innerHTML = `<div style="color:var(--text-muted);font-size:0.75rem;">저장 중...</div>`;
+	  let r;
+	  try {
+	    r = await invoke("tool_save", { setting: s, applyTo: apply ? getActiveProfile() : null });
+	  } catch (e) {
+	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: ${esc(e)}</div>`;
+	    return;
+	  }
+	  box.innerHTML = `<div style="color:var(--success);font-size:0.75rem;">✓ ${esc(s.name)} 저장 (앤드밀 #${r.endmill_id})${apply ? ' · 현재 프로필에 적용' : ''}</div>`;
+	  appendLog(`커스텀 공구 저장: ${s.name} (#${r.endmill_id})`);
+	  if (r.profile) await afterProfileChange(r.profile); else await loadLeftPanel();
+	}
+
+	async function createCustomWorkpiece(apply) {
+	  const name = document.getElementById("cw-name").value.trim();
+	  const materialKey = document.getElementById("cw-material").value;
+	  const shapeKey = document.getElementById("cw-shape").value;
+	  const widthMm = parseFloat(document.getElementById("cw-width").value);
+	  const heightMm = parseFloat(document.getElementById("cw-height").value);
+	  const thicknessMm = parseFloat(document.getElementById("cw-thickness").value);
+	  const clampingKey = document.getElementById("cw-clamping").value;
+	  const stockAllowanceMm = parseFloat(document.getElementById("cw-allowance").value);
+	  const hrcRaw = parseInt(document.getElementById("cw-hrc").value);
+	  const hardnessHrc = isNaN(hrcRaw) ? null : hrcRaw;
+	  const tolRaw = parseFloat(document.getElementById("cw-tol").value);
+	  const toleranceMm = isNaN(tolRaw) || tolRaw <= 0 ? null : tolRaw / 1000;
+	  const box = document.getElementById("cw-result");
+	  box.classList.remove("hidden");
+	  if (!name) { box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: 원소재 이름을 입력해주세요.</div>`; return; }
+	  if (materialKey === "alloy_steel" && (hardnessHrc === null || hardnessHrc < 10 || hardnessHrc > 70)) {
+	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: 합금강·금형강은 경도(HRC 10~70)를 입력해주세요.</div>`;
+	    return;
+	  }
+	  box.innerHTML = `<div style="color:var(--text-muted);font-size:0.75rem;">저장 중...</div>`;
+	  let r;
+	  try {
+	    r = await invoke("workpiece_save", {
+	      name, materialKey, shapeKey, widthMm, heightMm, thicknessMm, clampingKey, stockAllowanceMm, hardnessHrc, toleranceMm,
+	      surfaceRoughnessRa: null, applyTo: apply ? getActiveProfile() : null,
+	    });
+	  } catch (e) {
+	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: ${esc(e)}</div>`;
+	    return;
+	  }
+	  const w = r.setup;
+	  box.innerHTML = `
+	    <div class="result-row"><span class="rlabel">이름</span><span class="rvalue">${esc(w.name)}</span></div>
+	    <div class="result-row"><span class="rlabel">소재 · 형상</span><span class="rvalue">${esc(w.material)} · ${esc(w.shape)}</span></div>
+	    <div class="result-row"><span class="rlabel">크기</span><span class="rvalue">${w.width_mm}×${w.height_mm}×${w.thickness_mm} mm</span></div>
+	    <div class="result-row"><span class="rlabel">체적 · 공차</span><span class="rvalue">${fmt(w.volume_cm3, 2)} cm³ · ±${fmt(w.tolerance_mm * 1000, 0)} µm</span></div>
+	    <div class="result-row"><span class="rlabel">라이브러리</span><span class="rvalue" style="color:var(--success)">#${r.workpiece_id} 저장${apply ? ' · 현재 프로필에 적용' : ''}</span></div>`;
+	  appendLog(`원소재 저장: ${w.name} (#${r.workpiece_id})`);
+	  if (r.profile) await afterProfileChange(r.profile); else await loadLeftPanel();
+	}
+
+	async function presetLibraryRender() {
+	  try { APP.presets = await invoke('preset_catalog') || []; } catch (e) { APP.presets = []; }
+	  document.getElementById('preset-lib').innerHTML = APP.presets.map((p, i) => `
+	    <div class="tree-item" title="${esc(p.description)}">
+	      <span class="tree-icon">${p.builtin ? '📘' : '📗'}</span>
+	      <span style="flex:1;min-width:0;">${esc(p.name)}<div style="font-size:0.6rem;color:var(--text-muted);">${esc(p.workpiece)} · ${p.purpose === 'finishing' ? '정삭' : '황삭'} · 프로필 ${p.profiles}</div></span>
+	      <button class="btn btn-sm btn-outline" onclick="event.stopPropagation(); presetUse(${i})">사용</button>
+	      ${p.builtin ? '' : `<button class="tree-del" title="프리셋 삭제" onclick="event.stopPropagation(); presetDelete(${i}, this)">✕</button>`}
+	    </div>`).join('') || '<div style="font-size:0.7rem;color:var(--text-muted);padding:4px 8px;">프리셋 없음</div>';
+	}
+
+	function presetLibraryToggle() {
+	  const el = document.getElementById('preset-lib');
+	  const hidden = el.classList.toggle('hidden');
+	  document.getElementById('preset-lib-btn').textContent = hidden ? '프리셋 목록 ▾' : '프리셋 목록 ▴';
+	  if (!hidden) presetLibraryRender();
+	}
+
+	async function presetUse(i) {
+	  const p = APP.presets[i];
+	  if (!p) return;
+	  let r;
+	  try { r = await invoke('profile_from_preset', { presetName: p.name, profileName: null }); } catch (e) { appendLog(`프로필 생성 실패: ${e}`); return; }
+	  appendLog(`프리셋 '${p.name}' → 프로필 '${r.name}' 생성`);
+	  await selectProfileByName(r.name);
+	}
+
+	async function presetDelete(i, btn) {
+	  const p = APP.presets[i];
+	  if (!p) return;
+	  if (btn.dataset.armed !== '1') { btn.dataset.armed = '1'; btn.textContent = '삭제?'; setTimeout(() => { btn.dataset.armed = ''; btn.textContent = '✕'; }, 3000); return; }
+	  try { await invoke('preset_delete', { name: p.name }); appendLog(`프리셋 '${p.name}' 삭제`); } catch (e) { appendLog(`프리셋 삭제 실패: ${e}`); }
+	  presetLibraryRender();
+	}
+
+	async function selectProfileByName(name) {
+	  await loadLeftPanel();
+	  const el = Array.from(document.querySelectorAll('#preset-tree .tree-item')).find(x => x.dataset.name === name);
+	  if (el) await selectPreset(el);
+	}
+
+	async function presetSaveCurrent() {
+	  const base = getActiveProfile();
+	  await presetDialogOpen();
+	  document.getElementById('pd-name').value = `${base} 프리셋`;
+	  document.getElementById('pd-result').innerHTML = `<div class="pv-row" style="margin-top:6px;"><button class="btn btn-sm" onclick="presetFromCurrent()">현재 프로필 '${esc(base)}' 그대로 프리셋으로 저장</button></div><div style="color:var(--text-muted);">또는 위 항목을 골라 '프리셋 만들기'로 새로 산정할 수 있습니다.</div>`;
+	}
+
+	async function presetFromCurrent() {
+	  const name = document.getElementById('pd-name').value.trim();
+	  if (!name) { document.getElementById('pd-result').innerHTML = '<div style="color:var(--danger);">프리셋 이름을 입력하세요</div>'; return; }
+	  try {
+	    await invoke('ws_select_profile', { profileName: getActiveProfile() });
+	    await invoke('lib_save_preset', { name, description: document.getElementById('pd-desc').value.trim() });
+	  } catch (e) { document.getElementById('pd-result').innerHTML = `<div style="color:var(--danger);">${esc(e)}</div>`; return; }
+	  appendLog(`현재 프로필을 프리셋 '${name}' 으로 저장`);
+	  document.getElementById('pd-result').innerHTML = `<div style="color:var(--success);">✓ 프리셋 '${esc(name)}' 저장</div>`;
+	  presetLibraryRender();
+	}
+
+	async function presetDialogOpen() {
+	  if (!APP.tools.length || !APP.workpieces.length) await loadLeftPanel();
+	  const d = APP.detail;
+	  document.getElementById('pd-tool').innerHTML = APP.tools.map(t => `<option value="${esc(t.key)}"${d && t.setting.name === d.tool.name ? ' selected' : ''}>${esc(t.label)} · ${esc(t.coating_family)}${t.source === 'library' ? ' (라이브러리)' : ''}</option>`).join('');
+	  document.getElementById('pd-wp').innerHTML = APP.workpieces.map(w => `<option value="${esc(w.key)}"${d && w.name === d.workpiece.name ? ' selected' : ''}>${esc(w.name)} · ${esc(w.label)}</option>`).join('');
+	  if (d) document.getElementById('pd-coolant').value = d.coolant.key;
+	  document.getElementById('pd-result').innerHTML = '';
+	  document.getElementById('preset-dialog').classList.remove('hidden');
+	}
+
+	function presetDialogClose() {
+	  document.getElementById('preset-dialog').classList.add('hidden');
+	}
+
+	async function presetCreate(preview) {
+	  const box = document.getElementById('pd-result');
+	  const request = {
+	    name: document.getElementById('pd-name').value.trim(),
+	    description: document.getElementById('pd-desc').value.trim(),
+	    tool_key: document.getElementById('pd-tool').value,
+	    workpiece_key: document.getElementById('pd-wp').value,
+	    coolant_key: document.getElementById('pd-coolant').value,
+	    purpose: document.getElementById('pd-purpose').value,
+	    create_profile: document.getElementById('pd-profile').checked,
+	    profile_name: document.getElementById('pd-profile-name').value.trim() || null,
+	    preview: !!preview,
+	  };
+	  if (!request.name) { box.innerHTML = '<div style="color:var(--danger);">프리셋 이름을 입력하세요</div>'; return; }
+	  box.innerHTML = '<div style="color:var(--text-muted);">물리 모델로 조건 산정 중...</div>';
+	  let r;
+	  try { r = await invoke('preset_create', { request }); } catch (e) { box.innerHTML = `<div style="color:var(--danger);">${esc(e)}</div>`; return; }
+	  const c = r.outcome.recommended, a = r.outcome.analysis;
+	  box.innerHTML = `<div style="margin-top:6px;">${r.saved ? `<b style="color:var(--success)">✓ 프리셋 '${esc(r.preset.name)}' 저장${r.profile_name ? ` · 프로필 '${esc(r.profile_name)}' 생성` : ''}</b>` : '<b>미리 계산 결과 (저장 안 됨)</b>'}</div>`
+	    + pvKv([
+	      ['조건', `S${c.spindle_rpm} · F${fmt(c.feed_rate_mm_min, 0)} · fz ${fmt(c.feed_per_tooth_mm, 4)} · ap ${fmt(c.axial_doc_mm, 2)} · ae ${fmt(c.radial_doc_mm, 2)}`],
+	      ['동력 · 날끝 온도', `${fmt(a.spindle_power_kw, 2)} kW · ${fmt(a.interface_c, 0)} °C`],
+	      ['수명 · 오차 예산', `${a.tool_life_min === null ? '-' : fmt(a.tool_life_min, 1) + ' min'} · ${fmt(a.utilization * 100, 0)} %`],
+	      ['궁합', a.compat.join(' / ') || '문제 없음'],
+	    ]);
+	  if (r.saved) {
+	    appendLog(`프리셋 생성: ${r.preset.name}`);
+	    presetLibraryRender();
+	    if (r.profile_name) { presetDialogClose(); await selectProfileByName(r.profile_name); }
+	  }
+	}
+
+	async function profileDuplicate() {
+	  let r;
+	  try { r = await invoke('profile_duplicate', { sourceName: getActiveProfile(), newName: null }); } catch (e) { appendLog(`복제 실패: ${e}`); return; }
+	  appendLog(`프로필 복제 → '${r.name}'`);
+	  await selectProfileByName(r.name);
+	}
+
+	async function profileDelete(btn) {
+	  const name = getActiveProfile();
+	  if (btn.dataset.armed !== '1') { btn.dataset.armed = '1'; btn.textContent = '한 번 더'; setTimeout(() => { btn.dataset.armed = ''; btn.textContent = '삭제'; }, 3000); return; }
+	  btn.dataset.armed = ''; btn.textContent = '삭제';
+	  try { await invoke('profile_delete', { name }); } catch (e) { appendLog(`삭제 실패: ${e}`); return; }
+	  appendLog(`프로필 '${name}' 삭제`);
+	  await loadLeftPanel();
+	  const first = document.querySelector('#preset-tree .tree-item');
+	  if (first) await selectPreset(first);
+	}
+
+	const ST = { poll: null, catalog: null, settings: null };
+
+	function stVisible() {
+	  return document.getElementById('settings-view').classList.contains('visible');
+	}
+
+	async function stEnter() {
+	  await stLoadSettings();
+	  await mdlRefresh();
+	  stEnsurePoll();
+	}
+
+	async function stLoadSettings() {
+	  let s = null;
+	  try { s = await invoke('settings_get'); } catch (e) { return; }
+	  if (!s) return;
+	  ST.settings = s;
+	  APP.settings = s;
+	  const e = s.environment;
+	  const set = (id, v) => { const el = document.getElementById(id); if (document.activeElement !== el) el.value = v === null || v === undefined ? '' : v; };
+	  set('env-ambient', e.ambient_c); set('env-rh', e.humidity_pct); set('env-ref', e.reference_c);
+	  set('env-swing', e.swing_c_per_h); set('env-chiller', e.chiller_c); set('env-pressure', e.pressure_kpa);
+	  envRenderDerived(s.derived);
+	  document.getElementById('mdl-auto').checked = s.models.auto_download;
+	  document.getElementById('mdl-startup').checked = s.models.startup_download;
+	  set('mdl-endpoint', s.models.endpoint);
+	  document.getElementById('mdl-token').placeholder = s.models.token_set ? '설정됨 (바꾸려면 새 토큰 입력)' : 'hf_... (선택)';
+	  VP.speed = s.ui.anim_speed || 0;
+	  document.getElementById('vt-speed').value = String(VP.speed);
+	  ['tool', 'coolant', 'heat'].forEach(k => { VP.show[k] = !!s.ui['show_' + k]; document.getElementById('tg-' + k).classList.toggle('active', VP.show[k]); });
+	  document.getElementById('sb-env').textContent = `${fmt(e.ambient_c, 1)} °C · ${fmt(e.humidity_pct, 0)} %`;
+	}
+
+	function envRenderDerived(d) {
+	  document.getElementById('env-derived').innerHTML = pvKv([
+	    ['이슬점 · 습구 온도', `${fmt(d.dew_point_c, 1)} °C · ${fmt(d.wet_bulb_c, 1)} °C`],
+	    ['절대 습도 · 공기 밀도', `${fmt(d.humidity_ratio_g_kg, 2)} g/kg · ${fmt(d.air_density, 3)} kg/m³`],
+	    ['수용성 냉각액 끓는점', `${fmt(d.boiling_c, 1)} °C`],
+	    ['예상 매체 온도 (플러드 · 내부급유)', `${fmt(d.flood_c, 1)} · ${fmt(d.through_tool_c, 1)} °C`],
+	    ['예상 매체 온도 (에어 · MQL)', `${fmt(d.air_blast_c, 1)} · ${fmt(d.mist_c, 1)} °C`],
+	    ['실내 온도 변동 → 10분 기계 열변위', `${fmt(d.drift_um_10min, 2)} µm`],
+	    ['결로 · 녹 위험', `${d.condensation ? '결로 위험' : '결로 없음'} · ${d.corrosion_rh ? 'RH 60% 이상 (철계 녹 주의)' : '정상'}`],
+	  ]);
+	}
+
+	function envForm() {
+	  const num = id => { const v = parseFloat(document.getElementById(id).value); return isFinite(v) ? v : null; };
+	  return {
+	    ambient_c: num('env-ambient'), humidity_pct: num('env-rh'), reference_c: num('env-ref') ?? 20,
+	    swing_c_per_h: num('env-swing') ?? 0.5, chiller_c: num('env-chiller'), pressure_kpa: num('env-pressure') ?? 101.325,
+	  };
+	}
+
+	async function envApply(env) {
+	  let s;
+	  try { s = await invoke('settings_set_environment', { environment: env }); }
+	  catch (e) { document.getElementById('st-status').textContent = `환경 설정 오류: ${e}`; appendLog(`환경 설정 오류: ${e}`); return false; }
+	  document.getElementById('st-status').textContent = `환경 적용: ${s.derived.label}`;
+	  appendLog(`작업장 환경 적용: ${s.derived.label}`);
+	  APP.envStamp = JSON.stringify(s.environment);
+	  await stLoadSettings();
+	  await refreshProfileContext({ recalc: true });
+	  VP.sim = null;
+	  if (tpData.length) vpLoadSim(true);
+	  if (document.getElementById('precision-view').classList.contains('visible')) pvRefresh();
+	  return true;
+	}
+
+	function envSave() {
+	  const env = envForm();
+	  if (env.ambient_c === null || env.humidity_pct === null) { document.getElementById('st-status').textContent = '실내 온도와 습도를 입력하세요'; return; }
+	  envApply(env);
+	}
+
+	function envStandard() {
+	  envApply({ ambient_c: 22, humidity_pct: 50, reference_c: 20, swing_c_per_h: 0.5, chiller_c: null, pressure_kpa: 101.325 });
+	}
+
+	async function envQuickSave() {
+	  const a = parseFloat(document.getElementById('qp-ambient').value);
+	  const h = parseFloat(document.getElementById('qp-rh').value);
+	  if (!isFinite(a) || !isFinite(h)) return;
+	  if (!ST.settings) await stLoadSettings();
+	  const base = ST.settings ? ST.settings.environment : { reference_c: 20, swing_c_per_h: 0.5, chiller_c: null, pressure_kpa: 101.325 };
+	  envApply({ ...base, ambient_c: a, humidity_pct: h });
+	}
+
+	function fmtBytes(b) {
+	  if (!b) return '0 B';
+	  const u = ['B', 'KB', 'MB', 'GB'];
+	  let i = 0, v = b;
+	  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+	  return `${v.toFixed(i >= 2 ? 1 : 0)} ${u[i]}`;
+	}
+
+	function fmtEta(s) {
+	  if (s === null || s === undefined || !isFinite(s)) return '-';
+	  if (s < 60) return `${Math.round(s)}초`;
+	  if (s < 3600) return `${Math.floor(s / 60)}분 ${Math.round(s % 60)}초`;
+	  return `${Math.floor(s / 3600)}시간 ${Math.round((s % 3600) / 60)}분`;
+	}
+
+	async function mdlRefresh() {
+	  let cat = null;
+	  try { cat = await invoke('models_catalog'); } catch (e) { return null; }
+	  if (!cat) return null;
+	  ST.catalog = cat;
+	  MQ.catalog = cat;
+	  mdlRender(cat);
+	  sbModels(cat);
+	  return cat;
+	}
+
+	function mdlStateOf(m) {
+	  const j = m.job;
+	  if (m.loading) return { label: '로드 중', cls: 'sev-1' };
+	  if (j && (j.state === 'downloading' || j.state === 'queued' || j.state === 'verifying')) return { label: j.state === 'verifying' ? '검증 중' : `다운로드 ${fmt(j.total ? j.done / j.total * 100 : 0, 1)}%`, cls: 'sev-1' };
+	  if (m.loaded) return { label: '로드됨', cls: 'sev-0' };
+	  if (m.installed || m.detected_dir) return { label: '설치됨 (미로드)', cls: 'sev-0' };
+	  if (j && j.state === 'failed') return { label: '다운로드 실패', cls: 'sev-3' };
+	  if (j && j.state === 'cancelled') return { label: '중지됨 (이어받기 가능)', cls: 'sev-2' };
+	  if (m.partial_bytes > 0) return { label: '일부 받음 (이어받기 가능)', cls: 'sev-2' };
+	  return { label: '미설치', cls: 'sev-2' };
+	}
+
+	function setHtml(el, html) {
+	  if (el && el.__h !== html) { el.__h = html; el.innerHTML = html; }
+	}
+
+	function mdlRender(cat) {
+	  setHtml(document.getElementById('mdl-root-line'), `모델 폴더 <b>${esc(cat.root)}</b> · 연산 장치 ${esc(cat.device || 'CPU')} · 서버 ${esc(cat.endpoint)}${cat.token_set ? ' · 토큰 설정됨' : ''}`);
+	  const list = document.getElementById('mdl-list');
+	  const keys = cat.entries.map(m => m.key).join(',');
+	  if (list.__keys !== keys) {
+	    list.__keys = keys;
+	    list.innerHTML = cat.entries.map(m => `<div class="mdl-row" data-key="${esc(m.key)}">
+	      <div class="mdl-head"><b>${esc(m.label)}</b><span data-p="state"></span><span class="mdl-actions" data-p="actions"></span></div>
+	      <div class="mdl-meta" data-p="use"></div>
+	      <div class="mdl-bar"><span data-p="bar"></span></div>
+	      <div class="mdl-meta" data-p="bytes"></div>
+	      <div class="mdl-meta" data-p="repo"></div>
+	      <div data-p="extra"></div>
+	    </div>`).join('');
+	  }
+	  cat.entries.forEach(m => {
+	    const row = list.querySelector(`.mdl-row[data-key="${m.key}"]`);
+	    if (!row) return;
+	    const part = name => row.querySelector(`[data-p="${name}"]`);
+	    const st = mdlStateOf(m);
+	    const j = m.job;
+	    const active = j && (j.state === 'downloading' || j.state === 'queued' || j.state === 'verifying');
+	    const done = active ? j.done : (m.installed ? m.total_bytes : (m.on_disk_bytes || 0));
+	    const total = active && j.total ? j.total : m.total_bytes;
+	    const pct = total ? Math.min(100, done / total * 100) : 0;
+	    const present = m.installed || m.detected_dir;
+	    const armed = (MDL_ARM[m.key] || 0) > Date.now();
+	    const btn = (label, action, cls) => `<button class="btn btn-sm ${cls || 'btn-outline'}" onclick="mdlAction('${m.key}', '${action}', this)">${label}</button>`;
+	    const actions = [
+	      !present && !active ? btn(m.partial_bytes > 0 || (j && j.state === 'cancelled') ? '이어받기' : '다운로드', 'download', '') : '',
+	      active ? btn('중지', 'cancel') : '',
+	      present && !m.loaded && !active ? btn('로드', 'load') : '',
+	      m.loaded ? btn('언로드', 'unload') : '',
+	      (present || m.partial_bytes > 0) && !active ? btn(armed ? '한 번 더 누르면 삭제' : '삭제', 'delete', 'btn-danger') : '',
+	    ].join('');
+	    const stEl = part('state');
+	    if (stEl.className !== st.cls) stEl.className = st.cls;
+	    if (stEl.textContent !== st.label) stEl.textContent = st.label;
+	    setHtml(part('actions'), actions);
+	    const use = `${m.used_for}${m.fallback ? ` · 없을 때: ${m.fallback}` : ' · 대체 수단 없음 (필수)'}`;
+	    if (part('use').textContent !== use) part('use').textContent = use;
+	    part('bar').style.width = `${pct.toFixed(1)}%`;
+	    const bytes = `${fmtBytes(done)} / ${fmtBytes(total)}${active ? ` · ${fmtBytes(j.speed_bps)}/s · 남은 시간 ${fmtEta(j.eta_s)} · ${j.file || ''}${j.attempt > 1 ? ` · 시도 ${j.attempt}` : ''}` : ''}`;
+	    if (part('bytes').textContent !== bytes) part('bytes').textContent = bytes;
+	    const repo = `${m.repo}@${m.revision.length > 16 ? m.revision.slice(0, 10) : m.revision} → ${m.detected_dir || m.dir}`;
+	    if (part('repo').textContent !== repo) part('repo').textContent = repo;
+	    setHtml(part('extra'), [
+	      m.load_detail && m.loaded ? `<div class="mdl-meta sev-0">${esc(m.load_detail)}</div>` : '',
+	      m.load_error ? `<div class="mdl-meta sev-3">${esc(m.load_error)}</div>` : '',
+	      j && j.error ? `<div class="mdl-meta ${j.state === 'failed' ? 'sev-3' : 'sev-1'}">${esc(j.error)}</div>` : '',
+	    ].join(''));
+	  });
+	}
+
+	function sbModels(cat) {
+	  const el = document.getElementById('sb-models');
+	  const dl = cat.entries.filter(m => m.job && (m.job.state === 'downloading' || m.job.state === 'queued' || m.job.state === 'verifying'));
+	  const waiting = MQ.tasks.filter(t => t.state === 'waiting' || t.state === 'need_action' || t.state === 'failed').length;
+	  const parts = [];
+	  if (waiting) parts.push(`대기 작업 ${waiting}`);
+	  if (dl.length) parts.push(dl.map(m => `${m.key} ${fmt(m.job.total ? m.job.done / m.job.total * 100 : 0, 0)}%`).join(' · '));
+	  if (!parts.length) {
+	    const inst = cat.entries.filter(m => m.installed || m.detected_dir).length;
+	    const loaded = cat.entries.filter(m => m.loaded).length;
+	    parts.push(`설치 ${inst}/${cat.entries.length} · 로드 ${loaded}`);
+	  }
+	  el.textContent = parts.join(' · ');
+	}
+
+	async function mdlAction(key, action, btn) {
+	  if (action === 'delete' && !((MDL_ARM[key] || 0) > Date.now())) {
+	    MDL_ARM[key] = Date.now() + 4000;
+	    if (ST.catalog) mdlRender(ST.catalog);
+	    setTimeout(() => { if ((MDL_ARM[key] || 0) <= Date.now()) { delete MDL_ARM[key]; if (ST.catalog) mdlRender(ST.catalog); } }, 4100);
+	    return;
+	  }
+	  if (action === 'delete') delete MDL_ARM[key];
+	  const status = document.getElementById('st-status');
+	  try {
+	    if (action === 'download') { await invoke('models_download', { key }); status.textContent = `${key} 다운로드 시작`; }
+	    else if (action === 'cancel') { await invoke('models_cancel', { key }); status.textContent = `${key} 다운로드 중지 (받은 부분은 이어받기용으로 보관)`; }
+	    else if (action === 'unload') { await invoke('models_unload', { key }); status.textContent = `${key} 언로드`; }
+	    else if (action === 'delete') { await invoke('models_delete', { key }); status.textContent = `${key} 모델 파일 삭제`; }
+	    else if (action === 'load') {
+	      status.textContent = `${key} 로드 중... (SigLIP2 는 수십 초 걸릴 수 있습니다)`;
+	      mdlRefresh();
+	      const r = await invoke('models_ensure', { key, download: false });
+	      status.textContent = r.state === 'ready' ? `${key} 로드 완료: ${r.detail}` : `${key}: ${r.detail}`;
+	    }
+	  } catch (e) {
+	    status.textContent = `${key} ${action} 실패: ${e}`;
+	  }
+	  await mdlRefresh();
+	  stEnsurePoll();
+	}
+
+	async function mdlSaveSettings(clearToken) {
+	  const token = document.getElementById('mdl-token').value.trim();
+	  let s;
+	  try {
+	    s = await invoke('settings_set_models', {
+	      autoDownload: document.getElementById('mdl-auto').checked,
+	      startupDownload: document.getElementById('mdl-startup').checked,
+	      endpoint: document.getElementById('mdl-endpoint').value.trim(),
+	      token: clearToken ? null : (token || null),
+	      clearToken: !!clearToken,
+	    });
+	  } catch (e) { document.getElementById('st-status').textContent = `저장 실패: ${e}`; return; }
+	  document.getElementById('mdl-token').value = '';
+	  document.getElementById('st-status').textContent = clearToken ? '토큰을 삭제했습니다' : '다운로드 설정을 저장했습니다';
+	  await stLoadSettings();
+	  mdlRefresh();
+	}
+
+	function stEnsurePoll() {
+	  if (ST.poll) return;
+	  ST.poll = setInterval(async () => {
+	    const need = stVisible() || MQ.tasks.some(t => t.state === 'waiting' || t.state === 'loading') || (ST.catalog && ST.catalog.any_active);
+	    if (!need) { clearInterval(ST.poll); ST.poll = null; return; }
+	    await mdlRefresh();
+	    mqRender();
+	  }, 700);
+	}
+
+	const MQ = { tasks: [], seq: 0, catalog: null };
+	const MDL_ARM = {};
+	const MODEL_LABEL = { siglip: 'SigLIP2', ttm: 'TTM-R3', laya: 'laya' };
+	const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+	async function requireModels(keys, label, opts) {
+	  opts = opts || {};
+	  keys = Array.from(new Set(keys || []));
+	  if (!keys.length) return { ok: true };
+	  let cat = MQ.catalog;
+	  try { cat = await invoke('models_catalog'); MQ.catalog = cat; } catch (e) { }
+	  if (cat && keys.every(k => (cat.entries.find(m => m.key === k) || {}).loaded)) return { ok: true };
+	  return new Promise(resolve => {
+	    const t = { id: ++MQ.seq, label, keys, optional: !!opts.optional, state: 'waiting', msg: '모델 준비 확인 중...', resolve, created: Date.now() };
+	    MQ.tasks.push(t);
+	    if (opts.onWait) opts.onWait(t);
+	    mqRender();
+	    stEnsurePoll();
+	    mqPump(t);
+	  });
+	}
+
+	async function mqPump(t) {
+	  while (t.state === 'waiting') {
+	    let allReady = true;
+	    for (const k of t.keys) {
+	      const entry = MQ.catalog ? MQ.catalog.entries.find(m => m.key === k) : null;
+	      if (entry && entry.loaded) continue;
+	      t.msg = `${MODEL_LABEL[k] || k} 준비 확인·로드 중...`;
+	      mqRender();
+	      let r;
+	      try { r = await invoke('models_ensure', { key: k, download: null }); } catch (e) { r = { state: 'failed', detail: String(e) }; }
+	      if (t.state !== 'waiting') return;
+	      if (r.state === 'ready') continue;
+	      allReady = false;
+	      if (r.state === 'downloading') {
+	        const j = r.job;
+	        t.msg = `${MODEL_LABEL[k] || k} 다운로드 중 ${j && j.total ? fmt(j.done / j.total * 100, 1) : '0.0'}% — 완료되면 자동으로 이어서 진행합니다`;
+	      } else if (r.state === 'missing') {
+	        t.state = 'need_action';
+	        t.msg = `${MODEL_LABEL[k] || k} 모델이 없습니다 (자동 다운로드 꺼짐) — 다운로드하거나 ${t.optional ? '모델 없이 진행하세요' : '취소하세요'}`;
+	        t.need = k;
+	      } else {
+	        t.state = 'failed';
+	        t.msg = `${MODEL_LABEL[k] || k}: ${r.detail}`;
+	        t.need = k;
+	      }
+	      break;
+	    }
+	    if (allReady) {
+	      t.state = 'done';
+	      t.msg = '모델 준비 완료 → 작업 재개';
+	      mqRender();
+	      try { MQ.catalog = await invoke('models_catalog'); } catch (e) { }
+	      t.resolve({ ok: true });
+	      setTimeout(() => { MQ.tasks = MQ.tasks.filter(x => x !== t); mqRender(); }, 4000);
+	      return;
+	    }
+	    mqRender();
+	    if (t.state !== 'waiting') return;
+	    await sleep(800);
+	  }
+	}
+
+	async function mqAction(id, action) {
+	  const t = MQ.tasks.find(x => x.id === id);
+	  if (!t) return;
+	  if (action === 'cancel') {
+	    t.state = 'cancelled'; t.msg = '사용자가 작업을 취소했습니다';
+	    t.resolve({ ok: false, cancelled: true });
+	  } else if (action === 'fallback') {
+	    t.state = 'fallback'; t.msg = '모델 없이 대체 방식으로 진행';
+	    t.resolve({ ok: false, fallback: true });
+	  } else if (action === 'download') {
+	    try { await invoke('models_download', { key: t.need }); } catch (e) { t.msg = String(e); mqRender(); return; }
+	    t.state = 'waiting'; t.msg = '다운로드 시작';
+	    mqRender(); stEnsurePoll(); mqPump(t);
+	    return;
+	  }
+	  mqRender();
+	  setTimeout(() => { MQ.tasks = MQ.tasks.filter(x => x !== t); mqRender(); }, 3000);
+	}
+
+	function mqRender() {
+	  const el = document.getElementById('mq-list');
+	  const label = { waiting: '대기', need_action: '조치 필요', failed: '실패', done: '재개', cancelled: '취소', fallback: '대체 진행' };
+	  const cls = { waiting: 'sev-1', need_action: 'sev-2', failed: 'sev-3', done: 'sev-0', cancelled: '', fallback: 'sev-1' };
+	  if (!MQ.tasks.length) {
+	    el.__ids = '';
+	    setHtml(el, '<div style="font-size:0.7rem;color:var(--text-muted);">대기 중인 작업이 없습니다. 이미지 입력(SigLIP2)·시계열 예측(TTM)·판단 조언(laya)이 모델을 기다리면 여기에 표시됩니다.</div>');
+	  } else {
+	    const ids = MQ.tasks.map(t => t.id).join(',');
+	    if (el.__ids !== ids) {
+	      el.__ids = ids;
+	      el.__h = null;
+	      el.innerHTML = MQ.tasks.map(t => `<div class="mq-item" data-id="${t.id}">
+	        <span data-p="state"></span>
+	        <b>${esc(t.label)}</b>
+	        <span style="color:var(--text-dim);">필요 모델: ${t.keys.map(k => esc(MODEL_LABEL[k] || k)).join(', ')}</span>
+	        <span data-p="msg" style="flex:1;min-width:160px;"></span>
+	        <span data-p="btns" style="display:flex;gap:4px;flex-wrap:wrap;"></span>
+	      </div>`).join('');
+	    }
+	    MQ.tasks.forEach(t => {
+	      const row = el.querySelector(`.mq-item[data-id="${t.id}"]`);
+	      if (!row) return;
+	      const stEl = row.querySelector('[data-p="state"]');
+	      const c = `mq-state ${cls[t.state] || ''}`;
+	      if (stEl.className !== c) stEl.className = c;
+	      const l = label[t.state] || t.state;
+	      if (stEl.textContent !== l) stEl.textContent = l;
+	      const msgEl = row.querySelector('[data-p="msg"]');
+	      if (msgEl.textContent !== (t.msg || '')) msgEl.textContent = t.msg || '';
+	      const open = t.state === 'waiting' || t.state === 'need_action' || t.state === 'failed';
+	      setHtml(row.querySelector('[data-p="btns"]'), [
+	        (t.state === 'need_action' || t.state === 'failed') ? `<button class="btn btn-sm" onclick="mqAction(${t.id}, 'download')">다운로드</button>` : '',
+	        t.optional && open ? `<button class="btn btn-sm btn-outline" onclick="mqAction(${t.id}, 'fallback')">모델 없이 진행</button>` : '',
+	        open ? `<button class="btn btn-sm btn-outline" onclick="mqAction(${t.id}, 'cancel')">취소</button>` : '',
+	      ].join(''));
+	    });
+	  }
+	  if (MQ.catalog) sbModels(MQ.catalog);
 	}
 
 	function appendLog(msg) {
@@ -1992,213 +3720,6 @@
       document.getElementById('profile-output').classList.toggle('hidden', target !== 'profile');
     });
   });
-
-	function coolProject(x, y, z) {
-	  const canvas = document.getElementById("coolant-canvas");
-	  let dx = x, dy = y, dz = z;
-	  let x1 = dx * Math.cos(coolRotY) + dz * Math.sin(coolRotY);
-	  let z1 = -dx * Math.sin(coolRotY) + dz * Math.cos(coolRotY);
-	  let y1 = dy * Math.cos(coolRotX) - z1 * Math.sin(coolRotX);
-	  let z2 = dy * Math.sin(coolRotX) + z1 * Math.cos(coolRotX);
-	  const fov = 400;
-	  const s = fov / (fov + z2 + 120);
-	  return { px: canvas.width / 2 + x1 * s * 2.5, py: canvas.height / 2 - y1 * s * 2.5, depth: z2, scale: s };
-	}
-
-	function initCoolParticles(info) {
-	  coolParticles = [];
-	  if (info.spray_type === "none") return;
-	  const count = info.spray_type === "mist_particles" ? 80 : 50;
-	  const nozzleCount = Math.max(info.nozzle_count, 1);
-	  for (let i = 0; i < count; i++) {
-	    const ni = i % nozzleCount;
-	    const angleOffset = nozzleCount > 1 ? (ni - (nozzleCount - 1) / 2) * 0.6 : 0;
-	    coolParticles.push({
-	      x: Math.sin(angleOffset) * info.nozzle_distance_mm * 0.4,
-	      y: -10, z: Math.cos(angleOffset) * info.nozzle_distance_mm * 0.4,
-	      vx: (Math.random() - 0.5) * 0.3, vy: 0.6 + Math.random() * 0.5,
-	      vz: (Math.random() - 0.5) * 0.3,
-	      life: Math.random(), maxLife: 0.7 + Math.random() * 0.5,
-	      size: info.spray_type === "mist_particles" ? 1 + Math.random() : 1.5 + Math.random(),
-	      nozzleIdx: ni
-	    });
-	  }
-	}
-
-	function renderCoolantScene() {
-	  const canvas = document.getElementById("coolant-canvas");
-	  const ctx = canvas.getContext("2d");
-	  ctx.fillStyle = "#0a0a14";
-	  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-	  if (!coolInfo || coolInfo.spray_type === "none") {
-	    document.getElementById("cool-dry-overlay").style.display = "block";
-	    return;
-	  }
-	  document.getElementById("cool-dry-overlay").style.display = "none";
-	  const color = coolInfo.color_hex;
-
-	  const toolTop = coolProject(0, -20, 0);
-	  const toolBot = coolProject(0, 10, 0);
-	  ctx.beginPath(); ctx.moveTo(toolTop.px, toolTop.py); ctx.lineTo(toolBot.px, toolBot.py);
-	  ctx.strokeStyle = "#888"; ctx.lineWidth = 6 * toolTop.scale; ctx.lineCap = "round"; ctx.stroke();
-
-	  for (const p of coolParticles) {
-	    const alpha = Math.max(0, 1 - p.life / p.maxLife);
-	    const pp = coolProject(p.x, p.y, p.z);
-	    ctx.beginPath();
-	    ctx.arc(pp.px, pp.py, Math.max(0.5, p.size * pp.scale), 0, Math.PI * 2);
-	    ctx.fillStyle = color + Math.floor(alpha * 200).toString(16).padStart(2, "0");
-	    ctx.fill();
-	  }
-	}
-
-	function updateCoolParticles() {
-	  if (!coolInfo || coolInfo.spray_type === "none") return;
-	  const speed = coolInfo.pressure_bar * 0.02;
-	  for (const p of coolParticles) {
-	    p.life += 0.016;
-	    if (p.life > p.maxLife) {
-	      p.life = 0; p.x = 0; p.y = -10; p.z = 0;
-	      p.vx = (Math.random() - 0.5) * 0.4; p.vy = 0.6 + Math.random() * 0.5; p.vz = (Math.random() - 0.5) * 0.4;
-	    }
-	    p.x += p.vx * speed; p.y += p.vy * speed; p.z += p.vz * speed;
-	    if (p.y > 25) { p.y = 25; p.vy *= -0.2; p.vx *= 1.5; }
-	  }
-	}
-
-	function coolAnimLoop() { updateCoolParticles(); renderCoolantScene(); coolAnimReq = requestAnimationFrame(coolAnimLoop); }
-
-	async function renderCoolant2D() {
-    const key = document.getElementById("coolant-select").value;
-    let info;
-    try { info = await invoke("get_coolant_visual_info", { coolantKey: key }); } catch (e) { return; }
-    if (!info) return;
-    
-    coolInfo = info;
-    document.getElementById("coolant-info-panel").classList.remove("hidden");
-    document.getElementById("ci-label").textContent = info.label;
-    document.getElementById("ci-mcode").textContent = info.m_code;
-    document.getElementById("ci-pressure").textContent = info.pressure_bar + " bar";
-    document.getElementById("ci-flow").textContent = info.flow_rate_l_min + " L/min";
-    document.getElementById("ci-nozzle").textContent = info.nozzle_count + "개";
-    document.getElementById("ci-spray").textContent = info.spray_type;
-    
-    initCoolParticles(info);
-    if (coolAnimReq) cancelAnimationFrame(coolAnimReq);
-    coolAnimLoop();
-  }
-
-	async function createCustomEndmill() {
-	  const name = document.getElementById("cm-name").value.trim();
-	  const model = document.getElementById("cm-model").value.trim();
-	  const diameterMm = parseFloat(document.getElementById("cm-dia").value);
-	  const fluteCount = parseInt(document.getElementById("cm-flutes").value);
-	  const locMm = parseFloat(document.getElementById("cm-loc").value);
-	  const oalMm = parseFloat(document.getElementById("cm-oal").value);
-	  const shankDiameterMm = parseFloat(document.getElementById("cm-shank").value);
-	  const helixAngleDeg = parseFloat(document.getElementById("cm-helix").value);
-	  const coatingName = document.getElementById("cm-coating").value.trim() || null;
-	  const isHighEnd = true;
-
-	  const box = document.getElementById("cm-result");
-	  box.classList.remove("hidden");
-
-	  if (!name || !model) {
-	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: 공구 이름과 모델명을 입력해주세요.</div>`;
-	    return;
-	  }
-	  if (isNaN(diameterMm) || diameterMm <= 0 || isNaN(fluteCount) || fluteCount <= 0) {
-	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: 직경과 날 수는 0보다 커야 합니다.</div>`;
-	    return;
-	  }
-	  if (isNaN(locMm) || isNaN(oalMm) || locMm <= 0 || oalMm <= 0) {
-	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: 유효 절삭 길이(LOC)와 전체 길이(OAL)를 확인해주세요.</div>`;
-	    return;
-	  }
-	  if (locMm > oalMm) {
-	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: 유효 절삭 길이(LOC)는 전체 길이(OAL)보다 클 수 없습니다.</div>`;
-	    return;
-	  }
-	  if (isNaN(shankDiameterMm) || shankDiameterMm <= 0 || isNaN(helixAngleDeg) || helixAngleDeg < 0) {
-	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: 샹크 직경과 헬릭스 각도를 확인해주세요.</div>`;
-	    return;
-	  }
-
-	  box.innerHTML = `<div style="color:var(--text-muted);font-size:0.75rem;">생성 중...</div>`;
-
-	  try {
-	    const result = await invoke("create_custom_endmill", {
-	      name, model, diameterMm, fluteCount, locMm, oalMm, shankDiameterMm, helixAngleDeg, coatingName, isHighEnd,
-	    });
-	    if (!result) return;
-	    
-	    box.innerHTML = `<div style="color:var(--success);font-size:0.75rem;">✓ ${result.name} 생성 완료</div>`;
-	    appendLog(`커스텀 공구 생성: ${result.model}`);
-	  } catch (e) {
-	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: ${e}</div>`;
-	  }
-	}
-
-  async function createCustomWorkpiece() {
-	  const name = document.getElementById("cw-name").value.trim();
-	  const materialKey = document.getElementById("cw-material").value;
-	  const shapeKey = document.getElementById("cw-shape").value;
-	  const widthMm = parseFloat(document.getElementById("cw-width").value);
-	  const heightMm = parseFloat(document.getElementById("cw-height").value);
-	  const thicknessMm = parseFloat(document.getElementById("cw-thickness").value);
-	  const clampingKey = document.getElementById("cw-clamping").value;
-	  const stockAllowanceMm = parseFloat(document.getElementById("cw-allowance").value);
-	  const hrcRaw = parseInt(document.getElementById("cw-hrc").value);
-	  const hardnessHrc = isNaN(hrcRaw) ? null : hrcRaw;
-	  const tolRaw = parseFloat(document.getElementById("cw-tol").value);
-	  const toleranceMm = isNaN(tolRaw) || tolRaw <= 0 ? null : tolRaw / 1000;
-	  
-	  const box = document.getElementById("cw-result");
-	  box.classList.remove("hidden");
-
-	  if (!name) {
-	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: 원소재 이름을 입력해주세요.</div>`;
-	    return;
-	  }
-	  if (isNaN(widthMm) || widthMm <= 0 || isNaN(heightMm) || heightMm <= 0 || isNaN(thicknessMm) || thicknessMm <= 0) {
-	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: 폭, 높이, 두께는 0보다 커야 합니다.</div>`;
-	    return;
-	  }
-	  if (isNaN(stockAllowanceMm) || stockAllowanceMm < 0) {
-	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: 여유량은 0 이상이어야 합니다.</div>`;
-	    return;
-	  }
-	  if (materialKey === "alloy_steel" && (hardnessHrc === null || hardnessHrc < 10 || hardnessHrc > 70)) {
-	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: 합금강·금형강은 경도(HRC 10~70)를 입력해주세요.</div>`;
-	    return;
-	  }
-
-	  box.innerHTML = `<div style="color:var(--text-muted);font-size:0.75rem;">생성 중...</div>`;
-
-	  try {
-	    const result = await invoke("build_custom_workpiece", {
-	      name, materialKey, shapeKey, widthMm, heightMm, thicknessMm,
-	      clampingKey, stockAllowanceMm, hardnessHrc, toleranceMm,
-	    });
-	    if (!result) return;
-	    
-	    box.innerHTML = `
-	      <div class="result-row"><span class="rlabel">이름</span><span class="rvalue">${result.name}</span></div>
-	      <div class="result-row"><span class="rlabel">소재</span><span class="rvalue">${result.material}</span></div>
-	      <div class="result-row"><span class="rlabel">형상</span><span class="rvalue">${result.shape}</span></div>
-	      <div class="result-row"><span class="rlabel">크기</span><span class="rvalue">${result.width_mm}×${result.height_mm}×${result.thickness_mm} mm</span></div>
-	      <div class="result-row"><span class="rlabel">클램핑</span><span class="rvalue">${result.clamping}</span></div>
-	      <div class="result-row"><span class="rlabel">여유량</span><span class="rvalue">${result.stock_allowance_mm} mm</span></div>
-	      <div class="result-row"><span class="rlabel">체적</span><span class="rvalue">${result.volume_cm3.toFixed(2)} cm³</span></div>
-	      <div class="result-row"><span class="rlabel">표면조도</span><span class="rvalue">Ra ${result.surface_roughness_target_ra}</span></div>
-	      <div class="result-row"><span class="rlabel">치수 공차</span><span class="rvalue">±${(result.tolerance_mm * 1000).toFixed(0)} µm</span></div>
-	    `;
-	    appendLog(`원소재 생성: ${result.name}`);
-	  } catch (e) {
-	    box.innerHTML = `<div style="color:var(--danger);font-size:0.75rem;">오류: ${e}</div>`;
-	  }
-	}
 
   async function loadProfiles() {
     const profiles = await invoke("list_profiles");
@@ -2223,32 +3744,6 @@
 	    appendLog(`프로필 저장 실패: ${e}`);
 	  }
 	}
-
-	async function selectToolDetail(model) {
-    const settings = await invoke("list_mockup_settings");
-    if (!settings) return;
-    
-    const found = settings.find(s => s.model === model);
-    if (!found) return;
-    
-    const panel = document.getElementById("tool-spec-panel");
-    panel.innerHTML = `
-      <div style="font-size:0.78rem; font-weight:700; color:var(--accent); margin-bottom:6px;">
-        ${found.name} <span class="badge ${found.is_high_end ? 'badge-high' : 'badge-mid'}">${found.is_high_end ? '고급형' : '중가형'}</span>
-      </div>
-      <div class="spec-grid">
-        <div class="spec-item"><div class="label">모델</div><div class="value">${found.model}</div></div>
-        <div class="spec-item"><div class="label">직경</div><div class="value">${found.diameter_mm} mm</div></div>
-        <div class="spec-item"><div class="label">날 수</div><div class="value">${found.flute_count}</div></div>
-        <div class="spec-item"><div class="label">LOC</div><div class="value">${found.loc_mm} mm</div></div>
-        <div class="spec-item"><div class="label">OAL</div><div class="value">${found.oal_mm} mm</div></div>
-        <div class="spec-item"><div class="label">헬릭스</div><div class="value">${found.helix_angle_deg}°</div></div>
-        <div class="spec-item"><div class="label">코팅</div><div class="value">${found.coating_name || '없음'}</div></div>
-        <div class="spec-item"><div class="label">노즈</div><div class="value">${found.nose}</div></div>
-        <div class="spec-item"><div class="label">돌출 길이</div><div class="value">${found.stickout_mm.toFixed(1)} mm</div></div>
-      </div>
-    `;
-  }
 
   function renderWarnings(warnings) {
     const warnOut = document.getElementById('warnings-output');
@@ -2650,6 +4145,7 @@
 	  const st = await pvCall('models_load', { which });
 	  setStatus('ready', 'READY');
 	  pvRenderModels(st);
+	  mdlRefresh();
 	}
 
 	async function pvIngest() {
@@ -2674,13 +4170,12 @@
 	    cut_minutes: pvNum('pv-cutmin'),
 	    hardness_hrc: hrc === null ? null : Math.round(hrc),
 	  };
-	  setStatus('busy', 'INGEST...');
-	  for (const f of files) {
+	  const ingestOne = async (f) => {
 	    pvStatus(`${f.name} 처리 중...`);
 	    let dataB64;
-	    try { dataB64 = await pvReadB64(f); } catch (e) { pvStatus(`${f.name} 읽기 실패: ${e}`); continue; }
+	    try { dataB64 = await pvReadB64(f); } catch (e) { pvStatus(`${f.name} 읽기 실패: ${e}`); return; }
 	    const out = await pvCall('ws_ingest', { name: f.name, dataB64, options });
-	    if (!out) continue;
+	    if (!out) return;
 	    pvLogLines('pv-ingest-log', [
 	      `■ ${f.name} → ${out.doc.kind_label} · 완결성 ${Math.round(out.doc.completeness * 100)}%${out.doc.duplicate ? ' · 재입력(보정 원장 재기록 안 함)' : ''}`,
 	      ...out.doc.applied.map(a => '  ✓ ' + a),
@@ -2692,6 +4187,27 @@
 	    if (out.mold_image) { PV.moldImage = out.mold_image; pvRenderMoldSurface(); }
 	    if (out.mold_geometry) pvAbsorbMold(out.mold_geometry);
 	    if (out.wall) { PV.wall = out.wall; pvRenderWall(); }
+	  };
+	  const needs = {};
+	  for (const f of files) {
+	    try { needs[f.name] = await invoke('ingest_needs', { name: f.name, options }) || []; } catch (e) { needs[f.name] = []; }
+	  }
+	  const plain = files.filter(f => !needs[f.name].length);
+	  const heavy = files.filter(f => needs[f.name].length);
+	  setStatus('busy', 'INGEST...');
+	  for (const f of plain) await ingestOne(f);
+	  if (heavy.length) {
+	    const keys = Array.from(new Set(heavy.flatMap(f => needs[f.name])));
+	    pvStatus(`${heavy.map(f => f.name).join(', ')} — ${keys.map(k => MODEL_LABEL[k] || k).join(', ')} 모델 준비를 기다립니다 (진행률: 상단 '⚙ 모델·환경' > 모델 대기 작업)`);
+	    pvLogLines('pv-ingest-log', [`… ${heavy.length}건은 ${keys.map(k => MODEL_LABEL[k] || k).join(', ')} 모델이 준비되면 자동으로 이어서 처리합니다`]);
+	    setStatus('idle', 'WAITING MODEL');
+	    const g = await requireModels(keys, `문서 입력: ${heavy.map(f => f.name).join(', ')}`, { optional: false });
+	    if (g.ok) {
+	      setStatus('busy', 'INGEST...');
+	      for (const f of heavy) await ingestOne(f);
+	    } else {
+	      pvLogLines('pv-ingest-log', [`✗ 모델 준비가 취소되어 ${heavy.length}건을 처리하지 않았습니다`]);
+	    }
 	  }
 	  setStatus('ready', 'READY');
 	  pvRefresh();
@@ -3056,6 +4572,10 @@
 	  const key = document.getElementById('pv-ts-key').value;
 	  if (!key) { pvStatus('예측할 시계열이 없습니다 (측정 로그 또는 누적 절삭 시간이 있는 현재 공구 이미지를 입력하세요)'); return; }
 	  const horizon = parseInt(document.getElementById('pv-ts-h').value) || 16;
+	  setStatus('idle', 'WAITING MODEL');
+	  const g = await requireModels(['ttm'], '시계열 예측', { optional: true });
+	  if (g.cancelled) { setStatus('ready', 'READY'); pvStatus('예측을 취소했습니다'); return; }
+	  if (g.fallback) pvStatus('TTM-R3 없이 Holt 감쇠 추세 + 물리 사전식으로 예측합니다');
 	  setStatus('busy', 'FORECAST...');
 	  const f = await pvCall('ws_forecast', { key, horizon });
 	  setStatus('ready', 'READY');
@@ -3091,8 +4611,15 @@
 	}
 
 	async function pvDecide() {
+	  let useAdvisor = document.getElementById('pv-use-adv').checked;
+	  if (useAdvisor) {
+	    setStatus('idle', 'WAITING MODEL');
+	    const g = await requireModels(['laya'], '판단 조언', { optional: true });
+	    if (g.cancelled) { setStatus('ready', 'READY'); pvStatus('판단을 취소했습니다'); return; }
+	    if (g.fallback) { useAdvisor = false; pvStatus('laya 없이 결정적 안전 게이트만으로 판단합니다'); }
+	  }
 	  setStatus('busy', 'DECIDING...');
-	  const rep = await pvCall('ws_decide', { useAdvisor: document.getElementById('pv-use-adv').checked });
+	  const rep = await pvCall('ws_decide', { useAdvisor });
 	  setStatus('ready', 'READY');
 	  if (!rep) return;
 	  PV.decision = rep;
@@ -3508,12 +5035,9 @@
 	  });
 	}
 
-	window.addEventListener("DOMContentLoaded", () => {
-	  loadLeftPanel();
+	window.addEventListener("DOMContentLoaded", async () => {
 	  switchView('machining', document.querySelector('.menu-btn.active'));
 	  resizeCanvas();
-	  resizeCoolantCanvas();
-	  renderToolpath2D();
 	  window.addEventListener("resize", resizeCanvas);
 
 	  const vpWrap = document.querySelector('.viewport-canvas-wrap');
@@ -3522,20 +5046,12 @@
 	  });
 	  ro.observe(vpWrap);
 
-	  const coolWrap = document.querySelector('.coolant-viz-wrap');
-	  if (coolWrap) {
-	    const coolRo = new ResizeObserver(() => {
-	      resizeCoolantCanvas();
-	    });
-	    coolRo.observe(coolWrap);
-	  }
-
 	  const tpCanvas = document.getElementById("tp-canvas");
 	  tpCanvas.addEventListener("wheel", (e) => {
 	    e.preventDefault();
 	    tpRotX += e.deltaY * 0.003;
 	    tpRotX = Math.max(-Math.PI / 2, Math.min(0.1, tpRotX));
-	    if (tpData.length) renderToolpath3D();
+	    if (tpData.length && !VP.playing) renderViewport();
 	  }, { passive: false });
 	  tpCanvas.addEventListener("mousedown", (e) => { tpDragging = true; tpLastMX = e.clientX; tpLastMY = e.clientY; });
 	  window.addEventListener("mousemove", (e) => {
@@ -3544,21 +5060,24 @@
 	    tpRotX += (e.clientY - tpLastMY) * 0.005;
 	    tpRotX = Math.max(-Math.PI / 2, Math.min(0.1, tpRotX));
 	    tpLastMX = e.clientX; tpLastMY = e.clientY;
-	    if (tpData.length) renderToolpath3D();
+	    if (tpData.length && !VP.playing) renderViewport();
 	  });
 	  window.addEventListener("mouseup", () => { tpDragging = false; });
 	  tpCanvas.addEventListener("dblclick", resetViewport);
 
-	  const coolCanvas = document.getElementById("coolant-canvas");
-	  coolCanvas.addEventListener("mousedown", (e) => { coolDragging = true; coolLastX = e.clientX; coolLastY = e.clientY; });
-	  window.addEventListener("mousemove", (e) => {
-	    if (!coolDragging) return;
-	    coolRotY += (e.clientX - coolLastX) * 0.008;
-	    coolRotX += (e.clientY - coolLastY) * 0.005;
-	    coolLastX = e.clientX; coolLastY = e.clientY;
-	  });
-	  window.addEventListener("mouseup", () => { coolDragging = false; });
-
+	  await stLoadSettings();
+	  await loadLeftPanel();
+	  const first = document.querySelector('#preset-tree .tree-item.active');
+	  if (first) {
+	    document.getElementById('sb-profile').textContent = first.dataset.name;
+	    try { await invoke('ws_select_profile', { profileName: first.dataset.name }); } catch (e) { appendLog(`프로필 선택 실패: ${e}`); }
+	  }
+	  await refreshProfileContext({ recalc: false });
+	  await loadLeftPanel();
+	  renderToolpath2D();
+	  toolFormChanged();
+	  mqRender();
+	  mdlRefresh().then(cat => { if (cat && cat.any_active) stEnsurePoll(); });
 	  appendLog("워크스페이스 초기화 완료");
 	});
 	</script>

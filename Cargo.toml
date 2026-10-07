@@ -16,8 +16,9 @@ base64 = "0.22"
 regex = "1"
 rusqlite = { version = "0.40", features = ["bundled"] }
 lancedb = { version = "0.39", features = ["remote"] }
-tokio = { version = "1", features = ["rt-multi-thread"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
 futures = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots"] }
 
 [features]
 default = []

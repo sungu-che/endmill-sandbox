@@ -48,6 +48,9 @@ pub fn purpose_key(p: Purpose) -> &'static str {
 }
 
 pub fn default_purpose(p: &MachiningProfile) -> Purpose {
+    if let Some(k) = p.purpose.as_deref().filter(|k| !k.trim().is_empty()) {
+        return purpose_from_key(k);
+    }
     let d = p.endmill_setting.diameter_mm;
     if p.workpiece_setup.effective_tolerance_mm() <= 0.02 && p.conditions.radial_doc_mm <= 0.15 * d {
         Purpose::Finishing
@@ -170,6 +173,23 @@ pub fn shrink_heightmap(h: &HeightmapView, max_side: usize) -> HeightmapView {
     }
 }
 
+pub fn ingest_model_needs(name: &str, opt: &IngestOptions) -> Vec<String> {
+    let lower = name.to_lowercase();
+    let is_image = [".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"].iter().any(|e| lower.ends_with(e));
+    let geometry_role = matches!(opt.role.as_deref(), Some("nominal") | Some("measured"));
+    let hint = opt.hint.as_deref().and_then(DocKind::from_key);
+    let kind = match hint {
+        Some(k) => Some(k),
+        None if is_image && geometry_role => Some(DocKind::MoldDepth),
+        None if is_image => Some(DocKind::ToolImage),
+        None => None,
+    };
+    match kind {
+        Some(DocKind::ToolImage) | Some(DocKind::MoldImage) => vec!["siglip".into()],
+        _ => Vec::new(),
+    }
+}
+
 pub fn trim_sim(r: &LoadSimReport) -> LoadSimReport {
     let mut out = r.clone();
     let stride = ((out.samples.len() + 999) / 1000).max(1);
@@ -271,6 +291,50 @@ impl Models {
 
     pub fn set_root(&mut self, root: &Path) {
         *self = Self::new(root);
+    }
+
+    pub fn is_loaded(&self, key: &str) -> bool {
+        match key {
+            "siglip" => self.siglip.is_some(),
+            "ttm" => self.ttm.is_some(),
+            "laya" => self.laya.is_some(),
+            _ => false,
+        }
+    }
+
+    pub fn unload(&mut self, key: &str) -> bool {
+        let was = self.is_loaded(key);
+        match key {
+            "siglip" => {
+                self.siglip = None;
+                self.tool_bank = None;
+                self.mold_bank = None;
+            }
+            "ttm" => self.ttm = None,
+            "laya" => self.laya = None,
+            _ => {}
+        }
+        self.dirs.remove(key);
+        self.errors.remove(key);
+        was
+    }
+
+    pub fn detected_dir(&self, key: &str) -> Option<PathBuf> {
+        match key {
+            "siglip" => locate(&self.root, SIGLIP_KEYWORD, &|d: &Path| d.join("config.json").exists()).into_iter().next(),
+            "ttm" => locate(&self.root, TTM_KEYWORD, &|d: &Path| d.join("config.json").exists()).into_iter().next(),
+            "laya" => locate(&self.root, LAYA_KEYWORD, &|d: &Path| d.join("encoder").join("config.json").exists()).into_iter().next(),
+            _ => None,
+        }
+    }
+
+    pub fn load(&mut self, key: &str) -> Result<String, String> {
+        match key {
+            "siglip" => self.load_siglip(),
+            "ttm" => self.load_ttm(),
+            "laya" => self.load_laya(),
+            other => Err(format!("알 수 없는 모델: {}", other)),
+        }
     }
 
     pub fn load_siglip(&mut self) -> Result<String, String> {
@@ -847,6 +911,13 @@ impl Workspace {
         if tool_changed {
             self.tool_wear = None;
             self.last_state = None;
+        }
+    }
+
+    pub fn set_environment(&mut self, env: &crate::profile::ShopEnvironment) {
+        if &self.profile.machine.environment != env {
+            self.profile.machine.environment = env.clone();
+            self.invalidate_process();
         }
     }
 
