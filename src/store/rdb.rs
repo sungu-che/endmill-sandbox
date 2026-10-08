@@ -7,7 +7,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS meta(
@@ -156,6 +156,133 @@ CREATE TABLE IF NOT EXISTS life_marks(
   life_min REAL NOT NULL,
   PRIMARY KEY(series_id, episode)
 );
+CREATE TABLE IF NOT EXISTS tool_instances(
+  id INTEGER PRIMARY KEY,
+  slot_key TEXT NOT NULL,
+  geom_key TEXT NOT NULL DEFAULT '',
+  endmill_id INTEGER REFERENCES endmills(id) ON DELETE SET NULL,
+  label TEXT NOT NULL,
+  generation INTEGER NOT NULL,
+  vb_band_mm REAL NOT NULL DEFAULT 0,
+  vb_max_mm REAL NOT NULL DEFAULT 0,
+  cut_min REAL NOT NULL DEFAULT 0,
+  removed_cm3 REAL NOT NULL DEFAULT 0,
+  jobs INTEGER NOT NULL DEFAULT 0,
+  field_json TEXT NOT NULL DEFAULT '',
+  history_json TEXT NOT NULL DEFAULT '[]',
+  anchor_um REAL,
+  pred_base_um REAL NOT NULL DEFAULT 0,
+  last_measured_um REAL,
+  last_ap_mm REAL NOT NULL DEFAULT 0,
+  thermal_damage REAL NOT NULL DEFAULT 0,
+  life_used_max REAL NOT NULL DEFAULT 0,
+  pending_job_id INTEGER,
+  version INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  retired_at INTEGER,
+  retire_reason TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_tool_active ON tool_instances(slot_key) WHERE retired_at IS NULL;
+CREATE TABLE IF NOT EXISTS jobs(
+  id INTEGER PRIMARY KEY,
+  project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  profile_name TEXT NOT NULL,
+  pattern TEXT NOT NULL,
+  stamp TEXT NOT NULL,
+  parent_job_id INTEGER REFERENCES jobs(id) ON DELETE SET NULL,
+  root_job_id INTEGER REFERENCES jobs(id) ON DELETE SET NULL,
+  tool_instance_id INTEGER REFERENCES tool_instances(id) ON DELETE SET NULL,
+  endmill_id INTEGER REFERENCES endmills(id) ON DELETE SET NULL,
+  workpiece_id INTEGER REFERENCES workpieces(id) ON DELETE SET NULL,
+  material_key TEXT NOT NULL,
+  coating_family TEXT NOT NULL,
+  coolant TEXT NOT NULL,
+  final_action TEXT NOT NULL,
+  decided_by TEXT NOT NULL,
+  vb_start_mm REAL NOT NULL,
+  vb_end_mm REAL NOT NULL,
+  report_line TEXT NOT NULL,
+  summary_json TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_jobs_project ON jobs(project_id, created_at);
+CREATE INDEX IF NOT EXISTS ix_jobs_tool ON jobs(tool_instance_id, created_at);
+CREATE INDEX IF NOT EXISTS ix_jobs_root ON jobs(root_job_id);
+CREATE TABLE IF NOT EXISTS job_passes(
+  job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  pass INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  action TEXT NOT NULL,
+  cut_min REAL NOT NULL,
+  removed_cm3 REAL NOT NULL,
+  vb_start_mm REAL NOT NULL,
+  vb_end_mm REAL NOT NULL,
+  radial_end_um REAL NOT NULL,
+  residual_p50_um REAL,
+  residual_p90_um REAL,
+  max_temp_c REAL,
+  max_force_n REAL,
+  chatter_fraction REAL,
+  chatter_wear REAL,
+  committed INTEGER NOT NULL DEFAULT 1,
+  field_json TEXT NOT NULL DEFAULT '',
+  metrics_json TEXT NOT NULL DEFAULT '{}',
+  PRIMARY KEY(job_id, pass)
+);
+CREATE TABLE IF NOT EXISTS tool_wear_events(
+  id INTEGER PRIMARY KEY,
+  tool_instance_id INTEGER NOT NULL REFERENCES tool_instances(id) ON DELETE CASCADE,
+  job_id INTEGER REFERENCES jobs(id) ON DELETE SET NULL,
+  kind TEXT NOT NULL,
+  cut_min_after REAL NOT NULL,
+  vb_before_mm REAL NOT NULL,
+  vb_after_mm REAL NOT NULL,
+  radial_um REAL,
+  source TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_wear_events_tool ON tool_wear_events(tool_instance_id, created_at);
+CREATE TABLE IF NOT EXISTS cut_records(
+  id INTEGER PRIMARY KEY,
+  job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  pass INTEGER NOT NULL,
+  tool_instance_id INTEGER,
+  endmill_id INTEGER,
+  tool_label TEXT NOT NULL DEFAULT '',
+  material_key TEXT NOT NULL,
+  coating_family TEXT NOT NULL,
+  coolant TEXT NOT NULL,
+  diameter_mm REAL NOT NULL,
+  flutes INTEGER NOT NULL,
+  helix_deg REAL NOT NULL,
+  nose TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  ap_mm REAL NOT NULL,
+  ae_mm REAL NOT NULL,
+  phi_st_deg REAL NOT NULL,
+  phi_ex_deg REAL NOT NULL,
+  engage_deg REAL NOT NULL,
+  vc_m_min REAL NOT NULL,
+  fz_mm REAL NOT NULL,
+  h_mean_um REAL NOT NULL,
+  t_cut_s REAL NOT NULL,
+  removed_mm3 REAL NOT NULL,
+  temp_c REAL NOT NULL,
+  force_n REAL NOT NULL,
+  chatter_min REAL NOT NULL,
+  chatter_wear REAL NOT NULL,
+  vb_start_mm REAL NOT NULL,
+  dvb_mm REAL NOT NULL,
+  vb_rate_um_min REAL NOT NULL,
+  flute_shares TEXT NOT NULL DEFAULT '[]',
+  measured_ratio REAL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_cut_records_key ON cut_records(material_key, coating_family, flutes);
+CREATE INDEX IF NOT EXISTS ix_cut_records_job ON cut_records(job_id, pass);
 "#;
 
 fn err(e: rusqlite::Error) -> String {
@@ -348,12 +475,53 @@ impl Rdb {
             self.conn.execute_batch("PRAGMA synchronous=NORMAL;").map_err(err)?;
         }
         self.conn.execute_batch("PRAGMA foreign_keys=ON;").map_err(err)?;
+        self.upgrade_columns()?;
         self.conn.execute_batch(SCHEMA).map_err(err)?;
-        let v: Option<String> = self.meta("schema_version")?;
-        if v.is_none() {
+        let v: i64 = self.meta("schema_version")?.and_then(|s| s.parse().ok()).unwrap_or(0);
+        if v < SCHEMA_VERSION {
             self.set_meta("schema_version", &SCHEMA_VERSION.to_string())?;
         }
         Ok(())
+    }
+
+    fn upgrade_columns(&self) -> Result<(), String> {
+        let columns = |table: &str| -> Result<Vec<String>, String> {
+            let mut st = self.conn.prepare(&format!("PRAGMA table_info({})", table)).map_err(err)?;
+            let rows = st.query_map([], |r| r.get::<_, String>(1)).map_err(err)?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(err)
+        };
+        let tool = columns("tool_instances")?;
+        if !tool.is_empty() {
+            if tool.iter().any(|c| c == "attr_key") && !tool.iter().any(|c| c == "slot_key") {
+                self.conn.execute_batch("ALTER TABLE tool_instances RENAME COLUMN attr_key TO slot_key;").map_err(err)?;
+                self.conn
+                    .execute(
+                        "UPDATE tool_instances SET retired_at = ?1, retire_reason = '공구 슬롯 방식 변경(사양 키 → 프리셋 키)으로 은퇴' WHERE retired_at IS NULL AND slot_key NOT LIKE 'profile:%'",
+                        params![now_ms()],
+                    )
+                    .map_err(err)?;
+            }
+            for (name, def) in [
+                ("geom_key", "TEXT NOT NULL DEFAULT ''"),
+                ("thermal_damage", "REAL NOT NULL DEFAULT 0"),
+                ("life_used_max", "REAL NOT NULL DEFAULT 0"),
+                ("pending_job_id", "INTEGER"),
+                ("version", "INTEGER NOT NULL DEFAULT 0"),
+            ] {
+                if !tool.iter().any(|c| c == name) {
+                    self.conn.execute_batch(&format!("ALTER TABLE tool_instances ADD COLUMN {} {};", name, def)).map_err(err)?;
+                }
+            }
+        }
+        let jobs = columns("jobs")?;
+        if !jobs.is_empty() && !jobs.iter().any(|c| c == "root_job_id") {
+            self.conn.execute_batch("ALTER TABLE jobs ADD COLUMN root_job_id INTEGER;").map_err(err)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn conn(&self) -> &Connection {
+        &self.conn
     }
 
     pub fn meta(&self, key: &str) -> Result<Option<String>, String> {
@@ -1245,3 +1413,4 @@ mod tests {
         assert!(db.is_seen("fp1").unwrap());
     }
 }
+

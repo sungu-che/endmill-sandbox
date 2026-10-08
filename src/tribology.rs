@@ -436,7 +436,10 @@ pub fn tribofilm_factor(coat: &CoatingTribology, chem: WpChem, t_c: f64) -> f64 
 }
 
 pub fn pair(tool: &ToolGeometry, wp: &WorkpieceProps, t_c: f64) -> PairTribology {
-    let coat = &tool.coating;
+    pair_coat(&tool.coating, wp, t_c)
+}
+
+pub fn pair_coat(coat: &CoatingTribology, wp: &WorkpieceProps, t_c: f64) -> PairTribology {
     let c = &coat.chem;
     let m_adh = adhesion_modifier(c, wp.chem);
     let film = tribofilm_factor(coat, wp.chem, t_c);
@@ -703,6 +706,8 @@ pub struct ThermalShock {
     pub mismatch_mpa: f64,
     #[serde(default)]
     pub coating_risk: f64,
+    #[serde(default)]
+    pub severity: f64,
 }
 
 pub fn thermal_shock(ctx: &CutContext, wet_c: f64, h_eff: f64, barrier_rel: f64, interrupted: bool) -> ThermalShock {
@@ -726,6 +731,7 @@ pub fn thermal_shock(ctx: &CutContext, wet_c: f64, h_eff: f64, barrier_rel: f64,
         risk: 1.0 - (1.0 - substrate_risk) * (1.0 - 0.5 * coating_risk),
         mismatch_mpa: mismatch,
         coating_risk,
+        severity,
     }
 }
 
@@ -756,9 +762,13 @@ pub fn arrhenius(wp: &WorkpieceProps, t_c: f64) -> f64 {
 }
 
 pub fn oxidation_environment(ctx: &CutContext) -> f64 {
+    oxidation_environment_coat(ctx, &ctx.tool.coating)
+}
+
+pub fn oxidation_environment_coat(ctx: &CutContext, coat: &CoatingTribology) -> f64 {
     crate::environment::oxidation_factor(ctx) * match ctx.coolant.method {
         CoolantMethod::Flood | CoolantMethod::ThroughTool => {
-            if ctx.tool.coating.protective_oxide {
+            if coat.protective_oxide {
                 1.05
             } else {
                 1.3
@@ -771,12 +781,17 @@ pub fn oxidation_environment(ctx: &CutContext) -> f64 {
 }
 
 pub fn mechanism_raw(ctx: &CutContext, t_c: f64, stress: f64, slide: f64, duty_ratio: f64, bue: f64, access: f64) -> [f64; 4] {
-    let p = pair(&ctx.tool, &ctx.wp, t_c);
+    mechanism_raw_coat(ctx, &ctx.tool.coating, t_c, stress, slide, duty_ratio, bue, access)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn mechanism_raw_coat(ctx: &CutContext, coat: &CoatingTribology, t_c: f64, stress: f64, slide: f64, duty_ratio: f64, bue: f64, access: f64) -> [f64; 4] {
+    let p = pair_coat(coat, &ctx.wp, t_c);
     [
         stress * slide * p.abrasion,
         stress * slide * p.adhesion * (1.0 + bue) * (1.0 - 0.6 * access.clamp(0.0, 1.0)),
         stress * slide * p.diffusion * arrhenius(&ctx.wp, t_c),
-        (0.15 + p.oxidation * oxidation_environment(ctx)) * duty_ratio.max(0.0).sqrt(),
+        (0.15 + p.oxidation * oxidation_environment_coat(ctx, coat)) * duty_ratio.max(0.0).sqrt(),
     ]
 }
 
@@ -1016,3 +1031,4 @@ pub fn regime_vector(ctx: &CutContext, rep: &TribologyReport, shares: &[f64], vc
 }
 
 pub const REGIME_DIM: usize = 16;
+

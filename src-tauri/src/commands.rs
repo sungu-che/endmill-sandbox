@@ -203,6 +203,8 @@ use endmill_model::modelhub::{DownloadJob, InstallStatus, ModelFile, ModelHub};
 use endmill_model::viewport::{CoolantVisual, ViewportSim};
 use endmill_model::wearcomp::{CompOptions, CompOutcome};
 use endmill_model::wearlog::WearLog;
+use endmill_model::store::jobs::{JobDetail, JobInput, JobRow, ToolInstanceRow, WearEventRow};
+use endmill_model::toolwear::{RefSummary, ToolStart, WearSummary};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub struct Shared {
@@ -264,6 +266,10 @@ pub struct UiSettings {
     pub show_coolant: bool,
     #[serde(default = "yes")]
     pub show_heat: bool,
+    #[serde(default = "yes")]
+    pub show_depth: bool,
+    #[serde(default = "yes")]
+    pub show_wear: bool,
 }
 
 impl Default for UiSettings {
@@ -273,7 +279,106 @@ impl Default for UiSettings {
             show_tool: true,
             show_coolant: true,
             show_heat: true,
+            show_depth: true,
+            show_wear: true,
         }
+    }
+}
+
+fn default_ramp_mode() -> String {
+    "auto".into()
+}
+
+fn default_palette() -> String {
+    "terrain".into()
+}
+
+fn default_mark() -> String {
+    "dots".into()
+}
+
+pub const VIZ_PALETTES: [&str; 4] = ["terrain", "thermal", "ocean", "mono"];
+pub const VIZ_MARKS: [&str; 3] = ["dots", "boxes", "lines"];
+
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct DepthRamp {
+    #[serde(default = "default_ramp_mode")]
+    pub mode: String,
+    #[serde(default)]
+    pub max_mm: f64,
+    #[serde(default = "default_palette")]
+    pub palette: String,
+    #[serde(default)]
+    pub contour_mm: f64,
+}
+
+impl Default for DepthRamp {
+    fn default() -> Self {
+        Self {
+            mode: default_ramp_mode(),
+            max_mm: 0.0,
+            palette: default_palette(),
+            contour_mm: 0.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct VizSettings {
+    #[serde(default)]
+    pub ramps: std::collections::BTreeMap<String, DepthRamp>,
+    #[serde(default = "default_mark")]
+    pub mark: String,
+    #[serde(default = "default_wear_palette")]
+    pub wear_palette: String,
+}
+
+fn default_wear_palette() -> String {
+    "thermal".into()
+}
+
+impl Default for VizSettings {
+    fn default() -> Self {
+        Self {
+            ramps: std::collections::BTreeMap::new(),
+            mark: default_mark(),
+            wear_palette: default_wear_palette(),
+        }
+    }
+}
+
+impl VizSettings {
+    pub fn validated(mut self) -> Result<Self, String> {
+        if !VIZ_MARKS.contains(&self.mark.as_str()) {
+            return Err(format!("깊이 표시 방식은 {:?} 중 하나여야 합니다", VIZ_MARKS));
+        }
+        if !VIZ_PALETTES.contains(&self.wear_palette.as_str()) {
+            return Err(format!("마모 색상표는 {:?} 중 하나여야 합니다", VIZ_PALETTES));
+        }
+        if self.ramps.len() > 64 {
+            return Err("피삭재별 깊이 색상 설정은 64개까지 저장할 수 있습니다".into());
+        }
+        for (k, r) in self.ramps.iter_mut() {
+            if k.trim().is_empty() || k.len() > 64 {
+                return Err("깊이 색상 설정의 피삭재 키가 올바르지 않습니다".into());
+            }
+            if r.mode != "auto" && r.mode != "fixed" {
+                return Err(format!("{}: 깊이 범위 방식은 auto 또는 fixed 여야 합니다", k));
+            }
+            if !VIZ_PALETTES.contains(&r.palette.as_str()) {
+                return Err(format!("{}: 색상표는 {:?} 중 하나여야 합니다", k, VIZ_PALETTES));
+            }
+            if !(r.max_mm.is_finite() && (0.0..=500.0).contains(&r.max_mm)) {
+                return Err(format!("{}: 최대 깊이는 0 ~ 500 mm 범위여야 합니다", k));
+            }
+            if !(r.contour_mm.is_finite() && (0.0..=100.0).contains(&r.contour_mm)) {
+                return Err(format!("{}: 등고선 간격은 0 ~ 100 mm 범위여야 합니다", k));
+            }
+            if r.mode == "fixed" && r.max_mm <= 0.0 {
+                return Err(format!("{}: 고정 범위에는 0 보다 큰 최대 깊이가 필요합니다", k));
+            }
+        }
+        Ok(self)
     }
 }
 
@@ -287,6 +392,10 @@ pub struct AppSettings {
     pub ui: UiSettings,
     #[serde(default)]
     pub comp: CompOptions,
+    #[serde(default)]
+    pub viz: VizSettings,
+    #[serde(default)]
+    pub dry_run: bool,
 }
 
 fn load_settings(data_dir: &std::path::Path) -> AppSettings {
@@ -2462,25 +2571,164 @@ pub async fn profile_delete(state: tauri::State<'_, AppState>, name: String) -> 
     .await
 }
 
+fn peek_tracked_tool(sh: &Shared, p: &MachiningProfile, ctx: &mut endmill_model::physics::CutContext) -> TrackedTool {
+    let id = endmill_model::store::jobs::tool_identity(p);
+    let row = lock(&sh.library).rdb.active_tool(&id.slot).ok().flatten().filter(|r| r.geom_key.is_empty() || r.geom_key == id.geom);
+    match row {
+        Some(row) => {
+            let start = row.start(&ctx.tool, p.conditions.axial_doc_mm);
+            ctx.tool.flank_wear_mm = start.vb_band_mm;
+            ctx.tool_age_min = start.cut_min.max(0.0);
+            TrackedTool {
+                endmill_id: row.endmill_id,
+                row: Some(row),
+                start: Some(start),
+                ..Default::default()
+            }
+        }
+        None => TrackedTool::default(),
+    }
+}
+
+fn viewport_key(p: &MachiningProfile, pattern: &str, tracked: &TrackedTool) -> String {
+    format!(
+        "{}|{}|{}|{:.6}|{}|{}",
+        serde_json::to_string(p).unwrap_or_default(),
+        pattern,
+        tracked.row.as_ref().map(|r| r.id).unwrap_or(0),
+        tracked.start.as_ref().map(|s| s.vb_band_mm).unwrap_or(0.0),
+        tracked.row.as_ref().map(|r| r.updated_at).unwrap_or(0),
+        tracked.row.as_ref().map(|r| r.version).unwrap_or(0)
+    )
+}
+
+fn fill_tool_view(v: &mut ViewportSim, tracked: &TrackedTool) {
+    if let Some(st) = tracked.start.as_ref() {
+        v.tool_wear.start = st.field.clone();
+        v.tool_wear.instance_id = st.instance_id;
+        v.tool_wear.generation = st.generation;
+        v.tool_wear.label = st.label.clone();
+        v.tool_wear.jobs = st.jobs;
+        v.tool_wear.cut_min = st.cut_min;
+        v.tool_wear.thermal_damage = st.thermal_damage;
+    }
+}
+
 #[tauri::command]
 pub async fn viewport_sim(state: tauri::State<'_, AppState>, profile_name: Option<String>, pattern_key: String) -> Result<ViewportSim, String> {
     blocking(&state, move |sh| {
         let p = profile_by_name(sh, profile_name.as_deref())?;
-        let key = format!("{}|{}", serde_json::to_string(&p).unwrap_or_default(), pattern_key);
+        let mut ctx = {
+            let sds = lock(&sh.sds);
+            endmill_model::pipeline::calibrated_context(&p, Some(&sds)).0
+        };
+        let tracked = peek_tracked_tool(sh, &p, &mut ctx);
+        let key = viewport_key(&p, &pattern_key, &tracked);
         if let Some((k, v)) = lock(&sh.viewport_cache).as_ref() {
             if *k == key {
                 return Ok(v.clone());
             }
         }
-        let ctx = {
-            let sds = lock(&sh.sds);
-            endmill_model::pipeline::calibrated_context(&p, Some(&sds)).0
-        };
-        let v = endmill_model::viewport::build_with_context(&p, &pattern_key, &ctx)?;
+        let mut v = endmill_model::viewport::build_with_context(&p, &pattern_key, &ctx)?;
+        fill_tool_view(&mut v, &tracked);
         *lock(&sh.viewport_cache) = Some((key, v.clone()));
         Ok(v)
     })
     .await
+}
+
+#[derive(Serialize, Clone)]
+pub struct ToolStateView {
+    pub instance: ToolInstanceRow,
+    pub summary: WearSummary,
+    pub events: Vec<WearEventRow>,
+    pub jobs: Vec<JobRow>,
+    pub lines: Vec<String>,
+    pub spec_changed: bool,
+    pub tool_name: String,
+    pub diameter_mm: f64,
+    pub flutes: u32,
+    pub loc_mm: f64,
+    pub helix_deg: f64,
+    pub clearance_deg: f64,
+    pub coating: String,
+    pub coating_um: f64,
+    pub coating_color: String,
+    pub ap_mm: f64,
+}
+
+fn tool_state_view(sh: &Shared, p: &MachiningProfile, row: ToolInstanceRow, lines: Vec<String>) -> Result<ToolStateView, String> {
+    let ctx = endmill_model::physics::CutContext::from_profile(p);
+    let ap = p.conditions.axial_doc_mm;
+    let field = row.field_for(&ctx.tool);
+    let summary = endmill_model::toolwear::summarize_state(&field, &ctx.tool, ap, ctx.vb_limit_mm(), row.thermal_damage, row.life_used_max);
+    let id = endmill_model::store::jobs::tool_identity(p);
+    let (events, jobs) = if row.id > 0 {
+        let lib = lock(&sh.library);
+        (lib.rdb.wear_events(row.id, 40)?, lib.rdb.jobs(None, Some(row.id), 20)?)
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    Ok(ToolStateView {
+        summary,
+        events,
+        jobs,
+        lines,
+        spec_changed: !row.geom_key.is_empty() && row.geom_key != id.geom,
+        tool_name: p.endmill_setting.name.clone(),
+        diameter_mm: ctx.tool.diameter_mm,
+        flutes: ctx.tool.flutes,
+        loc_mm: ctx.tool.loc_mm,
+        helix_deg: ctx.tool.helix_deg,
+        clearance_deg: ctx.tool.clearance_deg,
+        coating: ctx.tool.coating.family.clone(),
+        coating_um: ctx.tool.coating.thickness_um,
+        coating_color: endmill_model::viewport::ToolShape::of(p).color_hex,
+        ap_mm: ap,
+        instance: row,
+    })
+}
+
+#[tauri::command]
+pub async fn tool_state(state: tauri::State<'_, AppState>, profile_name: Option<String>) -> Result<ToolStateView, String> {
+    blocking(&state, move |sh| {
+        let p = profile_by_name(sh, profile_name.as_deref())?;
+        let row = lock(&sh.library).tool_for(&p)?;
+        tool_state_view(sh, &p, row, Vec::new())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn tool_state_reset(state: tauri::State<'_, AppState>, profile_name: Option<String>, reason: Option<String>) -> Result<ToolStateView, String> {
+    blocking(&state, move |sh| {
+        let p = profile_by_name(sh, profile_name.as_deref())?;
+        let reason = reason.map(|r| r.trim().chars().take(200).collect::<String>()).filter(|r| !r.is_empty()).unwrap_or_else(|| "작업자 리셋 (새 공구 장착)".into());
+        let (row, lines) = lock(&sh.library).reset_tool_for(&p, &reason)?;
+        *lock(&sh.viewport_cache) = None;
+        tool_state_view(sh, &p, row, lines)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn tool_instances(state: tauri::State<'_, AppState>, include_retired: Option<bool>) -> Result<Vec<ToolInstanceRow>, String> {
+    blocking(&state, move |sh| lock(&sh.library).rdb.list_tools(include_retired.unwrap_or(false), 200)).await
+}
+
+#[tauri::command]
+pub async fn job_records(state: tauri::State<'_, AppState>, limit: Option<i64>, all_projects: Option<bool>) -> Result<Vec<JobRow>, String> {
+    blocking(&state, move |sh| {
+        let lib = lock(&sh.library);
+        let scope = if all_projects.unwrap_or(false) { None } else { Some(lib.project_id) };
+        lib.rdb.jobs(scope, None, limit.unwrap_or(50).clamp(1, 500))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn job_record(state: tauri::State<'_, AppState>, id: i64) -> Result<JobDetail, String> {
+    blocking(&state, move |sh| lock(&sh.library).rdb.job_detail(id)?.ok_or_else(|| format!("가공 기록 #{} 이(가) 없습니다", id))).await
 }
 
 #[derive(Default)]
@@ -2507,6 +2755,98 @@ pub struct JobCache {
     pub segments: Vec<ToolPathSegment>,
     pub result: Arc<JobResult>,
     pub last_action: Option<String>,
+    pub job_id: Option<i64>,
+    pub tracked: TrackedTool,
+}
+
+#[derive(Clone, Default)]
+pub struct TrackedTool {
+    pub row: Option<ToolInstanceRow>,
+    pub start: Option<ToolStart>,
+    pub endmill_id: Option<i64>,
+    pub workpiece_id: Option<i64>,
+    pub note: Option<String>,
+}
+
+#[derive(Serialize, Clone)]
+pub struct ToolBrief {
+    pub instance_id: i64,
+    pub generation: i64,
+    pub label: String,
+    pub start_vb_mm: f64,
+    pub vb_band_mm: f64,
+    pub vb_max_mm: f64,
+    pub cut_min: f64,
+    pub jobs: i64,
+    pub vb_limit_mm: f64,
+    pub local_limit_mm: f64,
+    pub life_used: f64,
+    pub last_measured_um: Option<f64>,
+    pub notes: Vec<String>,
+    pub thermal_damage: f64,
+    pub life_used_max: f64,
+    pub pending_job_id: Option<i64>,
+}
+
+fn tool_brief(row: &ToolInstanceRow, start_vb: f64, s: &WearSummary) -> ToolBrief {
+    ToolBrief {
+        instance_id: row.id,
+        generation: row.generation,
+        label: row.label.clone(),
+        start_vb_mm: start_vb,
+        vb_band_mm: row.vb_band_mm,
+        vb_max_mm: row.vb_max_mm,
+        cut_min: row.cut_min,
+        jobs: row.jobs,
+        vb_limit_mm: s.vb_limit_mm,
+        local_limit_mm: s.local_limit_mm,
+        life_used: s.life_used,
+        last_measured_um: row.last_measured_um,
+        notes: s.notes.clone(),
+        thermal_damage: row.thermal_damage,
+        life_used_max: s.life_used_max,
+        pending_job_id: row.pending_job_id,
+    }
+}
+
+fn prepare_tracked_tool(sh: &Shared, p: &MachiningProfile, ctx: &mut endmill_model::physics::CutContext) -> TrackedTool {
+    let mut lib = lock(&sh.library);
+    let workpiece_id = lib.index_workpiece(&p.workpiece_setup).ok();
+    match lib.prepare_tool(p, ctx) {
+        Ok((row, start, changed)) => TrackedTool {
+            endmill_id: row.endmill_id,
+            note: Some(format!(
+                "{}{}",
+                changed.map(|c| format!("{} · ", c)).unwrap_or_default(),
+                if start.is_fresh() && row.id == 0 {
+                    format!("새 공구 ({}세대) 새 날로 시작", row.generation)
+                } else if start.is_fresh() {
+                    format!("공구 #{} ({}세대) 새 날로 시작", row.id, row.generation)
+                } else {
+                    format!(
+                        "공구 #{} ({}세대) 누적 상태 이어받기: 이전 작업 {}회 · 절삭 {:.1}분 · 시작 VB {:.3} mm (국부 최대 {:.3} mm) · 열피로 {:.2}{}{}",
+                        row.id,
+                        row.generation,
+                        row.jobs,
+                        row.cut_min,
+                        start.vb_band_mm,
+                        start.vb_max_mm,
+                        start.thermal_damage,
+                        row.last_measured_um.map(|m| format!(" · 마지막 실측 반경 {:.1} µm", m)).unwrap_or_default(),
+                        row.pending_job_id.map(|j| format!(" · 작업 #{} 의 공구 교체 결정 후 리셋 없음", j)).unwrap_or_default()
+                    )
+                }
+            )),
+            row: Some(row),
+            start: Some(start),
+            workpiece_id,
+        },
+        Err(e) => TrackedTool {
+            workpiece_id,
+            note: Some(format!("공구 개체 상태를 읽지 못해 새 날로 계산합니다: {}", e)),
+            ..Default::default()
+        },
+    }
 }
 
 #[derive(Serialize, Clone)]
@@ -2555,6 +2895,10 @@ pub struct JobResult {
     pub csv: String,
     pub settings: CompOptions,
     pub stamp: String,
+    pub job_id: Option<i64>,
+    pub tool: Option<ToolBrief>,
+    pub refs: Option<RefSummary>,
+    pub records: Vec<String>,
 }
 
 fn job_status(slot: &JobSlot) -> JobStatus {
@@ -2676,7 +3020,8 @@ fn run_job_inner(sh: &Arc<Shared>, id: u64, mode: JobMode, t_start: std::time::I
     let mut t0 = std::time::Instant::now();
     let mut opts = lock(&sh.settings).comp.clone();
     let replan = matches!(mode, JobMode::Replan { .. });
-    let (p, pattern, ctx, report, segments, view, calc, calc_error, segs1, program1, prev_action) = match mode {
+    let dry_run = lock(&sh.settings).dry_run;
+    let (p, pattern, ctx, report, segments, view, calc, calc_error, segs1, program1, prev_action, tracked, parent_job) = match mode {
         JobMode::Full { profile_name, pattern, overrides } => {
             if !job_set(sh, id, 1.0, "profile", "프로필·환경 확인") {
                 return Err(cancelled());
@@ -2694,10 +3039,23 @@ fn run_job_inner(sh: &Arc<Shared>, id: u64, mode: JobMode, t_start: std::time::I
                 }
             };
             mark("calc", &mut t0);
-            let ctx = {
+            let mut ctx = {
                 let sds = lock(&sh.sds);
                 endmill_model::pipeline::calibrated_context(&p, Some(&sds)).0
             };
+            let tracked = if dry_run {
+                let mut t = peek_tracked_tool(sh, &p, &mut ctx);
+                t.note = Some(match t.start.as_ref() {
+                    Some(st) => format!("시뮬레이션만 — 공구 #{} 의 누적 상태(VB {:.3} mm · 열피로 {:.2})를 읽기만 함", st.instance_id.unwrap_or(0), st.vb_band_mm, st.thermal_damage),
+                    None => "시뮬레이션만 — 기록된 공구 상태가 없거나 사양이 달라 새 날로 계산 (공구 개체는 바꾸지 않음)".into(),
+                });
+                t
+            } else {
+                prepare_tracked_tool(sh, &p, &mut ctx)
+            };
+            if let Some(n) = tracked.note.as_ref() {
+                lock(&sh.job).log.push(n.clone());
+            }
             if !job_set(sh, id, 8.0, "sim", "1. 계산 실행 — 1차 경로 물리 시뮬레이션") {
                 return Err(cancelled());
             }
@@ -2707,8 +3065,10 @@ fn run_job_inner(sh: &Arc<Shared>, id: u64, mode: JobMode, t_start: std::time::I
             })
             .map_err(|e| if lock(&sh.job).cancel.load(Ordering::Relaxed) { cancelled() } else { e })?;
             mark("sim", &mut t0);
-            let key = format!("{}|{}", serde_json::to_string(&p).unwrap_or_default(), pattern);
-            *lock(&sh.viewport_cache) = Some((key, view.clone()));
+            let key = viewport_key(&p, &pattern, &tracked);
+            let mut cached = view.clone();
+            fill_tool_view(&mut cached, &tracked);
+            *lock(&sh.viewport_cache) = Some((key, cached));
             let pat = ToolPathPattern::from_key(&pattern, &p)?;
             let program = GCodeGenerator::generate_gcode_with_pattern(&p, &pat);
             let metadata = GCodeGenerator::generate_metadata_with_pattern(&p, &pat);
@@ -2718,7 +3078,7 @@ fn run_job_inner(sh: &Arc<Shared>, id: u64, mode: JobMode, t_start: std::time::I
                 .as_ref()
                 .filter(|c| endmill_model::wearcomp::wear_scope(&c.profile).key_secondary() == endmill_model::wearcomp::wear_scope(&p).key_secondary())
                 .and_then(|c| c.last_action.clone());
-            (p, pattern, ctx, report, segments, view, calc, calc_error, segs1, program1, prev)
+            (p, pattern, ctx, report, segments, view, calc, calc_error, segs1, program1, prev, tracked, None)
         }
         JobMode::Replan { measured_radial_um } => {
             if !job_set(sh, id, 2.0, "cache", "재계획 — 직전 1차 시뮬레이션 재사용") {
@@ -2727,7 +3087,26 @@ fn run_job_inner(sh: &Arc<Shared>, id: u64, mode: JobMode, t_start: std::time::I
             opts.measured_radial_um = measured_radial_um;
             let cache = lock(&sh.job_cache);
             let c = cache.as_ref().ok_or_else(|| "먼저 재생(계산 실행)으로 1차 시뮬레이션을 만드세요".to_string())?;
+            if let Some(why) = replan_refusal(c, dry_run) {
+                return Err(why);
+            }
             let r = c.result.clone();
+            let mut tracked = c.tracked.clone();
+            tracked.row = match tracked.row.as_ref().map(|row| row.id) {
+                Some(tid) => match lock(&sh.library).rdb.tool_by_id(tid) {
+                    Ok(Some(row)) => {
+                        if row.retired_at.is_some() {
+                            tracked.note = Some(format!(
+                                "직전 작업 뒤 공구 #{} 가 리셋(교체)되어 2차를 새 공구 기준(공구 교체 후 보정)으로 다시 계획 — 1차는 옛 공구에 기록된 그대로 두고 2차만 새 공구에 기록",
+                                row.id
+                            ));
+                        }
+                        Some(row)
+                    }
+                    _ => None,
+                },
+                None => None,
+            };
             (
                 c.profile.clone(),
                 c.pattern.clone(),
@@ -2740,6 +3119,8 @@ fn run_job_inner(sh: &Arc<Shared>, id: u64, mode: JobMode, t_start: std::time::I
                 r.segments.clone(),
                 r.program1.clone(),
                 c.last_action.clone(),
+                tracked,
+                c.job_id,
             )
         }
     };
@@ -2763,7 +3144,7 @@ fn run_job_inner(sh: &Arc<Shared>, id: u64, mode: JobMode, t_start: std::time::I
     let log = {
         let models = lock(&sh.models);
         let sds = lock(&sh.sds);
-        endmill_model::wearcomp::analyze_job(&p, &ctx, &report, if opts.use_ttm { models.ttm.as_ref() } else { None }, &sds)
+        endmill_model::wearcomp::analyze_job_with(&p, &ctx, &report, if opts.use_ttm { models.ttm.as_ref() } else { None }, &sds, tracked.start.as_ref())
     };
     models_info.ttm_used = log.ttm_used;
     mark("wearlog", &mut t0);
@@ -2774,7 +3155,17 @@ fn run_job_inner(sh: &Arc<Shared>, id: u64, mode: JobMode, t_start: std::time::I
         let ws = lock(&sh.ws);
         if ws.profile.name == p.name { ws.tool_wear.clone() } else { None }
     };
-    let draft = endmill_model::wearcomp::evaluate(&p, &ctx, &report, &log, &opts, tool_image.as_ref());
+    let refs = {
+        let lib = lock(&sh.library);
+        let root = parent_job.and_then(|j| lib.rdb.root_of(j).ok());
+        endmill_model::store::jobs::reference_summary(&lib.rdb, &p, &ctx, &report.regimes, root, 8).ok()
+    };
+    let extra = endmill_model::wearcomp::EvalExtra {
+        tool: tracked.start.clone(),
+        refs: refs.clone(),
+        tool_replaced: replan && tracked.row.as_ref().map(|r| r.id > 0 && r.retired_at.is_some()).unwrap_or(false),
+    };
+    let draft = endmill_model::wearcomp::evaluate_with(&p, &ctx, &report, &log, &opts, tool_image.as_ref(), &extra);
     mark("plan", &mut t0);
     if !job_set(sh, id, 70.0, "laya", "4. laya-typed-decisions 확인") {
         return Err(cancelled());
@@ -2819,7 +3210,7 @@ fn run_job_inner(sh: &Arc<Shared>, id: u64, mode: JobMode, t_start: std::time::I
     };
     let csv = endmill_model::wearlog::bins_csv(&report.wear_log);
     let stamp = endmill_model::wearcomp::utc_stamp(endmill_model::wearcomp::now_ms());
-    let summary = serde_json::json!({
+    let compact = serde_json::json!({
         "stamp": stamp,
         "profile": p.name,
         "pattern": pattern,
@@ -2828,13 +3219,94 @@ fn run_job_inner(sh: &Arc<Shared>, id: u64, mode: JobMode, t_start: std::time::I
         "decision": comp.decision,
         "gates": comp.draft.gates,
         "residual": comp.draft.residual,
+        "after": { "p50_um": comp.after_p50_um, "min_um": comp.after_min_um, "max_um": comp.after_max_um },
+        "models": { "ttm": models_info.ttm, "laya": models_info.laya },
+        "refs": refs.as_ref().map(|r| r.lines.clone()).unwrap_or_default(),
+        "life": log.life,
+        "parts_left": { "p50": comp.parts_left_p50, "p90": comp.parts_left_p90, "source": comp.parts_source },
+    });
+    let mut record_lines: Vec<String> = tracked.note.iter().cloned().collect();
+    if !job_set(sh, id, 97.0, "record", "6. 가공 기록·공구 상태 저장") {
+        return Err(cancelled());
+    }
+    let (job_id, tool_after, handoff) = if dry_run {
+        record_lines.push("시뮬레이션만 모드 — 가공 기록과 공구 누적 마모를 저장하지 않음 (공구 상태는 읽기만)".into());
+        (None, tracked.row.clone().filter(|r| r.retired_at.is_none()), None)
+    } else {
+        let lib = lock(&sh.library);
+        let mut row = tracked.row.clone();
+        let input = JobInput {
+            project_id: lib.project_id,
+            profile: &p,
+            ctx: &ctx,
+            pattern: &pattern,
+            stamp: &stamp,
+            parent_job_id: parent_job,
+            endmill_id: tracked.endmill_id,
+            workpiece_id: tracked.workpiece_id,
+            report: &report,
+            log: &log,
+            comp: &comp,
+            replan,
+            summary: compact,
+        };
+        match endmill_model::store::jobs::record_job(&lib.rdb, row.as_mut(), &input) {
+            Ok(out) => {
+                record_lines.extend(out.lines.iter().cloned());
+                (Some(out.job_id), out.tool, out.handoff.map(|h| (h, out.handoff_vb_before_mm)))
+            }
+            Err(e) => {
+                record_lines.push(format!("가공 기록 저장 실패: {}", e));
+                (None, tracked.row.clone(), None)
+            }
+        }
+    };
+    if let Some(r) = refs.as_ref() {
+        record_lines.extend(r.lines.iter().cloned());
+    }
+    let shown = match (tool_after.as_ref(), handoff.as_ref()) {
+        (Some(row), _) => Some((row, tracked.start.as_ref().map(|s| s.vb_band_mm).unwrap_or(0.0))),
+        (None, Some((row, before))) => Some((row, *before)),
+        _ => None,
+    };
+    let tool = shown.map(|(row, start_vb)| {
+        let s = endmill_model::toolwear::summarize_state(&row.field_for(&ctx.tool), &ctx.tool, p.conditions.axial_doc_mm, ctx.vb_limit_mm(), row.thermal_damage, row.life_used_max);
+        tool_brief(row, start_vb, &s)
+    });
+    let summary = serde_json::json!({
+        "stamp": stamp,
+        "profile": p.name,
+        "pattern": pattern,
+        "replan": replan,
+        "job_id": job_id,
+        "tool": tool,
+        "report_line": comp.report_line,
+        "decision": comp.decision,
+        "gates": comp.draft.gates,
+        "residual": comp.draft.residual,
         "zones": comp.draft.zones,
         "after": { "p50_um": comp.after_p50_um, "min_um": comp.after_min_um, "max_um": comp.after_max_um },
         "wear_log": log,
         "models": { "ttm": models_info.ttm, "laya": models_info.laya },
+        "refs": refs,
         "program2": comp.program_text,
     });
     let files = endmill_model::wearcomp::save_job_files(&sh.data_dir.join("wear_logs"), &stamp, &p.name, &csv, &summary);
+    let mut view = view;
+    if let Some(st) = tracked.start.as_ref() {
+        view.tool_wear.start = st.field.clone();
+        view.tool_wear.instance_id = st.instance_id;
+        view.tool_wear.generation = st.generation;
+        view.tool_wear.label = st.label.clone();
+        view.tool_wear.jobs = st.jobs;
+        view.tool_wear.cut_min = st.cut_min;
+        view.tool_wear.thermal_damage = st.thermal_damage;
+    }
+    view.tool_wear.pass2 = if comp.decision.final_action.cuts() { comp.wear_field2.clone() } else { Default::default() };
+    view.tool_wear.tool_change = comp.decision.final_action == endmill_model::wearcomp::CompAction::ToolChange;
+    if let Some(b) = tool.as_ref() {
+        view.tool_wear.notes = b.notes.clone();
+    }
     mark("record", &mut t0);
     stages.push(("total".into(), t_start.elapsed().as_secs_f64()));
 
@@ -2877,7 +3349,15 @@ fn run_job_inner(sh: &Arc<Shared>, id: u64, mode: JobMode, t_start: std::time::I
         settings: opts.clone(),
         stamp,
         comp: comp.clone(),
+        job_id,
+        tool,
+        refs,
+        records: record_lines,
     });
+    let mut tracked_next = tracked;
+    if let Some(row) = tool_after {
+        tracked_next.row = Some(row);
+    }
     *lock(&sh.job_cache) = Some(JobCache {
         profile: p,
         pattern,
@@ -2886,6 +3366,8 @@ fn run_job_inner(sh: &Arc<Shared>, id: u64, mode: JobMode, t_start: std::time::I
         segments,
         result: result.clone(),
         last_action: Some(comp.decision.final_action.key().to_string()),
+        job_id: job_id.or(parent_job),
+        tracked: tracked_next,
     });
     Ok(result)
 }
@@ -2936,11 +3418,24 @@ pub fn sim_job_start(
     ))
 }
 
+fn replan_refusal(c: &JobCache, dry_run: bool) -> Option<String> {
+    if !dry_run && c.job_id.is_none() {
+        return Some("직전 계산은 가공 기록이 없습니다 ('시뮬레이션만' 모드였거나 기록 저장 실패) — 이 결과로 재계획하면 2차만 공구에 쌓이고 1차가 빠지므로, 계산 실행으로 다시 시작하세요".into());
+    }
+    None
+}
+
 #[tauri::command]
 pub fn sim_job_replan(state: tauri::State<'_, AppState>, measured_radial_um: Option<f64>) -> Result<JobStatus, String> {
     let sh = state.shared.clone();
+    let dry_run = lock(&sh.settings).dry_run;
     let key = match lock(&sh.job_cache).as_ref() {
-        Some(c) => c.result.key.clone(),
+        Some(c) => {
+            if let Some(why) = replan_refusal(c, dry_run) {
+                return Err(why);
+            }
+            c.result.key.clone()
+        }
         None => return Err("먼저 재생(계산 실행)으로 1차 시뮬레이션을 만드세요".into()),
     };
     if let Some(v) = measured_radial_um {
@@ -3017,6 +3512,8 @@ pub struct SettingsResponse {
     pub ui: UiSettings,
     pub comp: CompOptions,
     pub data_dir: String,
+    pub viz: VizSettings,
+    pub dry_run: bool,
 }
 
 fn settings_view(sh: &Shared) -> SettingsResponse {
@@ -3050,6 +3547,8 @@ fn settings_view(sh: &Shared) -> SettingsResponse {
         ui: s.ui.clone(),
         comp: s.comp.clone(),
         data_dir: sh.data_dir.display().to_string(),
+        viz: s.viz.clone(),
+        dry_run: s.dry_run,
     }
 }
 
@@ -3121,6 +3620,27 @@ pub async fn settings_set_models(
 pub async fn settings_set_ui(state: tauri::State<'_, AppState>, ui: UiSettings) -> Result<SettingsResponse, String> {
     blocking(&state, move |sh| {
         lock(&sh.settings).ui = ui;
+        save_settings(sh)?;
+        Ok(settings_view(sh))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn settings_set_dry_run(state: tauri::State<'_, AppState>, dry_run: bool) -> Result<SettingsResponse, String> {
+    blocking(&state, move |sh| {
+        lock(&sh.settings).dry_run = dry_run;
+        save_settings(sh)?;
+        Ok(settings_view(sh))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn settings_set_viz(state: tauri::State<'_, AppState>, viz: VizSettings) -> Result<SettingsResponse, String> {
+    blocking(&state, move |sh| {
+        let v = viz.validated()?;
+        lock(&sh.settings).viz = v;
         save_settings(sh)?;
         Ok(settings_view(sh))
     })

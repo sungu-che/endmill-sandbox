@@ -1,7 +1,7 @@
 use crate::loadsim::WearBin;
 use crate::ml::ttm::TtmForecaster;
 use crate::physics::WearTrajectory;
-use crate::timeseries::{holt_damped, ForecastResult, ThresholdCross};
+use crate::timeseries::{holt_damped, ForecastResult, Series, ThresholdCross};
 use serde::{Deserialize, Serialize};
 
 pub const LOG_POINTS: usize = 64;
@@ -76,6 +76,44 @@ pub struct WearLog {
     pub per_part_vb_p50_mm: Option<f64>,
     pub per_part_vb_p90_mm: Option<f64>,
     pub notes: Vec<String>,
+    #[serde(default)]
+    pub vb_start_mm: f64,
+    #[serde(default)]
+    pub prior_points: usize,
+    #[serde(default)]
+    pub life: Option<LifeForecast>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct LifeForecast {
+    pub method: String,
+    pub step_min: f64,
+    pub history_n: usize,
+    pub t_now_min: f64,
+    pub vb_now_mm: f64,
+    pub limit_mm: f64,
+    pub cross_p50_min: Option<f64>,
+    pub cross_p90_min: Option<f64>,
+    pub horizon_min: f64,
+    pub series_t_min: Vec<f64>,
+    pub series_vb_mm: Vec<f64>,
+    pub future_t_min: Vec<f64>,
+    pub future_p50_mm: Vec<f64>,
+    pub future_p90_mm: Vec<f64>,
+    pub notes: Vec<String>,
+}
+
+impl LifeForecast {
+    pub fn cross_with_offset(&self, offset_mm: f64, cautious: bool) -> Option<f64> {
+        if self.vb_now_mm + offset_mm >= self.limit_mm {
+            return Some(0.0);
+        }
+        let v = if cautious { &self.future_p90_mm } else { &self.future_p50_mm };
+        v.iter()
+            .zip(self.future_t_min.iter())
+            .find(|(x, _)| **x + offset_mm >= self.limit_mm)
+            .map(|(_, t)| (t - self.t_now_min).max(0.0))
+    }
 }
 
 struct Uniform {
@@ -91,12 +129,12 @@ struct Uniform {
     wp: Vec<f64>,
 }
 
-fn interp_at(ts: &[f64], ys: &[f64], t: f64) -> f64 {
+fn interp_at(ts: &[f64], ys: &[f64], t: f64, y0: f64) -> f64 {
     if ts.is_empty() {
-        return 0.0;
+        return y0;
     }
     if t <= ts[0] {
-        return ys[0] * (t / ts[0].max(1e-12)).clamp(0.0, 1.0);
+        return y0 + (ys[0] - y0) * (t / ts[0].max(1e-12)).clamp(0.0, 1.0);
     }
     let i = ts.partition_point(|x| *x < t);
     if i >= ts.len() {
@@ -106,7 +144,7 @@ fn interp_at(ts: &[f64], ys: &[f64], t: f64) -> f64 {
     ys[i - 1] + (ys[i] - ys[i - 1]) * (t - t0) / (t1 - t0).max(1e-12)
 }
 
-fn resample(bins: &[WearBin], n: usize) -> Uniform {
+fn resample(bins: &[WearBin], n: usize, vb0: f64, radial0: f64) -> Uniform {
     let total = bins.last().map(|b| b.t_cut_s).unwrap_or(0.0).max(1e-9);
     let step = total / n as f64;
     let ends: Vec<f64> = bins.iter().map(|b| b.t_cut_s).collect();
@@ -161,8 +199,8 @@ fn resample(bins: &[WearBin], n: usize) -> Uniform {
         }
         cum += rem;
         u.t.push(b);
-        u.vb.push(interp_at(&ends, &vbs, b));
-        u.radial.push(interp_at(&ends, &rads, b));
+        u.vb.push(interp_at(&ends, &vbs, b, vb0));
+        u.radial.push(interp_at(&ends, &rads, b, radial0));
         u.removed_cum.push(cum);
         u.mrr.push(rem / step.max(1e-12));
         u.force.push(last.0);
@@ -419,9 +457,132 @@ pub fn analyze(
     history: &[(String, f64, u64)],
     vb_limit_mm: f64,
 ) -> WearLog {
+    analyze_ext(bins, wall_residuals, traj, ttm, history, vb_limit_mm, 0.0, 0.0, &[])
+}
+
+fn prior_context(prior: &[(f64, f64)], step_s: f64, max_n: usize) -> Vec<f64> {
+    let pts: Vec<(f64, f64)> = prior.iter().cloned().filter(|(t, v)| t.is_finite() && v.is_finite()).collect();
+    if pts.len() < 2 || step_s <= 0.0 || max_n == 0 {
+        return Vec::new();
+    }
+    let t_end = pts[pts.len() - 1].0;
+    let t_first = pts[0].0;
+    let step_min = step_s / 60.0;
+    let ts: Vec<f64> = pts.iter().map(|p| p.0).collect();
+    let ys: Vec<f64> = pts.iter().map(|p| p.1).collect();
+    let mut out = Vec::new();
+    for k in (1..=max_n).rev() {
+        let t = t_end - (k as f64 - 1.0) * step_min;
+        if t < t_first {
+            continue;
+        }
+        let i = ts.partition_point(|x| *x < t).max(1).min(ts.len() - 1);
+        let (t0, t1) = (ts[i - 1], ts[i]);
+        let w = if t1 > t0 { ((t - t0) / (t1 - t0)).clamp(0.0, 1.0) } else { 1.0 };
+        out.push(ys[i - 1] + (ys[i] - ys[i - 1]) * w);
+    }
+    out
+}
+
+pub fn life_forecast(prior: &[(f64, f64)], log: &WearLog, ttm: Option<&TtmForecaster>) -> Option<LifeForecast> {
+    let part_min = log.cut_time_s / 60.0;
+    if part_min <= 1e-6 || log.t_cut_s.is_empty() {
+        return None;
+    }
+    let t0 = prior.last().map(|p| p.0).unwrap_or(0.0);
+    let mut pts: Vec<(f64, f64)> = prior.iter().cloned().filter(|(t, v)| t.is_finite() && v.is_finite() && *t <= t0).collect();
+    if pts.is_empty() {
+        pts.push((0.0, log.vb_start_mm));
+    }
+    for (t, v) in log.t_cut_s.iter().zip(log.vb_mm.iter()) {
+        pts.push((t0 + t / 60.0, *v));
+    }
+    pts.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    pts.dedup_by(|a, b| (a.0 - b.0).abs() < 1e-9);
+    let t_now = pts[pts.len() - 1].0;
+    let t_first = pts[0].0;
+    let span = (t_now - t_first).max(1e-9);
+    let mut step = part_min / 4.0;
+    if span / step < 8.0 {
+        step = part_min / 8.0;
+    }
+    let n = ((span / step).floor() as usize + 1).clamp(2, 2000);
+    let mut series = Series::new("vb_mm", "mm").with_time_unit("min");
+    let ts: Vec<f64> = pts.iter().map(|p| p.0).collect();
+    let ys: Vec<f64> = pts.iter().map(|p| p.1).collect();
+    for k in 0..n {
+        let t = t_now - (n - 1 - k) as f64 * step;
+        if t < t_first - 1e-9 {
+            continue;
+        }
+        let i = ts.partition_point(|x| *x < t).max(1).min(ts.len() - 1);
+        let (a, b) = (ts[i - 1], ts[i]);
+        let w = if b > a { ((t - a) / (b - a)).clamp(0.0, 1.0) } else { 1.0 };
+        series.push(t, ys[i - 1] + (ys[i] - ys[i - 1]) * w);
+    }
+    if series.len() < 3 {
+        return None;
+    }
+    let fc = crate::timeseries::forecast(&series, 16, ttm, None, Some(log.vb_limit_mm));
+    let p50 = fc.band(0.5).cloned().unwrap_or_else(|| fc.point.clone());
+    let p90 = fc.band(0.9).cloned().unwrap_or_else(|| fc.point.clone());
+    let vb_now = *series.y.last().unwrap_or(&0.0);
+    let mono = |v: &[f64]| -> Vec<f64> {
+        let mut out = Vec::with_capacity(v.len());
+        let mut m = vb_now;
+        for x in v.iter() {
+            m = m.max(*x);
+            out.push(m);
+        }
+        out
+    };
+    let p50 = mono(&p50);
+    let p90: Vec<f64> = mono(&p90).iter().zip(p50.iter()).map(|(a, b)| a.max(*b)).collect();
+    let cross = |v: &[f64]| v.iter().position(|x| *x >= log.vb_limit_mm).map(|i| fc.t_future[i] - t_now);
+    let horizon = fc.t_future.last().map(|t| t - t_now).unwrap_or(0.0);
+    let mut notes = fc.notes.clone();
+    notes.push(format!(
+        "공구 개체 누적 마모 이력 {}점(절삭 {:.1}분 · 간격 {:.2}분)으로 {} 수명 예측",
+        series.len(),
+        span,
+        step,
+        if fc.method.starts_with("ttm") { "TTM-R3" } else { "Holt 감쇠 추세" }
+    ));
+    Some(LifeForecast {
+        method: fc.method.clone(),
+        step_min: step,
+        history_n: series.len(),
+        t_now_min: t_now,
+        vb_now_mm: vb_now,
+        limit_mm: log.vb_limit_mm,
+        cross_p50_min: if vb_now >= log.vb_limit_mm { Some(0.0) } else { cross(&p50) },
+        cross_p90_min: if vb_now >= log.vb_limit_mm { Some(0.0) } else { cross(&p90) },
+        horizon_min: horizon,
+        series_t_min: series.t.clone(),
+        series_vb_mm: series.y.clone(),
+        future_t_min: fc.t_future.clone(),
+        future_p50_mm: p50,
+        future_p90_mm: p90,
+        notes,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn analyze_ext(
+    bins: &[WearBin],
+    wall_residuals: &[f64],
+    traj: Option<&WearTrajectory>,
+    ttm: Option<&TtmForecaster>,
+    history: &[(String, f64, u64)],
+    vb_limit_mm: f64,
+    vb_start_mm: f64,
+    radial_start_um: f64,
+    prior: &[(f64, f64)],
+) -> WearLog {
     let mut log = WearLog {
         vb_limit_mm,
         raw_bins: bins.len(),
+        vb_start_mm: vb_start_mm.max(0.0),
         ..Default::default()
     };
     if bins.is_empty() {
@@ -433,9 +594,9 @@ pub fn analyze(
     log.cut_time_s = total;
     log.removed_cm3 = removed / 1000.0;
     log.vb_end_mm = bins.last().map(|b| b.vb_mm).unwrap_or(0.0);
-    log.specific_wear_um_cm3 = if log.removed_cm3 > 1e-9 { log.vb_end_mm * 1000.0 / log.removed_cm3 } else { 0.0 };
+    log.specific_wear_um_cm3 = if log.removed_cm3 > 1e-9 { (log.vb_end_mm - log.vb_start_mm).max(0.0) * 1000.0 / log.removed_cm3 } else { 0.0 };
     let n = LOG_POINTS.min(bins.len().max(2));
-    let u = resample(bins, n);
+    let u = resample(bins, n, log.vb_start_mm, radial_start_um.max(0.0));
     log.step_s = total / n as f64;
     log.phases = phases_of(&u.t, &u.vb);
     if n >= 4 {
@@ -495,10 +656,18 @@ pub fn analyze(
     let hz = HOLDOUT.min(n / 3).max(4);
     let step = log.step_s;
     let split = n - hz;
+    let pre = prior_context(prior, step, 48);
+    log.prior_points = pre.len();
+    let mut ctx_all: Vec<f64> = pre.clone();
+    ctx_all.extend(u.vb.iter().cloned());
+    let k0 = pre.len();
+    if k0 > 0 {
+        log.notes.push(format!("공구 개체의 이전 작업 마모 이력 {}점을 예측 문맥 앞에 이어 붙임 (같은 시간 간격 {:.1} s)", k0, step));
+    }
     let mut backtests: Vec<Backtest> = Vec::new();
     for key in ["ttm", "holt", "physics"] {
         let label = method_label(key);
-        let pred = predict(key, &u.vb[..split], hz, step, traj, ttm);
+        let pred = predict(key, &ctx_all[..k0 + split], hz, step, traj, ttm);
         let pred = match pred {
             Some(p) => p.0,
             None => continue,
@@ -544,7 +713,7 @@ pub fn analyze(
     let rmse_fused_mm = backtests.iter().zip(eff.iter()).map(|(b, m)| b.weight * m).sum::<f64>().sqrt() / 1000.0;
     let mut fcs: Vec<(String, Vec<f64>, f64, Band)> = Vec::new();
     for b in backtests.iter() {
-        if let Some((p, band)) = predict(&b.method, &u.vb, hz, step, traj, ttm) {
+        if let Some((p, band)) = predict(&b.method, &ctx_all, hz, step, traj, ttm) {
             fcs.push((b.method.clone(), p, b.weight, band));
         }
     }
@@ -623,6 +792,7 @@ pub fn analyze(
         notes: Vec::new(),
     });
     log.backtests = backtests;
+    log.life = life_forecast(prior, &log, ttm);
     log
 }
 

@@ -914,6 +914,8 @@ pub struct CutContext {
     pub fixture_stiffness_n_per_um: f64,
     #[serde(default)]
     pub env: ShopEnvironment,
+    #[serde(default)]
+    pub tool_age_min: f64,
 }
 
 impl CutContext {
@@ -932,6 +934,7 @@ impl CutContext {
             wp,
             tool,
             env,
+            tool_age_min: 0.0,
         }
     }
 
@@ -1571,6 +1574,14 @@ pub struct WearResult {
     pub mechanisms: Vec<WearMechanism>,
     #[serde(default)]
     pub dominant: String,
+    #[serde(default = "one")]
+    pub chatter_factor: f64,
+    #[serde(default)]
+    pub coating_exposure: f64,
+    #[serde(default = "one")]
+    pub coating_blend: f64,
+    #[serde(default = "one")]
+    pub evacuation_factor: f64,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -1639,20 +1650,49 @@ pub fn substrate_softening(ctx: &CutContext, t_c: f64) -> f64 {
     }
 }
 
+fn bare_coating() -> &'static CoatingTribology {
+    static BARE: std::sync::OnceLock<CoatingTribology> = std::sync::OnceLock::new();
+    BARE.get_or_init(|| tribology_from_name(Some("uncoated")))
+}
+
+pub fn chip_confinement(eng: &Engagement) -> f64 {
+    if eng.mode == MillMode::Slot {
+        return 1.0;
+    }
+    tribology::smoothstep((eng.span() - 0.5 * PI) / (0.5 * PI))
+}
+
 pub fn wear(ctx: &CutContext, f: &ForceResult, th: &ThermalResult, vc: f64, fz: f64, eng: &Engagement, reference: WearReference) -> WearResult {
+    wear_at(ctx, f, th, vc, fz, eng, reference, ctx.tool.flank_wear_mm)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn wear_at(ctx: &CutContext, f: &ForceResult, th: &ThermalResult, vc: f64, fz: f64, eng: &Engagement, reference: WearReference, vb_mm: f64) -> WearResult {
     let sf = (f.radial_load_n_per_mm * (1.0 - f.flank_share) / reference.stress).clamp(0.05, 20.0);
     let duty = eng.span() / (2.0 * PI);
     let duty_rel = duty / reference.duty.max(1e-6);
     let vf = (vc / reference.vc) * duty_rel;
     let raw = tribology::mechanism_raw(ctx, th.interface_c, sf, vf, duty_rel, th.bue_risk, th.lubricant_access);
-    let parts: [f64; 4] = [0, 1, 2, 3].map(|i| reference.shares[i] * raw[i] / reference.raw[i]);
+    let mut parts: [f64; 4] = [0, 1, 2, 3].map(|i| reference.shares[i] * raw[i] / reference.raw[i]);
+    let mech_coated: f64 = parts.iter().sum();
+    let exposure = crate::toolwear::coating_exposure(&ctx.tool, vb_mm);
+    let mut blend = 1.0;
+    if exposure > 0.0 && crate::toolwear::progressive_coating(&ctx.tool) {
+        let raw_b = tribology::mechanism_raw_coat(ctx, bare_coating(), th.interface_c, sf, vf, duty_rel, th.bue_risk, th.lubricant_access);
+        let mech_bare: f64 = (0..4).map(|i| reference.shares[i] * raw_b[i] / reference.raw[i]).sum();
+        let eff = crate::toolwear::exposed_wear_rate(mech_coated, mech_bare, exposure);
+        if mech_coated > 1e-12 {
+            blend = eff / mech_coated;
+            parts = parts.map(|p| p * blend);
+        }
+    }
     let mech: f64 = parts.iter().sum();
     let at_ref = tribology::mechanism_raw(ctx, reference.t_c, 1.0, 1.0, 1.0, reference.bue, reference.access);
     let cf: f64 = (0..4).map(|i| reference.shares[i] * at_ref[i] / reference.raw[i]).sum();
     let thermal_share = (reference.shares[2] + reference.shares[3]).max(1e-9);
     let tf = (parts[2] + parts[3]) / thermal_share;
     let rf = (1.0 + 2.0 * ctx.tool.runout_um / 1000.0 / fz.max(1e-4)).powf(1.0 - ctx.wp.mc).min(2.0);
-    let evac = 1.0 + 0.3 * (1.0 - ctx.coolant.chip_evacuation()) * if ctx.wp.ae_ratio >= 0.5 || eng.mode == MillMode::Slot { 1.0 } else { 0.3 };
+    let evac = 1.0 + 0.3 * (1.0 - ctx.coolant.chip_evacuation()) * (0.3 + 0.7 * chip_confinement(eng));
     let base_rate = 0.2 / ctx.wp.ref_life_min.max(1.0);
     let rate = base_rate * mech * rf * ctx.tool.base_wear_factor * evac * ctx.calib.wear * (1.0 + 1.5 * th.thermal_crack_risk) * substrate_softening(ctx, th.interface_c);
     let limit = ctx.vb_limit_mm();
@@ -1671,6 +1711,10 @@ pub fn wear(ctx: &CutContext, f: &ForceResult, th: &ThermalResult, vc: f64, fz: 
         mechanism_factor: mech,
         mechanisms,
         dominant,
+        chatter_factor: 1.0,
+        coating_exposure: exposure,
+        coating_blend: blend,
+        evacuation_factor: evac,
     }
 }
 
@@ -1822,6 +1866,115 @@ impl WearTrajectory {
     pub fn growth_from(&self, vb0: f64, dt_min: f64) -> f64 {
         let v = vb0.max(0.0);
         self.vb_at(self.time_at(v) + dt_min.max(0.0)) - v
+    }
+
+    pub fn minutes_between(&self, vb0: f64, vb1: f64) -> f64 {
+        let a = vb0.max(0.0);
+        (self.time_at(vb1.max(a)) - self.time_at(a)).max(0.0)
+    }
+
+    pub fn steady_rate_at(&self, vb: f64) -> f64 {
+        let n = self.t_min.len().min(self.vb_mm.len()).min(self.rate_mm_per_min.len());
+        if n == 0 {
+            return 0.0;
+        }
+        let tau = self.break_in_tau_min.max(1e-9);
+        let st = |i: usize| (self.rate_mm_per_min[i] - self.break_in_vb_mm / tau * (-self.t_min[i] / tau).exp()).max(0.0);
+        if vb <= self.vb_mm[0] {
+            return st(0);
+        }
+        if vb >= self.vb_mm[n - 1] {
+            return st(n - 1);
+        }
+        let i = self.vb_mm[..n].partition_point(|x| *x <= vb).clamp(1, n - 1);
+        let (v0, v1) = (self.vb_mm[i - 1], self.vb_mm[i]);
+        st(i - 1) + (st(i) - st(i - 1)) * (vb - v0) / (v1 - v0).max(1e-12)
+    }
+
+    pub fn steady_path_factor(&self, vb0: f64, vb1: f64, minutes: f64, steady_growth_mm: f64) -> Option<f64> {
+        if self.t_min.is_empty() || !(minutes > 1e-6) || !(steady_growth_mm > 1e-9) {
+            return None;
+        }
+        let a = vb0.max(0.0);
+        let b = vb1.max(a);
+        let mean = (self.steady_rate_at(a) + 4.0 * self.steady_rate_at(0.5 * (a + b)) + self.steady_rate_at(b)) / 6.0;
+        let k = steady_growth_mm / minutes / mean.max(1e-12);
+        if k.is_finite() && k > 0.0 {
+            Some(k.clamp(0.02, 50.0))
+        } else {
+            None
+        }
+    }
+
+    pub fn for_path(&self, k: f64) -> WearTrajectory {
+        self.for_path_curve(&|_| k)
+    }
+
+    pub fn for_path_curve(&self, k_at: &dyn Fn(f64) -> f64) -> WearTrajectory {
+        let limit = self.vb_limit_mm.max(1e-6);
+        let tau = self.break_in_tau_min.max(1e-9);
+        let vb_b = self.break_in_vb_mm.max(0.0);
+        let rate = |t: f64, vb: f64| k_at(vb).max(1e-6) * self.steady_rate_at(vb) + vb_b / tau * (-t / tau).exp();
+        let (mut t, mut vb) = (0.0f64, 0.0f64);
+        let mut pts: Vec<(f64, f64, f64)> = Vec::new();
+        let mut life: Option<f64> = None;
+        let dv = limit / 300.0;
+        for _ in 0..6000 {
+            let r1 = rate(t, vb).max(1e-12);
+            pts.push((t, vb, r1));
+            if vb >= 1.25 * limit || t > 1e6 {
+                break;
+            }
+            let dt = if t < 4.0 * tau { (0.125 * tau).min(dv / r1) } else { dv / r1 }.max(1e-9);
+            let r2 = rate(t + 0.5 * dt, vb + 0.5 * dt * r1);
+            let next = vb + dt * r2;
+            if life.is_none() && next >= limit {
+                life = Some(t + dt * (limit - vb) / (next - vb).max(1e-12));
+            }
+            t += dt;
+            vb = next;
+        }
+        let n = pts.len();
+        let keep: Vec<usize> = if n <= 160 {
+            (0..n).collect()
+        } else {
+            let mut v: Vec<usize> = (0..160).map(|i| i * (n - 1) / 159).collect();
+            v.dedup();
+            v
+        };
+        let last = pts[n - 1];
+        let r0 = pts[0].2;
+        WearTrajectory {
+            t_min: keep.iter().map(|i| pts[*i].0).collect(),
+            vb_mm: keep.iter().map(|i| pts[*i].1).collect(),
+            rate_mm_per_min: keep.iter().map(|i| pts[*i].2).collect(),
+            force_n: Vec::new(),
+            temp_c: Vec::new(),
+            life_min: life.unwrap_or(last.0 + (limit - last.1).max(0.0) / last.2),
+            linear_life_min: limit / (k_at(0.0).max(1e-6) * self.steady_rate_at(0.0)).max(1e-12),
+            break_in_vb_mm: vb_b,
+            break_in_tau_min: tau,
+            phase3_min: None,
+            vb_limit_mm: limit,
+            kappa: self.kappa,
+            calib_wear: self.calib_wear,
+            acceleration: last.2 / r0.max(1e-12),
+        }
+    }
+
+    pub fn scaled(&self, factor: f64) -> WearTrajectory {
+        let k = factor.max(1e-6);
+        if (k - 1.0).abs() < 1e-12 {
+            return self.clone();
+        }
+        let mut out = self.clone();
+        out.t_min = self.t_min.iter().map(|t| t / k).collect();
+        out.rate_mm_per_min = self.rate_mm_per_min.iter().map(|r| r * k).collect();
+        out.life_min = self.life_min / k;
+        out.linear_life_min = self.linear_life_min / k;
+        out.break_in_tau_min = self.break_in_tau_min / k;
+        out.phase3_min = self.phase3_min.map(|v| v / k);
+        out
     }
 }
 
@@ -1990,6 +2143,14 @@ pub struct CutAnalysis {
     pub regime: Vec<f32>,
     #[serde(default)]
     pub environment: crate::environment::EnvironmentReport,
+    #[serde(default)]
+    pub thermal_fatigue_per_min: f64,
+}
+
+impl CutAnalysis {
+    pub fn effective_trajectory(&self) -> WearTrajectory {
+        self.trajectory.scaled(self.wear.chatter_factor.max(1.0))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2090,7 +2251,6 @@ pub fn analyze_cut(ctx: &CutContext, conds: &CuttingConditions, down: bool, body
     wr.linear_life_min = if wr.vb_rate_mm_per_min > 0.0 { wr.vb_limit_mm / wr.vb_rate_mm_per_min } else { f64::INFINITY };
     wr.tool_life_min = trajectory.life_min;
     let mut sf = surface(&ctx.tool, fz, conds.radial_doc_mm, co.h_min_mm);
-    let wall = wall_error(ctx, &f, &eng, &th, &wr);
     let stability = crate::dynamics::stability(
         &ctx.tool,
         &co,
@@ -2103,6 +2263,15 @@ pub fn analyze_cut(ctx: &CutContext, conds: &CuttingConditions, down: bool, body
         vce,
         ctx.wp.process_damping,
     );
+    let cwf = crate::toolwear::chatter_wear_factor(stability.margin, stability.measured);
+    if cwf > 1.0 {
+        wr.vb_rate_mm_per_min *= cwf;
+        wr.radial_loss_rate_um_per_min *= cwf;
+        wr.linear_life_min /= cwf;
+        wr.tool_life_min /= cwf;
+    }
+    wr.chatter_factor = cwf;
+    let wall = wall_error(ctx, &f, &eng, &th, &wr);
     let modal = crate::dynamics::tool_modal(&ctx.tool, ap, ctx.calib.deflection);
     let forced = crate::dynamics::forced_vibration(&f, &modal, rpm, ctx.tool.flutes, &eng);
     if !stability.stable && stability.margin.is_finite() {
@@ -2113,7 +2282,7 @@ pub fn analyze_cut(ctx: &CutContext, conds: &CuttingConditions, down: bool, body
     let spindle = f.cutting_power_kw / ctx.machine.efficiency.max(0.1);
     let avail = ctx.machine.available_power_kw(rpm);
     let defl_peak = f.f_res_peak / comp.stiffness_n_per_um;
-    let wear10 = trajectory.vb_at(10.0) * ctx.tool.clearance_deg.to_radians().tan() * 1000.0;
+    let wear10 = trajectory.vb_at(10.0 * cwf) * ctx.tool.clearance_deg.to_radians().tan() * 1000.0;
     let wp_rise = th.workpiece_steady_rise_c * (1.0 - (-600.0 / th.workpiece_time_constant_s.max(1.0)).exp());
     let wp_um = ctx.wp.expansion * body.size_mm * wp_rise * 1000.0;
     let fixture_um = f.fy_mean.abs() / ctx.fixture_stiffness_n_per_um.max(1e-6);
@@ -2217,6 +2386,26 @@ pub fn analyze_cut(ctx: &CutContext, conds: &CuttingConditions, down: bool, body
             forced.tooth_hz, stability.fn_hz, forced.amplitude_um
         ));
     }
+    if cwf > 1.02 {
+        notes.push(format!(
+            "안정 여유 {:.2}배{}의 채터 기대 손실로 플랭크 마모 속도 ×{:.2}, 공구 수명 {:.0}분 → {:.0}분 (채터가 심할수록 공구 수명이 크게 준다는 실험 결과를 완전 채터에서 수명 약 1/3 로 모델링하고 안정 한계 불확실성(로그 표준편차 {:.2}, {})으로 기대값 처리 · 채터 확률 {:.0}%)",
+            stability.margin,
+            if stability.stable { "(안정 판정)" } else { "(불안정 판정)" },
+            cwf,
+            trajectory.life_min,
+            wr.tool_life_min,
+            crate::toolwear::frf_log_sd(stability.measured),
+            if stability.measured { "실측 FRF" } else { "모델 추정 FRF · 깊은 불안정 예측은 신뢰도 50%부터, 여유 1 이상은 100%" },
+            crate::toolwear::chatter_probability(stability.margin, stability.measured) * 100.0
+        ));
+    }
+    if wr.coating_blend < 0.98 {
+        notes.push(format!(
+            "코팅 관통: 마모 랜드의 {:.0}% 가 모재라 이 피삭재와 맞지 않는 코팅의 마모 속도가 모재 쪽으로 ×{:.2} 이동 (두 상이 같은 속도로 닳는 합성 마모 역혼합칙)",
+            wr.coating_exposure * 100.0,
+            wr.coating_blend
+        ));
+    }
     if let Some(p3) = trajectory.phase3_min {
         if p3 < trajectory.life_min {
             notes.push(format!(
@@ -2224,6 +2413,17 @@ pub fn analyze_cut(ctx: &CutContext, conds: &CuttingConditions, down: bool, body
                 p3, trajectory.acceleration
             ));
         }
+    }
+    let tf_per_min = crate::toolwear::thermal_fatigue_rate(th.shock.severity, eng.span(), rpm) * 60.0;
+    if tf_per_min > 1.0 / 600.0 {
+        let cycle_ms = if rpm > 0.0 { 60_000.0 / rpm } else { 0.0 };
+        notes.push(format!(
+            "단속 절삭 열피로: 날마다 회전당 가열 {:.1} ms · 냉각 {:.1} ms ({}) 반복으로 빗살 균열 개시까지 이 조건 절삭 약 {:.0}분 — 누적 손상은 공구 개체에 저장되어 다음 작업으로 이어짐",
+            cycle_ms * eng.span() / (2.0 * PI),
+            cycle_ms * (1.0 - eng.span() / (2.0 * PI)),
+            ctx.coolant.method.label(),
+            1.0 / tf_per_min
+        ));
     }
     let shares: Vec<f64> = wr.mechanisms.iter().map(|m| m.share).collect();
     let regime = tribology::regime_vector(ctx, &rep, &shares, vce, th.interface_c, th.thermal_crack_risk, th.bue_risk);
@@ -2273,6 +2473,7 @@ pub fn analyze_cut(ctx: &CutContext, conds: &CuttingConditions, down: bool, body
         tribology: rep,
         regime,
         environment: env_rep,
+        thermal_fatigue_per_min: tf_per_min,
     }
 }
 

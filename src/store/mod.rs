@@ -1,4 +1,5 @@
 pub mod attr;
+pub mod jobs;
 pub mod lance;
 pub mod rdb;
 pub mod record;
@@ -592,3 +593,4 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+

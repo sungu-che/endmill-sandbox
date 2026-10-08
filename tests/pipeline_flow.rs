@@ -312,7 +312,7 @@ fn workspace_end_to_end() {
     assert!(proc1.coolant_matrix.iter().filter(|r| r.recommended).count() <= 1);
     assert!(proc1.nominal_mold.as_ref().unwrap().descriptor.max_depth_mm > 0.0);
     let rate = proc1.analysis.wear.vb_rate_mm_per_min;
-    let traj = proc1.analysis.trajectory.clone();
+    let traj = proc1.analysis.effective_trajectory();
     assert!(traj.life_min < traj.linear_life_min, "life {} linear {}", traj.life_min, traj.linear_life_min);
     let mut csv = String::from("time(min),VB(mm),spindle power(kW)\n");
     for i in 0..12 {

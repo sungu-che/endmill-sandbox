@@ -28,6 +28,7 @@ pub mod modelhub;
 pub mod viewport;
 pub mod wearlog;
 pub mod wearcomp;
+pub mod toolwear;
 
 pub use application::*;
 pub use metadata::*;
@@ -38,3 +39,4 @@ pub use spec::*;
 pub use gcode::*;
 pub use profile::*;
 pub use workpiece_setup::*;
+

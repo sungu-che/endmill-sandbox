@@ -4,6 +4,7 @@ use crate::ml::laya::{AdvisorAnswer, LayaAdvisor};
 use crate::physics::{self, CutAnalysis, CutContext, Engagement, ThermalBody, ToolGeometry, WearReference};
 use crate::profile::{CoolantMethod, MachiningProfile};
 use crate::sds::{decay_shape, DecayShape, Scope, SdsStore, Track};
+use crate::toolwear::{self, AxialProfile, RefSummary, ToolStart, WearField};
 use crate::wear::{WearComparison, WearState};
 use crate::wearlog::WearLog;
 use serde::{Deserialize, Serialize};
@@ -198,6 +199,8 @@ pub struct PassEval {
     pub power_kw: f64,
     #[serde(default)]
     pub wall_stress_mpa: f64,
+    #[serde(default)]
+    pub fatigue_per_s: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -451,6 +454,51 @@ pub struct CompDraft {
     pub fz_nominal_mm: f64,
     pub rpm: f64,
     pub notes: Vec<String>,
+    #[serde(default)]
+    pub vb_start_mm: f64,
+    #[serde(default)]
+    pub vb_now_mm: f64,
+    #[serde(default)]
+    pub radial_start_um: f64,
+    #[serde(default = "one_f64")]
+    pub calib_wear: f64,
+    #[serde(default)]
+    pub growth_calib_mm: f64,
+    #[serde(default)]
+    pub growth_fixed_mm: f64,
+    #[serde(default)]
+    pub tool: Option<ToolStart>,
+    #[serde(default)]
+    pub refs: Option<RefSummary>,
+    #[serde(default)]
+    pub compat_severity: u8,
+    #[serde(default)]
+    pub thermal_damage_start: f64,
+    #[serde(default)]
+    pub thermal_damage_now: f64,
+    #[serde(default)]
+    pub thermal_damage_pass2: f64,
+    #[serde(default)]
+    pub fresh_life_min: f64,
+    #[serde(default)]
+    pub path_factor: f64,
+    #[serde(default)]
+    pub path_trajectory: physics::WearTrajectory,
+    #[serde(default = "one_f64")]
+    pub measured_rate_ratio: f64,
+    #[serde(default)]
+    pub pass2_est_s: f64,
+}
+
+fn one_f64() -> f64 {
+    1.0
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct EvalExtra {
+    pub tool: Option<ToolStart>,
+    pub refs: Option<RefSummary>,
+    pub tool_replaced: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -475,6 +523,14 @@ pub struct CompOutcome {
     pub parts_left_p90: Option<f64>,
     pub report_line: String,
     pub notes: Vec<String>,
+    #[serde(default)]
+    pub wear_field2: WearField,
+    #[serde(default)]
+    pub parts_source: String,
+    #[serde(default)]
+    pub thermal_damage_after: f64,
+    #[serde(default)]
+    pub thermal_damage_pass2: f64,
 }
 
 pub fn wear_scope(p: &MachiningProfile) -> Scope {
@@ -535,7 +591,7 @@ fn eval_pass(env: &Env, tool: &ToolGeometry, zone: &SegWallStat, ae_mm: f64, fz:
     };
     let chatter = crate::dynamics::stability_margin(tool, &co, &eng, f.h_mean_mm, env.rpm, ap, ctx.calib.deflection, vce, ctx.wp.process_damping);
     let th = physics::thermal_preheated(ctx, &co, &f, vce, env.rpm, &eng, env.body.mass_kg, env.body.area_m2, env.bulk_excess);
-    let wr = physics::wear(ctx, &f, &th, vce, fz.max(1e-6), &eng, env.reference);
+    let wr = physics::wear_at(ctx, &f, &th, vce, fz.max(1e-6), &eng, env.reference, tool.flank_wear_mm);
     PassEval {
         ae_um: ae * 1000.0,
         fz_mm: fz,
@@ -546,10 +602,11 @@ fn eval_pass(env: &Env, tool: &ToolGeometry, zone: &SegWallStat, ae_mm: f64, fz:
         chatter: if chatter.is_finite() { chatter } else { 99.0 },
         temp_c: th.interface_c,
         h_max_um: h_nom * 1000.0,
-        vb_rate_mm_min: wr.vb_rate_mm_per_min * env.nominal.trajectory.kappa.max(1e-6),
+        vb_rate_mm_min: wr.vb_rate_mm_per_min * env.nominal.trajectory.kappa.max(1e-6) * toolwear::chatter_wear_factor(chatter, tool.measured_fn_hz.is_some() && tool.measured_k_n_per_um.is_some()),
         engage_deg: eng.span().to_degrees(),
         power_kw: f.cutting_power_kw / env.profile.machine.efficiency.max(0.1),
         wall_stress_mpa: away.abs() * zone.wall_sigma_per_n,
+        fatigue_per_s: toolwear::thermal_fatigue_rate(th.shock.severity, eng.span(), env.rpm),
     }
 }
 
@@ -687,6 +744,18 @@ pub fn evaluate(
     log: &WearLog,
     opts: &CompOptions,
     tool_image: Option<&WearComparison>,
+) -> CompDraft {
+    evaluate_with(profile, ctx, rep, log, opts, tool_image, &EvalExtra::default())
+}
+
+pub fn evaluate_with(
+    profile: &MachiningProfile,
+    ctx: &CutContext,
+    rep: &LoadSimReport,
+    log: &WearLog,
+    opts: &CompOptions,
+    tool_image: Option<&WearComparison>,
+    extra: &EvalExtra,
 ) -> CompDraft {
     let body = ThermalBody::of_setup(&profile.workpiece_setup, &ctx.wp);
     let nominal = physics::analyze_cut(ctx, &profile.conditions, true, body);
@@ -850,8 +919,31 @@ pub fn evaluate(
         .sum::<f64>();
     let rate2 = active.iter().map(|z| z.execute.vb_rate_mm_min).fold(0.0, f64::max);
     let dvb2 = rate2 * t2 / 60.0;
+    let ref_k = extra.refs.as_ref().map(|r| r.conservative_factor()).unwrap_or(1.0);
     let vb2_p50 = vb_now + dvb2;
-    let vb2_p90 = vb_now + dvb2 * log.p90_growth_factor() + log.backtests.iter().map(|b| b.weight * b.rmse_um).sum::<f64>() / 1000.0 * 1.2816;
+    let vb2_p90 = vb_now + dvb2 * log.p90_growth_factor() * ref_k + log.backtests.iter().map(|b| b.weight * b.rmse_um).sum::<f64>() / 1000.0 * 1.2816;
+    if ref_k > 1.0 {
+        notes.push(format!(
+            "비슷한 과거 절삭 기록의 실측/예측 마모 비 상위 75% ×{:.2} 를 2차 마모 예측 상위 분위에 반영 (보수 방향만)",
+            ref_k
+        ));
+    }
+    let tf_start = extra.tool.as_ref().map(|t| t.thermal_damage).unwrap_or(0.0).max(0.0);
+    let tf_now = tf_start + rep.thermal_damage.max(0.0);
+    let pass_fatigue = |e: &PassEval, len: f64| e.fatigue_per_s * len / (e.fz_mm * env.rpm * env.flutes).max(1e-6) * 60.0;
+    let tf2 = tf_now
+        + [CompAction::Execute, CompAction::ExecuteReduced, CompAction::Split]
+            .iter()
+            .map(|a| {
+                active
+                    .iter()
+                    .map(|z| match a {
+                        CompAction::Split => pass_fatigue(&z.split_first, z.len_mm) + pass_fatigue(&z.split_final, z.len_mm),
+                        _ => pass_fatigue(&z.eval_for(*a, 1), z.len_mm),
+                    })
+                    .sum::<f64>()
+            })
+            .fold(0.0, f64::max);
     let mut gates: Vec<CompGate> = Vec::new();
     let cutting = [CompAction::Execute, CompAction::ExecuteReduced, CompAction::Split];
     let worst = |f: &dyn Fn(&CompZone) -> f64| active.iter().map(|z| f(z)).fold(f64::NEG_INFINITY, f64::max);
@@ -1055,6 +1147,58 @@ pub fn evaluate(
             if vb_sev >= 3 { " — 마모된 날로 얇게 깎으면 미끄럼·버니싱·발열이 생겨 보정 대신 공구 교체" } else { "" }
         ),
     });
+    let tf_sev = if tf_now >= 1.0 {
+        2
+    } else if tf_now >= toolwear::TF_WATCH || (need && tf2 >= 1.0) {
+        1
+    } else {
+        0
+    };
+    if tf_now > 1e-4 || tf2 > 1e-4 {
+        gates.push(CompGate {
+            id: "thermal_fatigue".into(),
+            label: "단속 절삭 열피로 (빗살 균열)".into(),
+            value: tf_now,
+            limit: 1.0,
+            unit: "".into(),
+            severity: tf_sev,
+            blocks: if tf_sev >= 2 { cutting.to_vec() } else { vec![] },
+            sole: false,
+            message: format!(
+                "누적 손상 {:.2} (이전 작업까지 {:.2} + 이번 1차 {:.2}) · 2차 후 {:.2} — 날마다 회전당 가열·급랭이 반복되는 단속 절삭({})의 열피로 (Miner 누적){}",
+                tf_now,
+                tf_start,
+                rep.thermal_damage,
+                tf2,
+                profile.coolant_config.method.label(),
+                if tf_sev >= 2 {
+                    " → 1.0 은 빗살 균열 개시 추정: 균열 난 날로 정삭하면 미세 치핑·벽면 결함 위험이라 현재 공구 보정은 막고 새 공구 보정만 허용"
+                } else if tf_sev == 1 {
+                    " → 균열 개시 근접: MQL·건식·에어 전환 또는 회전수 상향(냉각 시간 10 ms 미만)으로 손상 속도를 줄일 수 있음"
+                } else {
+                    ""
+                }
+            ),
+        });
+    }
+    let compat = &nominal.tribology.compat;
+    if compat.severity >= 2 {
+        let csev = if compat.severity >= 3 { 2 } else { 1 };
+        gates.push(CompGate {
+            id: "tool_compat".into(),
+            label: "공구 코팅·피삭재 화학 궁합".into(),
+            value: compat.severity as f64,
+            limit: 2.0,
+            unit: "".into(),
+            severity: csev,
+            blocks: vec![],
+            sole: false,
+            message: format!(
+                "{} — 이 조합은 마모 메커니즘이 화학 반응(확산·흑연화·탄화물) 쪽으로 기울어 같은 종류 새 공구로 바꿔도 마모 속도는 그대로입니다. 2차 전에 공구 종류(코팅) 변경을 검토하세요",
+                compat.messages.join(" · ")
+            ),
+        });
+    }
     let vbf_sev = if !need { 0 } else if vb2_p90 >= vb_limit { 2 } else if vb2_p90 >= 0.9 * vb_limit { 1 } else { 0 };
     gates.push(CompGate {
         id: "vb_forecast".into(),
@@ -1339,10 +1483,15 @@ pub fn evaluate(
     }
     let tool_gate = gates
         .iter()
-        .filter(|g| g.id == "vb_now" || g.id == "vb_forecast" || g.id == "image_wear")
+        .filter(|g| g.id == "vb_now" || g.id == "vb_forecast" || g.id == "image_wear" || g.id == "thermal_fatigue")
         .map(|g| g.severity)
         .max()
         .unwrap_or(0);
+    let tool_gate_names: Vec<String> = gates
+        .iter()
+        .filter(|g| (g.id == "vb_now" || g.id == "vb_forecast" || g.id == "image_wear" || g.id == "thermal_fatigue") && g.severity >= 2)
+        .map(|g| g.label.clone())
+        .collect();
     let max_sev = gates.iter().map(|g| g.severity).max().unwrap_or(0);
     let unfixable: Vec<usize> = zones.iter().filter(|z| z.excluded || (z.thin && z.residual_p90_um > tol_um)).map(|z| z.seg).collect();
     let mut fresh_slender = false;
@@ -1350,11 +1499,14 @@ pub fn evaluate(
     let mut reasons: Vec<String> = Vec::new();
     if need {
         for a in cutting.iter() {
-            if blocked_by(&gates, *a).is_empty() {
+            if blocked_by(&gates, *a).is_empty() && !extra.tool_replaced {
                 allowed.push(*a);
             }
         }
-        if tool_gate >= 1 {
+        if extra.tool_replaced {
+            reasons.push("1차 뒤 공구가 리셋(교체)되어 옛 공구 기준 보정(실행·감속·분할)은 제외하고 새 공구 기준 보정만 검토".into());
+        }
+        if tool_gate >= 1 || extra.tool_replaced {
             let fresh_ok = active.iter().all(|z| defl_of(&z.fresh) <= half_tol && z.fresh.chatter >= 1.0 && z.fresh.h_max_um >= h_min_mm * 1000.0 && z.fresh.wall_stress_mpa <= 0.8 * sigma_y)
                 && !gates.iter().any(|g| g.id == "thermal_state" && g.severity >= 3)
                 && !pass1_invalid;
@@ -1390,7 +1542,7 @@ pub fn evaluate(
         });
         CompAction::Skip
     } else if tool_gate >= 2 && allowed.contains(&CompAction::ToolChange) {
-        reasons.push("공구 마모 게이트 초과 → 새 공구로 교체한 뒤 보정".into());
+        reasons.push(format!("공구 상태 게이트 초과({}) → 새 공구로 교체한 뒤 보정", tool_gate_names.join(", ")));
         CompAction::ToolChange
     } else if tool_gate >= 2 && fresh_slender {
         reasons.push("공구 마모 게이트 초과지만 새 공구 보정은 한 번에 전량을 깎는 패스라 높이/두께 > 15 인 얇은 벽에는 쓸 수 없음 → 보류: 공구를 교체한 뒤 다시 계획하면 새 공구로 분할 보정을 고를 수 있음".into());
@@ -1424,8 +1576,15 @@ pub fn evaluate(
         reasons.push("절삭 선택지가 모두 차단되어 2차 보정을 하지 않음".into());
         CompAction::Skip
     };
-    let state_text = state_text(profile, ctx, &residual, &zones, &gates, vb_now, vb_limit, vb2_p50, vb2_p90, log, bulk_excess, thermal_err, cooldown_s, h_min_mm);
-    CompDraft {
+    let (path_k, path_trajectory) = path_wear(&nominal.trajectory, rep);
+    if let Some(k) = path_k.filter(|k| (k - 1.0).abs() > 0.15) {
+        notes.push(format!(
+            "1차 경로의 정상 마모 속도(길들이기 제외)가 공칭 측면 절삭의 ×{:.2} (슬롯·코너·채터 포함) → 같은 경로를 새 공구로 깎으면 수명 약 {:.0}분 (공칭 궤적 {:.0}분)",
+            k, path_trajectory.life_min, nominal.trajectory.life_min
+        ));
+    }
+    let state_text = state_text(profile, ctx, &residual, &zones, &gates, vb_now, vb_limit, vb2_p50, vb2_p90, log, bulk_excess, thermal_err, cooldown_s, h_min_mm, extra);
+    let mut d = CompDraft {
         gates,
         zones,
         residual,
@@ -1449,7 +1608,30 @@ pub fn evaluate(
         fz_nominal_mm: nominal.fz_mm,
         rpm: env.rpm,
         notes,
+        vb_start_mm: rep.vb_start_mm,
+        vb_now_mm: vb_now,
+        radial_start_um: rep.vb_start_mm * tan_clear * 1000.0,
+        calib_wear: ctx.calib.wear,
+        growth_calib_mm: rep.growth_calib_mm,
+        growth_fixed_mm: rep.growth_fixed_mm,
+        tool: extra.tool.clone(),
+        refs: extra.refs.clone(),
+        compat_severity: compat.severity,
+        thermal_damage_start: tf_start,
+        thermal_damage_now: tf_now,
+        thermal_damage_pass2: (tf2 - tf_now).max(0.0),
+        fresh_life_min: path_trajectory.life_min,
+        path_factor: path_k.unwrap_or(0.0),
+        path_trajectory,
+        measured_rate_ratio: 1.0,
+        pass2_est_s: t2,
+    };
+    if d.radial_source != "simulated" {
+        if let Some((m, base)) = calibration_pair(&d) {
+            d.measured_rate_ratio = (m / (base * d.calib_wear).max(1e-9)).clamp(0.2, 5.0);
+        }
     }
+    d
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1468,6 +1650,7 @@ fn state_text(
     thermal_err: f64,
     cooldown_s: f64,
     h_min_mm: f64,
+    extra: &EvalExtra,
 ) -> String {
     let active: Vec<&CompZone> = zones.iter().filter(|z| z.needs).collect();
     let off = active.iter().map(|z| z.offset_um).fold(0.0, f64::max);
@@ -1516,6 +1699,42 @@ fn state_text(
     if thin.is_finite() {
         s.push_str(&format!("Thin wall {:.2} mm. ", thin));
     }
+    if let Some(t) = extra.tool.as_ref().filter(|t| !t.is_fresh()) {
+        s.push_str(&format!(
+            "This end mill was reused: {} earlier jobs, {:.1} min of cutting before this part, flank wear at start {:.3} mm{}. ",
+            t.jobs,
+            t.cut_min,
+            t.vb_band_mm,
+            match t.last_measured_um {
+                Some(m) => format!(", last measured radial wear {:.1} um", m),
+                None => String::new(),
+            }
+        ));
+    }
+    if let Some(l) = log.life.as_ref() {
+        match (l.cross_p50_min, l.cross_p90_min) {
+            (Some(a), Some(b)) => s.push_str(&format!("Tool life forecast reaches the wear limit in {:.1} min of cutting (cautious {:.1} min). ", a, b)),
+            (None, Some(b)) => s.push_str(&format!("Tool life forecast reaches the wear limit only in the cautious case after {:.1} min. ", b)),
+            _ => {}
+        }
+    }
+    if let Some(t) = extra.tool.as_ref().filter(|t| t.thermal_damage > 1e-3) {
+        s.push_str(&format!(
+            "Thermal fatigue damage of this end mill from interrupted cutting is {:.2} of the crack initiation level before this part. ",
+            t.thermal_damage
+        ));
+    }
+    if let Some(r) = extra.refs.as_ref().filter(|r| r.n > 0) {
+        s.push_str(&format!(
+            "Similar past cuts in the record database: {} jobs found, {} with measured wear{}. ",
+            r.n,
+            r.n_measured,
+            match r.wear_ratio_p50 {
+                Some(v) if r.n_measured >= 3 && v > 1.05 => format!(", measured wear exceeded the current prediction by a factor of {:.2}", v),
+                _ => String::new(),
+            }
+        ));
+    }
     for g in gates.iter().filter(|g| g.severity > 0) {
         let status = match g.severity {
             1 => "watch",
@@ -1538,7 +1757,7 @@ pub fn consult(draft: &CompDraft, laya: Option<&LayaAdvisor>, agreement_rate: Op
         laya_error: None,
         final_action: draft.rule_action,
         decided_by: "rule".into(),
-        operator_confirm: draft.gates.iter().any(|g| (g.id == "overcut_pass1" || g.id == "pass1_validity" || g.id == "min_engagement") && g.severity >= 2),
+        operator_confirm: draft.gates.iter().any(|g| (g.id == "overcut_pass1" || g.id == "pass1_validity" || g.id == "min_engagement" || g.id == "tool_compat") && g.severity >= 2),
         agreement: None,
         agreement_rate,
         state_text: draft.state_text.clone(),
@@ -2236,7 +2455,15 @@ pub fn finalize(
         program_text = prog.to_text();
     }
     let segs = segs_of(&moves);
-    let (samples, segment_end_s, time_s, cut_time_s, vb_after) = pass_samples(profile, ctx, rep, &moves, &segs, draft, action);
+    let PassRun {
+        samples,
+        ends: segment_end_s,
+        time_s,
+        cut_time_s,
+        vb_after,
+        field: wear_field2,
+        fatigue: run_fatigue,
+    } = pass_samples(profile, ctx, rep, &moves, &segs, draft, action);
     let afters: Vec<(f64, f64, f64)> = draft.zones.iter().filter(|z| !z.excluded).map(|z| z.after_for(action)).collect();
     let caps: usize = if action.cuts() { draft.zones.iter().map(|z| z.capped_pieces(action)).sum() } else { 0 };
     if caps > 0 {
@@ -2258,8 +2485,98 @@ pub fn finalize(
     let parts = |per: Option<f64>| -> Option<f64> {
         per.filter(|v| *v > 1e-9).map(|v| ((draft.vb_limit_mm - vb_after).max(0.0) / v).floor())
     };
-    let parts_left_p50 = parts(log.per_part_vb_p50_mm);
-    let parts_left_p90 = parts(log.per_part_vb_p90_mm);
+    let future_pass2 = !action.cuts() && draft.need;
+    let part_min = (log.cut_time_s + if action.cuts() { cut_time_s } else if future_pass2 { draft.pass2_est_s } else { 0.0 }) / 60.0;
+    let pass2_min = if action.cuts() { cut_time_s / 60.0 } else { 0.0 };
+    let by_life = |cross: Option<f64>, linear: Option<f64>| -> Option<f64> {
+        match (cross, log.life.as_ref()) {
+            (Some(c), _) if part_min > 1e-9 => Some(((c - pass2_min).max(0.0) / part_min).floor()),
+            (None, Some(l)) if part_min > 1e-9 => linear.map(|v| v.max((l.horizon_min / part_min).floor())),
+            _ => linear,
+        }
+    };
+    let offset = draft.vb_now_mm - draft.vb_end1_mm;
+    let tr = &draft.path_trajectory;
+    let pass2_from = if action == CompAction::ToolChange { 0.0 } else { draft.vb_now_mm.max(0.0) };
+    let pass2_path_min = if action.cuts() {
+        tr.minutes_between(pass2_from, vb_after)
+    } else if future_pass2 {
+        tr.minutes_between(draft.vb_now_mm, draft.vb_end2_p50_mm)
+    } else {
+        0.0
+    };
+    let path_part_min = rep.cut_time_min + pass2_path_min;
+    let ref_k = draft.refs.as_ref().map(|r| r.conservative_factor()).unwrap_or(1.0);
+    let r_meas = draft.measured_rate_ratio.clamp(0.2, 5.0);
+    let g90 = (log.p90_growth_factor().max(1.0) * r_meas.max(ref_k).max(1.0)).min(4.0);
+    let phys = |factor: f64| -> Option<f64> {
+        let rem = tr.minutes_between(vb_after, draft.vb_limit_mm);
+        if tr.t_min.is_empty() || !(path_part_min > 1e-9) || !rem.is_finite() {
+            None
+        } else {
+            Some((rem / (path_part_min * factor)).floor())
+        }
+    };
+    let (phys50, phys90) = (phys(r_meas.sqrt()), phys(g90));
+    let path_label = format!(
+        "{}{}",
+        if draft.path_factor > 0.0 { format!(" (1차 경로 정상 마모 = 공칭 ×{:.2})", draft.path_factor) } else { String::new() },
+        if (r_meas - 1.0).abs() > 0.05 { format!(" · 실측/예측 마모 비 ×{:.2} (중앙값엔 √ 반영)", r_meas) } else { String::new() }
+    );
+    let (mut parts_left_p50, mut parts_left_p90, mut parts_source) = if vb_after >= draft.vb_limit_mm {
+        (Some(0.0), Some(0.0), "2차 후 마모가 이미 한계 이상".to_string())
+    } else if action == CompAction::ToolChange {
+        (phys50, phys90, format!("교체할 새 공구가 같은 경로를 깎는 물리 수명 궤적{}", path_label))
+    } else {
+        let fb50 = phys50.or_else(|| parts(log.per_part_vb_p50_mm));
+        let fb90 = phys90.or_else(|| parts(log.per_part_vb_p90_mm));
+        let (l50, l90, src, beyond) = match log.life.as_ref() {
+            Some(l) => (
+                by_life(l.cross_with_offset(offset, false), fb50),
+                by_life(l.cross_with_offset(offset, true), fb90),
+                format!(
+                    "{} 공구 개체 수명 예측{}",
+                    if l.method.starts_with("ttm") { "TTM-R3" } else { "Holt" },
+                    if offset.abs() > 1e-6 { format!(" · 실측 보정 {:+.3} mm 반영", offset) } else { String::new() }
+                ),
+                l.cross_with_offset(offset, false).is_none() && phys50.is_some(),
+            ),
+            None => (fb50, fb90, if phys50.is_some() { format!("경로 물리 궤적{}", path_label) } else { "이번 부품 마모 기울기".to_string() }, false),
+        };
+        let lower = |a: Option<f64>, b: Option<f64>| match (a, b) {
+            (Some(x), Some(y)) => Some(x.min(y)),
+            (x, y) => x.or(y),
+        };
+        let binds = matches!((phys50, l50), (Some(p), Some(l)) if p < l) || matches!((phys90, l90), (Some(p), Some(l)) if p < l);
+        (
+            lower(l50, phys50),
+            lower(l90, phys90),
+            if binds {
+                format!("{} · 경로 물리 궤적{}이 더 짧아 적용", src, path_label)
+            } else if beyond {
+                format!("{} · 예측 구간 너머는 경로 물리 궤적{}", src, path_label)
+            } else {
+                src
+            },
+        )
+    };
+    let pass2_fatigue = if action.cuts() { run_fatigue.max(0.0) } else { 0.0 };
+    let next_fatigue2 = if future_pass2 { draft.thermal_damage_pass2 } else { pass2_fatigue };
+    let fatigue_per_part = (draft.thermal_damage_now - draft.thermal_damage_start).max(0.0) + next_fatigue2;
+    let thermal_damage_after = if action == CompAction::ToolChange {
+        pass2_fatigue
+    } else {
+        draft.thermal_damage_now + pass2_fatigue
+    };
+    if fatigue_per_part > 1e-9 {
+        let n = ((1.0 - thermal_damage_after).max(0.0) / fatigue_per_part).floor();
+        let binds = parts_left_p50.map(|v| n < v).unwrap_or(true) || parts_left_p90.map(|v| n < v).unwrap_or(true);
+        parts_left_p50 = Some(parts_left_p50.map(|v| v.min(n)).unwrap_or(n));
+        parts_left_p90 = Some(parts_left_p90.map(|v| v.min(n)).unwrap_or(n));
+        if binds {
+            parts_source = format!("{} · 열피로 누적 한계(부품당 손상 {:.3})", parts_source, fatigue_per_part);
+        }
+    }
     let causes = cause_shares(&draft.zones);
     let report_line = format!(
         "[COMP] {} · 잔여 P50 {:.1}/P90 {:.1} µm (공차 {:.0}) · VB {:.3}→{:.3} mm · 결정 {} ({}){}{}",
@@ -2327,8 +2644,23 @@ pub fn finalize(
         parts_left_p90,
         report_line,
         notes,
+        wear_field2,
+        parts_source,
+        thermal_damage_after,
+        thermal_damage_pass2: pass2_fatigue,
     }
 }
+
+struct PassRun {
+    samples: Vec<SimSample>,
+    ends: Vec<f64>,
+    time_s: f64,
+    cut_time_s: f64,
+    vb_after: f64,
+    field: WearField,
+    fatigue: f64,
+}
+
 fn pass_samples(
     profile: &MachiningProfile,
     ctx: &CutContext,
@@ -2337,13 +2669,22 @@ fn pass_samples(
     segs: &[ToolPathSegment],
     draft: &CompDraft,
     action: CompAction,
-) -> (Vec<SimSample>, Vec<f64>, f64, f64, f64) {
+) -> PassRun {
     let mut samples = Vec::new();
     let mut ends = Vec::with_capacity(segs.len());
     let mut t = 0.0;
     let mut cut_t = 0.0;
-    let mut vb = draft.vb_end1_mm;
+    let mut fatigue = 0.0;
+    let mut vb = if action == CompAction::ToolChange {
+        0.0
+    } else if draft.vb_now_mm > 0.0 {
+        draft.vb_now_mm
+    } else {
+        draft.vb_end1_mm
+    };
     let tan_clear = ctx.tool.clearance_deg.to_radians().tan();
+    let axial = AxialProfile::of(ctx);
+    let mut field = WearField::for_tool(&ctx.tool);
     let bulk = rep.bulk_c + draft.bulk_excess_k * if draft.thermal_err_um > 1e-9 { draft.thermal_err_after_um / draft.thermal_err_um } else { 1.0 };
     let mut prev = (0.0, 0.0, profile.endmill_setting.loc_mm + 10.0 - profile.conditions.axial_doc_mm);
     let total_len: f64 = {
@@ -2370,8 +2711,12 @@ fn pass_samples(
                 (Some(_), Some(e)) => (e.force_n, e.force_peak_n.max(e.force_n), e.defl_um, e.temp_c, e.chatter, e.wall_um, e.engage_deg, e.power_kw),
                 _ => (0.0, 0.0, 0.0, ctx.coolant.temperature_c, 0.0, 0.0, 0.0, 0.0),
             };
-            if let (Some(_), Some(e)) = (zone, ev) {
-                vb += e.vb_rate_mm_min * (dt / np) / 60.0;
+            if let (Some(z), Some(e)) = (zone, ev) {
+                let dvb = e.vb_rate_mm_min * (dt / np) / 60.0;
+                vb += dvb;
+                fatigue += e.fatigue_per_s * (dt / np);
+                let shares = toolwear::flute_shares(&ctx.tool, 0.64 * e.h_max_um / 1000.0, ctx.wp.mc);
+                field.deposit(z.ap_mm, dvb, &axial, &shares);
             }
             samples.push(SimSample {
                 t_s: tt,
@@ -2414,7 +2759,15 @@ fn pass_samples(
         ends.push(t);
         prev = s.end_point();
     }
-    (samples, ends, t, cut_t, vb)
+    PassRun {
+        samples,
+        ends,
+        time_s: t,
+        cut_time_s: cut_t,
+        vb_after: vb,
+        field,
+        fatigue,
+    }
 }
 
 pub fn record(sds: &mut SdsStore, profile: &MachiningProfile, log: &WearLog, out: &CompOutcome, prev_action: Option<&str>) -> Vec<String> {
@@ -2459,12 +2812,43 @@ pub fn record(sds: &mut SdsStore, profile: &MachiningProfile, log: &WearLog, out
         sds.record_transition(&scope, prev, dec.final_action.key());
     }
     if d.radial_source == "measured" && d.radial_end1_um > 1e-6 {
-        let ps = crate::pipeline::process_scope(profile);
-        sds.record_calibration(&ps, "wear", d.radial_used_um, d.radial_end1_um);
-        lines.push(format!("실측 반경 마모 {:.1} µm / 예측 {:.1} µm → 공정 마모 보정 계수 학습", d.radial_used_um, d.radial_end1_um));
+        if let Some((measured, predicted_base)) = calibration_pair(d) {
+            let ps = crate::pipeline::process_scope(profile);
+            sds.record_calibration(&ps, "wear", measured, predicted_base);
+            lines.push(format!(
+                "실측 반경 마모 증가 {:.1} µm / 보정 전 예측 {:.1} µm (적용 중이던 보정 ×{:.2} 를 걷어낸 기준) → 공정 마모 보정 계수 학습",
+                measured, predicted_base, d.calib_wear
+            ));
+        }
     }
     lines
 }
+
+pub fn calibration_pair(d: &CompDraft) -> Option<(f64, f64)> {
+    let tan_ratio = if d.vb_end1_mm > 1e-9 { d.radial_end1_um / (d.vb_end1_mm * 1000.0) } else { 0.0 };
+    let c = d.calib_wear.max(1e-6);
+    let (anchor, before_um) = match d.tool.as_ref() {
+        Some(t) => (t.anchor_um.unwrap_or(0.0), t.pred_base_since_anchor_um.max(0.0)),
+        None => (0.0, 0.0),
+    };
+    let this_base_um = if d.growth_calib_mm + d.growth_fixed_mm > 1e-12 {
+        (d.growth_calib_mm / c + d.growth_fixed_mm) * tan_ratio * 1000.0
+    } else {
+        (d.radial_end1_um - d.radial_start_um).max(0.0) / c
+    };
+    let (measured, predicted) = if d.tool.as_ref().map(|t| t.anchor_um.is_some()).unwrap_or(false) {
+        (d.radial_used_um - anchor, before_um + this_base_um)
+    } else {
+        (d.radial_used_um, before_um + this_base_um + if d.tool.is_none() { d.radial_start_um / c } else { 0.0 })
+    };
+    if measured >= MIN_CALIB_GROWTH_UM && predicted >= 0.5 {
+        Some((measured, predicted))
+    } else {
+        None
+    }
+}
+
+pub const MIN_CALIB_GROWTH_UM: f64 = 3.0;
 
 pub fn save_job_files(dir: &Path, stamp: &str, profile_name: &str, bins_csv: &str, summary: &serde_json::Value) -> Vec<String> {
     let mut out = Vec::new();
@@ -2502,7 +2886,32 @@ pub fn save_job_files(dir: &Path, stamp: &str, profile_name: &str, bins_csv: &st
     out
 }
 
+pub fn path_wear(nominal: &physics::WearTrajectory, rep: &LoadSimReport) -> (Option<f64>, physics::WearTrajectory) {
+    let minutes = if rep.growth_cut_min > 1e-9 { rep.growth_cut_min } else { rep.cut_time_min };
+    match nominal.steady_path_factor(rep.vb_start_mm, rep.vb_end_mm, minutes, rep.growth_calib_mm) {
+        Some(k) => {
+            let now = rep.chatter_wear_factor.max(1e-6);
+            let fresh = if rep.chatter_wear_factor_fresh > 0.0 { rep.chatter_wear_factor_fresh } else { now };
+            let vs = rep.vb_start_mm.max(0.0);
+            let k_at = |vb: f64| if vs > 1e-9 && vb < vs { k * (fresh + (now - fresh) * vb / vs) / now } else { k };
+            (Some(k), nominal.for_path_curve(&k_at))
+        }
+        None => (None, nominal.scaled(rep.chatter_wear_factor.max(1.0))),
+    }
+}
+
 pub fn analyze_job(profile: &MachiningProfile, ctx: &CutContext, report: &LoadSimReport, ttm: Option<&crate::ml::ttm::TtmForecaster>, sds: &SdsStore) -> WearLog {
+    analyze_job_with(profile, ctx, report, ttm, sds, None)
+}
+
+pub fn analyze_job_with(
+    profile: &MachiningProfile,
+    ctx: &CutContext,
+    report: &LoadSimReport,
+    ttm: Option<&crate::ml::ttm::TtmForecaster>,
+    sds: &SdsStore,
+    tool: Option<&ToolStart>,
+) -> WearLog {
     let scope = wear_scope(profile);
     let history: Vec<(String, f64, u64)> = ["ttm", "holt", "physics"]
         .iter()
@@ -2511,7 +2920,20 @@ pub fn analyze_job(profile: &MachiningProfile, ctx: &CutContext, report: &LoadSi
     let body = ThermalBody::of_setup(&profile.workpiece_setup, &ctx.wp);
     let nominal = physics::analyze_cut(ctx, &profile.conditions, true, body);
     let residuals: Vec<f64> = report.wall_errors.iter().filter(|w| w.final_wall).map(|w| w.total_um).collect();
-    crate::wearlog::analyze(&report.wear_log, &residuals, Some(&nominal.trajectory), ttm, &history, ctx.vb_limit_mm())
+    let (_, traj) = path_wear(&nominal.trajectory, report);
+    let tan_clear = ctx.tool.clearance_deg.to_radians().tan();
+    let prior: Vec<(f64, f64)> = tool.map(|t| t.history.clone()).unwrap_or_default();
+    crate::wearlog::analyze_ext(
+        &report.wear_log,
+        &residuals,
+        Some(&traj),
+        ttm,
+        &history,
+        ctx.vb_limit_mm(),
+        report.vb_start_mm,
+        report.vb_start_mm * tan_clear * 1000.0,
+        &prior,
+    )
 }
 
 pub struct PipelineResult {

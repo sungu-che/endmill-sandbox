@@ -19,8 +19,8 @@ fn preset(name: &str) -> MachiningProfile {
 fn titanium_finishing() -> MachiningProfile {
     let mut p = preset("티타늄");
     p.conditions.cutting_speed_m_min = 66.0;
-    p.conditions.feed_rate_mm_min = 321.5;
-    p.conditions.feed_per_tooth_mm = 0.0383;
+    p.conditions.feed_rate_mm_min = 298.3;
+    p.conditions.feed_per_tooth_mm = 0.0355;
     p.conditions.axial_doc_mm = 3.2;
     p.conditions.radial_doc_mm = 0.3;
     p.conditions.spindle_rpm = 2101;

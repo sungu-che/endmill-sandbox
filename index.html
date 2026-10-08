@@ -672,10 +672,22 @@
     .viewport-toolbar select, .viewport-toolbar input[type=range] { background: var(--bg-input); border: 1px solid var(--border); color: var(--text); padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; }
     .viewport-toolbar input[type=range] { width: 120px; padding: 0; }
     .vt-time { font-family: monospace; font-size: 0.68rem; color: var(--text-dim); min-width: 120px; }
-    .vp-legend { position: absolute; right: 8px; bottom: 8px; background: rgba(0,0,0,0.72); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 0.66rem; color: var(--text-dim); pointer-events: none; max-width: 300px; line-height: 1.45; }
+    .vp-legend { position: absolute; right: 8px; bottom: 8px; background: rgba(0,0,0,0.72); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 0.66rem; color: var(--text-dim); pointer-events: none; user-select: none; max-width: 300px; max-height: calc(100% - 48px); overflow-y: auto; z-index: 6; line-height: 1.45; }
+    .vp-legend.lg-scroll { pointer-events: auto; }
     .vp-legend .lg-bar { height: 8px; border-radius: 3px; margin: 3px 0; background: linear-gradient(90deg, rgba(120,0,0,0.2), #c0392b, #ff8c00, #ffd93d, #ffffff); }
     .vp-legend .lg-scale { display: flex; justify-content: space-between; font-family: monospace; }
+    .vp-legend .lg-scale.lg-abs { display: block; position: relative; height: 12px; }
+    .vp-legend .lg-scale.lg-abs span { position: absolute; top: 0; white-space: nowrap; }
     .vp-legend b { color: var(--text); }
+    .viewport-canvas-wrap canvas.vp-wear-inset { position: absolute; left: 8px; top: 8px; width: 168px; height: 196px; border: 1px solid var(--border); border-radius: 6px; pointer-events: none; z-index: 5; }
+    #tool-state-panel { margin-top: 6px; padding: 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); }
+    .ts-head { font-size: 0.72rem; color: var(--text); margin-bottom: 3px; }
+    .ts-row { font-size: 0.66rem; color: var(--text-dim); line-height: 1.5; }
+    .ts-note { font-size: 0.62rem; color: var(--text-muted); line-height: 1.4; margin-top: 2px; }
+    .ts-bar { height: 7px; background: var(--bg-darkest); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; margin: 3px 0; }
+    .ts-bar > span { display: block; height: 100%; background: linear-gradient(90deg, #6bcb77, #ffd93d, #ff6b6b); }
+    .ts-actions { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 5px; }
+    .viz-swatch { width: 90px; height: 10px; border-radius: 3px; border: 1px solid var(--border); }
     .vp-busy { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); background: rgba(0,0,0,0.75); border: 1px solid var(--border); border-radius: 4px; padding: 4px 10px; font-size: 0.7rem; color: var(--warning); pointer-events: none; }
     .vp-prep { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); width: min(460px, 86%); background: rgba(8,8,20,0.94); border: 1px solid var(--accent); border-radius: 8px; padding: 14px 18px; z-index: 30; box-shadow: 0 6px 24px rgba(0,0,0,0.55); }
     .vp-prep .prep-title { font-size: 1.05rem; color: var(--accent); font-weight: 700; margin-bottom: 6px; }
@@ -781,6 +793,7 @@
 	    <div class="panel-section-body" id="secToolList">
 	      <div id="tool-tree"></div>
 	      <div id="tool-spec-panel" style="margin-top:6px;"></div>
+	      <div id="tool-state-panel"><div class="ts-note">공구 개체 상태를 불러오는 중입니다</div></div>
 	    </div>
 
 	    <div class="panel-section-header" data-section="secMaterial">
@@ -842,6 +855,8 @@
 	      <button class="vt-btn active" id="tg-tool" onclick="vpToggle('tool')">공구</button>
 	      <button class="vt-btn active" id="tg-coolant" onclick="vpToggle('coolant')">냉각</button>
 	      <button class="vt-btn active" id="tg-heat" onclick="vpToggle('heat')">열·응력</button>
+	      <button class="vt-btn active" id="tg-depth" onclick="vpToggle('depth')" title="가공 깊이를 피삭재별 색상 깊이·등고선·작은 점으로 표시">깊이</button>
+	      <button class="vt-btn active" id="tg-wear" onclick="vpToggle('wear')" title="공구 날·높이별 마모 깊이(반경 손실)를 표시">마모</button>
 	      <div class="vt-sep"></div>
 	      <select id="tp-pattern" onchange="renderToolpath2D()" style="background:var(--bg-input);border:1px solid var(--border);color:var(--text);padding:3px 8px;border-radius:4px;font-size:0.72rem;">
 	        <option value="pocket_zigzag">포켓 지그재그</option>
@@ -868,6 +883,7 @@
 	        <div class="prep-row"><button class="btn btn-sm btn-outline" onclick="jobCancel()">취소</button></div>
 	      </div>
 	      <div class="vp-legend hidden" id="vp-legend"></div>
+	      <canvas id="vp-wear-inset" class="vp-wear-inset hidden"></canvas>
 	      <div class="viewport-hint">드래그: 회전 | 스크롤: 기울기 | 더블클릭: 리셋</div>
 	    </div>
 	    
@@ -1184,6 +1200,11 @@
 	        </div>
 	      </div>
 	      <div class="pv-card" style="margin-top:10px;">
+	        <h4>절삭 깊이 · 공구 마모 표시 (피삭재별 색상 깊이 범위 · 등고선 · 표시 방식)</h4>
+	        <div id="viz-form"></div>
+	        <div class="st-note">자동은 이번 가공의 최대 깊이를 색상표 끝에 맞추고, 고정은 피삭재마다 정한 깊이를 끝으로 고정해 서로 다른 가공을 같은 색 기준으로 비교합니다. 등고선은 지정 간격(비우면 범위의 약 1/8)마다 벽을 따라 층층이 쌓여 단면 깊이감을 주고, 소재 왼쪽 앞 모서리의 눈금이 깊이 기준선입니다. 공구 마모는 날·높이별 반경 손실을 같은 방식의 색 깊이, 날 안쪽으로 뻗는 눈금 선, 모재가 드러난 곳의 흰 점으로 표시합니다.</div>
+	      </div>
+	      <div class="pv-card" style="margin-top:10px;">
 	        <h4>모델 대기 작업 (필요한 모델이 준비될 때까지 일시정지 → 준비되면 자동 재개)</h4>
 	        <div id="mq-list"></div>
 	      </div>
@@ -1194,6 +1215,11 @@
 	        <button class="btn btn-sm btn-outline" onclick="compShow(false)">닫기 (뷰포트로)</button>
 	      </div>
 	      <div id="comp-body"><div style="font-size:0.72rem;color:var(--text-muted);">재생(⏵)을 누르면 1. 계산 실행 → 2. 재생 순서로 1차 시뮬레이션과 2차 보정 계획이 만들어집니다.</div></div>
+	      <div class="pv-card" style="margin-top:10px;">
+	        <div class="pv-row" style="justify-content:space-between;"><h4 style="margin:0;">가공 기록 프로젝트 (작업마다 1차·2차 기록을 새로 생성 · 공구 개체 누적 · 절삭 영역 참조 기록)</h4><button class="btn btn-sm btn-outline" onclick="jobListRefresh()">새로 고침</button></div>
+	        <div id="job-list"></div>
+	        <div id="job-detail" style="margin-top:8px;"></div>
+	      </div>
 	    </div>
 	  </main>
 
@@ -1976,7 +2002,7 @@
 	async function renderToolpath2D() {
 	  animPause();
 	  resizeCanvas();
-	  if (JOB.result && JOB.result.key === vpKey()) {
+	  if (JOB.result && JOB.result.key === vpKey() && !JOB.stale) {
 	    jobApply(JOB.result, { autoplay: false, quiet: true });
 	    return;
 	  }
@@ -1994,8 +2020,8 @@
 	  t: 0, playing: false, speed: 0, lastTs: 0, raf: null,
 	  segStart: [], segEnd: [], segFrom: [], total: 0, timelineFromSim: false,
 	  sim: null, simKey: '', simSeq: 0, combinedKey: '', pass2Start: -1, dwellIndex: -1, pass1End: 0, pass2T0: 0,
-	  show: { tool: true, coolant: true, heat: true },
-	  particles: [], spin: 0, partTs: 0,
+	  show: { tool: true, coolant: true, heat: true, depth: true, wear: true },
+	  particles: [], spin: 0, partTs: 0, depthPrep: null, wearRef: null, reach: null,
 	};
 	const VP_RAPID_MM_MIN = 15000;
 
@@ -2134,6 +2160,10 @@
 	  if (!sim) return;
 	  VP.sim = sim;
 	  VP.simKey = key;
+	  VP.pass1End = sim.total_s || 0;
+	  VP.pass2T0 = 0;
+	  VP.pass2Start = -1;
+	  VP.dwellIndex = -1;
 	  vpTimeline();
 	  vpInitParticles();
 	  if (sim.warnings && sim.warnings.length) sim.warnings.forEach(w => appendLog('⚠ ' + w));
@@ -2191,9 +2221,15 @@
 	    if (rapid) {
 	      ctx.strokeStyle = style === 'done' ? 'rgba(160,160,180,0.6)' : 'rgba(80,80,100,0.5)';
 	      ctx.lineWidth = 1;
+	    } else if (pass2 && VP.show.depth && VP.sim && VP.sim.depth) {
+	      ctx.strokeStyle = style === 'done' ? 'rgba(255, 92, 214, 0.8)' : 'rgba(255, 92, 214, 0.16)';
+	      ctx.lineWidth = style === 'done' ? 1.3 : 1;
 	    } else if (pass2) {
 	      ctx.strokeStyle = style === 'done' ? 'rgba(255, 92, 214, 0.95)' : 'rgba(255, 92, 214, 0.35)';
 	      ctx.lineWidth = style === 'done' ? Math.max(2, toolRadiusPx * 0.9) : Math.max(1, toolRadiusPx * 0.5);
+	    } else if (VP.show.depth && VP.sim && VP.sim.depth) {
+	      ctx.strokeStyle = style === 'done' ? 'rgba(0, 212, 255, 0.28)' : 'rgba(0, 212, 255, 0.07)';
+	      ctx.lineWidth = 1;
 	    } else {
 	      const depth = Math.min(Math.max(Math.abs(s.z || 0) / 10, 0.25), 1.0);
 	      ctx.strokeStyle = style === 'done' ? `rgba(0, 212, 255, ${0.55 + 0.45 * depth})` : `rgba(0, 212, 255, ${0.10 + 0.12 * depth})`;
@@ -2362,7 +2398,7 @@
 	    ctx.beginPath(); hull.forEach((q, k) => k ? ctx.lineTo(q.px, q.py) : ctx.moveTo(q.px, q.py)); ctx.closePath();
 	    ctx.fillStyle = tool.color_hex + 'ee'; ctx.fill();
 	  }
-	  const center = tpProject(x, y, zt + tool.loc_mm / 2);
+	  const view = vpViewDir();
 	  const tanH = Math.tan((tool.helix_deg || 30) * Math.PI / 180);
 	  ctx.lineWidth = 1.2;
 	  for (let f = 0; f < tool.flutes; f++) {
@@ -2372,7 +2408,7 @@
 	      const zz = cr + (tool.loc_mm - cr) * k / 24;
 	      const a = VP.spin + f * 2 * Math.PI / tool.flutes + zz * tanH / Math.max(r, 0.1);
 	      const q = tpProject(x + r * 1.01 * Math.cos(a), y + r * 1.01 * Math.sin(a), zt + zz);
-	      if (q.depth > center.depth + 0.2 * r * tpScale) { started = false; continue; }
+	      if (Math.cos(a) * view.x + Math.sin(a) * view.y < -0.05) { started = false; continue; }
 	      if (!started) { ctx.moveTo(q.px, q.py); started = true; } else ctx.lineTo(q.px, q.py);
 	    }
 	    ctx.strokeStyle = 'rgba(255,255,255,0.45)';
@@ -2516,8 +2552,12 @@
 	    lines.push(`<b style="color:#ff5cd6">2차 보정 패스</b> · ${esc(COMP_LABEL[comp.decision.final_action] || '')}${cutting ? ` · 반경 절입 ${fmt((sample.ae_mm || 0) * 1000, 1)} µm · 휨 ${fmt(Math.abs(sample.wall_defl_um) + Math.abs(sample.workpiece_um), 1)} µm · 채터 여유 ${fmt(sample.chatter_margin, 2)}` : ' · 진입/이동'}`);
 	  }
 	  if (VP.show.heat) {
-	    lines.push(`<b>소재 표면 과열 (잔류열)</b><div class="lg-bar"></div><div class="lg-scale"><span>0.5 K</span><span>${fmt(scaleMax / 3, 0)} K</span><span>${fmt(scaleMax, 0)} K</span></div>`);
+	    lines.push(`<b>소재 표면 과열 (잔류열)</b><div class="lg-bar"></div><div class="lg-scale"><span>0.5 K</span><span>${fmt(Math.sqrt(1 + scaleMax) - 1, 0)} K</span><span>${fmt(scaleMax, 0)} K</span></div>`);
 	  }
+	  const lgDepth = vpLegendDepth();
+	  if (lgDepth) lines.push(lgDepth);
+	  const lgWear = vpLegendWear();
+	  if (lgWear) lines.push(lgWear);
 	  if (cutting) {
 	    lines.push(`접촉 중 · 절삭력 <b>${fmt(sample.force_n, 0)}</b> N (피크 ${fmt(sample.force_peak_n, 0)}) · 맞물림 ${fmt(sample.engage_deg, 0)}°`);
 	    lines.push(`날끝 <b>${fmt(sample.temp_c, 0)}</b> °C · 절삭 지점 소재 <b>${fmt(sample.wp_local_c, 0)}</b> °C (예열 ${fmt(sample.preheat_c, 1)} K) · 입열 ${fmt(sample.wp_heat_w, 0)} W`);
@@ -2528,7 +2568,745 @@
 	  }
 	  lines.push(`소재 덩어리 ${fmt(sample ? sample.wp_temp_c : sim.bulk_c, 1)} °C · 실내 ${fmt(sim.ambient_c, 1)} °C · 최대 예열 ${fmt(sim.max_preheat_c, 0)} K`);
 	  if (field && field.peak >= 0.5) lines.push(`현재 화면 최대 과열 ${fmt(field.peak, 1)} K`);
+	  const pinned = !el.classList.contains('lg-scroll') || el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
 	  el.innerHTML = lines.join('<br>');
+	  const over = el.scrollHeight > el.clientHeight + 1;
+	  el.classList.toggle('lg-scroll', over);
+	  if (over && pinned) el.scrollTop = el.scrollHeight;
+	}
+
+	const DEPTH_PALETTES = {
+	  terrain: [[250, 240, 180], [170, 220, 120], [60, 190, 160], [40, 140, 210], [70, 95, 210], [120, 80, 200]],
+	  thermal: [[255, 255, 210], [255, 210, 90], [250, 140, 40], [230, 70, 50], [200, 40, 110], [160, 60, 170]],
+	  ocean: [[220, 245, 255], [150, 210, 240], [90, 170, 230], [50, 125, 220], [55, 90, 210], [80, 70, 190]],
+	  mono: [[245, 245, 245], [205, 205, 205], [170, 170, 170], [140, 140, 140], [115, 115, 115], [90, 90, 90]],
+	};
+	const DEPTH_PALETTE_LABEL = { terrain: '지형 (모래→청록→남색)', thermal: '열 (연노랑→적→자주)', ocean: '해양 (하늘→심청)', mono: '흑백 (밝음→어두움)' };
+	const DEPTH_MARK_LABEL = { dots: '작은 점', boxes: '작은 박스', lines: '짧은 선 (해칭)' };
+	const MATERIAL_FAMILY_LABEL = { aluminum: '알루미늄', carbon_steel: '탄소강', alloy_steel: '합금강·금형강', stainless: '스테인리스', titanium: '티타늄', inconel: '인코넬', superalloy: '내열 초합금', cfrp: 'CFRP' };
+	const DEPTH_BUCKETS = 24;
+
+	function vpPaletteRGB(name, k) {
+	  const stops = DEPTH_PALETTES[name] || DEPTH_PALETTES.terrain;
+	  const t = Math.max(0, Math.min(1, k));
+	  const p = t * (stops.length - 1), i = Math.min(stops.length - 2, Math.floor(p)), f = p - i;
+	  return stops[i].map((v, n) => Math.round(v + (stops[i + 1][n] - v) * f));
+	}
+
+	function vpPaletteCss(name, alpha) {
+	  const stops = DEPTH_PALETTES[name] || DEPTH_PALETTES.terrain;
+	  return stops.map((s, i) => `rgba(${s[0]},${s[1]},${s[2]},${alpha}) ${Math.round(i / (stops.length - 1) * 100)}%`).join(', ');
+	}
+
+	function vpViz() {
+	  const v = (APP.settings && APP.settings.viz) || {};
+	  return { ramps: v.ramps || {}, mark: v.mark || 'dots', wear_palette: v.wear_palette || 'thermal' };
+	}
+
+	function vpNiceStep(span, n) {
+	  const raw = Math.max(span, 1e-6) / Math.max(1, n);
+	  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+	  const f = raw / mag;
+	  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * mag;
+	}
+
+	const DEPTH_MAX_LEVELS = 60;
+	const DEPTH_MAX_CONTOUR_SEGS = 60000;
+
+	function vpDepthRamp() {
+	  const dm = VP.sim && VP.sim.depth;
+	  const viz = vpViz();
+	  const key = dm ? dm.material_key : '';
+	  const r = Object.assign({ mode: 'auto', max_mm: 0, palette: 'terrain', contour_mm: 0 }, viz.ramps[key] || {});
+	  const auto = r.mode !== 'fixed' || !(r.max_mm > 0);
+	  const hi = auto ? Math.max(0.05, dm ? dm.max_depth_mm : 1) : r.max_mm;
+	  const asked = r.contour_mm > 0 ? r.contour_mm : vpNiceStep(hi, 8);
+	  const top = Math.max(hi, dm ? dm.max_depth_mm : 0);
+	  const step = Math.max(asked, top / DEPTH_MAX_LEVELS);
+	  return { key, auto, hi, step, asked, user: r.contour_mm > 0, palette: DEPTH_PALETTES[r.palette] ? r.palette : 'terrain', mark: viz.mark };
+	}
+
+	function vpDepthTicks(ramp) {
+	  const st = vpNiceStep(ramp.hi, 4);
+	  const out = [];
+	  for (let v = 0; v <= ramp.hi + 1e-9 && out.length < 8; v += st) out.push(v);
+	  if (out[out.length - 1] < ramp.hi - 1e-9) {
+	    if (out.length > 1 && ramp.hi - out[out.length - 1] < 0.12 * ramp.hi) out.pop();
+	    out.push(ramp.hi);
+	  }
+	  return out;
+	}
+
+	const LEGEND_BAR_PX = 282;
+	const LEGEND_CHAR_PX = 6.5;
+
+	function vpLegendBarPx() {
+	  const wrap = document.querySelector('.viewport-canvas-wrap');
+	  const vw = wrap && wrap.clientWidth > 0 ? wrap.clientWidth : Infinity;
+	  return Math.max(120, Math.min(LEGEND_BAR_PX, vw - 34));
+	}
+
+	function vpScaleHtml(ticks, hi, unit, digits) {
+	  const n = ticks.length;
+	  const bar = vpLegendBarPx();
+	  const lab = ticks.map((v, i) => `${fmt(v, digits === undefined ? (v < 1 ? 2 : 1) : digits)}${i === n - 1 && unit ? ' ' + unit : ''}`);
+	  const frac = i => (hi > 0 ? Math.max(0, Math.min(1, ticks[i] / hi)) : 0);
+	  const box = i => {
+	    const x = frac(i) * bar, w = lab[i].length * LEGEND_CHAR_PX;
+	    return i === 0 ? [x, x + w] : (i === n - 1 ? [x - w, x] : [x - w / 2, x + w / 2]);
+	  };
+	  const keep = [];
+	  for (let i = 0; i < n; i++) {
+	    const b = box(i);
+	    if (i === n - 1 && i > 0) {
+	      while (keep.length > 1 && box(keep[keep.length - 1])[1] + 4 > b[0]) keep.pop();
+	      keep.push(i);
+	    } else if (!keep.length || box(keep[keep.length - 1])[1] + 4 <= b[0]) {
+	      keep.push(i);
+	    }
+	  }
+	  return `<div class="lg-scale lg-abs">${keep.map(i => {
+	    const tr = i === 0 ? 'translateX(0)' : (i === n - 1 ? 'translateX(-100%)' : 'translateX(-50%)');
+	    return `<span style="left:${(frac(i) * 100).toFixed(1)}%;transform:${tr}">${lab[i]}</span>`;
+	  }).join('')}</div>`;
+	}
+
+	function vpTanClear(deg) {
+	  return Math.tan(Math.max(2, Math.min(30, deg || 10)) * Math.PI / 180);
+	}
+
+	function vpProjector() {
+	  const canvas = document.getElementById('tp-canvas');
+	  const W2 = canvas.width / 2, H2 = canvas.height / 2;
+	  const cx = tpMaxX / 2, cy = tpMaxY / 2, cz = (tpMinZ + tpMaxZ) / 2;
+	  const cY = Math.cos(tpRotY), sY = Math.sin(tpRotY), cX = Math.cos(tpRotX), sX = Math.sin(tpRotX);
+	  const s = tpScale;
+	  return (x, y, z, out) => {
+	    const dx = (x - cx) * s, dy = (y - cy) * s, dz = (z - cz) * s;
+	    const x1 = dx * cY + dz * sY, z1 = -dx * sY + dz * cY;
+	    const y1 = dy * cX - z1 * sX, z2 = dy * sX + z1 * cX;
+	    const ps = 600 / (600 + z2 + 80);
+	    out.px = W2 + x1 * ps;
+	    out.py = H2 - y1 * ps;
+	    out.depth = z2;
+	    return out;
+	  };
+	}
+
+	function vpViewDir() {
+	  return { x: -Math.sin(tpRotY) * Math.cos(tpRotX), y: Math.sin(tpRotX) };
+	}
+
+	function vpDepthPrep() {
+	  const dm = VP.sim && VP.sim.depth;
+	  if (!dm || !dm.depth_um || !dm.depth_um.length) return null;
+	  if (VP.depthPrep && VP.depthPrep.dm === dm) return VP.depthPrep;
+	  const n = dm.nx * dm.ny;
+	  const first = k => (dm.first_cut_ds[k] < 0 ? 1e12 : dm.first_cut_ds[k]);
+	  const lastArr = dm.last_cut_ds && dm.last_cut_ds.length === n ? dm.last_cut_ds : null;
+	  const order = [];
+	  for (let k = 0; k < n; k++) if (dm.depth_um[k] > 0) order.push(k);
+	  order.sort((a, b) => first(a) - first(b));
+	  const times = order.map(first);
+	  const last = order.map(k => Math.max(first(k), lastArr && lastArr[k] >= 0 ? lastArr[k] : first(k)));
+	  const partial = last.some((v, q) => v > times[q] + 5);
+	  VP.depthPrep = { dm, order, times, last, partial, contours: null, contourStep: 0, layer: null, layerKey: '', drawn: 0 };
+	  return VP.depthPrep;
+	}
+
+	function vpReachTable() {
+	  if (VP.reach && VP.reach.n === tpData.length && VP.reach.total === VP.total) return VP.reach;
+	  const arr = new Float64Array(tpData.length);
+	  let m = 0;
+	  for (let i = 0; i < tpData.length; i++) {
+	    const s = tpData[i], from = VP.segFrom[i];
+	    if (from && s.kind !== 'Rapid' && s.kind !== 'Dwell') m = Math.max(m, -Math.min(from.z, s.z || 0));
+	    arr[i] = m;
+	  }
+	  VP.reach = { n: tpData.length, total: VP.total, arr };
+	  return VP.reach;
+	}
+
+	function vpDepthReach(t) {
+	  if (!tpData.length || t >= VP.total || (VP.pass1End > 0 && t >= VP.pass1End)) return Infinity;
+	  const tab = vpReachTable();
+	  const i = vpSegIndexAt(Math.max(0, t));
+	  if (i < 0) return 0;
+	  const base = i > 0 ? tab.arr[i - 1] : 0;
+	  const s = tpData[i], from = VP.segFrom[i];
+	  if (!from || s.kind === 'Rapid' || s.kind === 'Dwell') return base;
+	  const t0 = VP.segStart[i], t1 = VP.segEnd[i];
+	  const frac = t1 > t0 ? Math.max(0, Math.min(1, (t - t0) / (t1 - t0))) : 1;
+	  const z = from.z + ((s.z || 0) - from.z) * frac;
+	  return Math.max(base, -Math.min(from.z, z));
+	}
+
+	function vpDepthContours(prep, step) {
+	  if (prep.contours && prep.contourStep === step) return prep.contours;
+	  let s = step, out = vpContourLevels(prep.dm, s);
+	  while (out.truncated && out.n_levels > 1) {
+	    s = vpNiceStep(2 * s, 1);
+	    out = vpContourLevels(prep.dm, s);
+	  }
+	  out.asked = step;
+	  prep.contours = out;
+	  prep.contourStep = step;
+	  return out;
+	}
+
+	function vpContourLevels(dm, step) {
+	  const nx = dm.nx, ny = dm.ny, c = dm.cell_mm;
+	  const d = k => (dm.depth_um[k] < 0 ? NaN : dm.depth_um[k] / 1000);
+	  const tc = k => (dm.first_cut_ds[k] < 0 ? 0 : dm.first_cut_ds[k]);
+	  const levels = [];
+	  for (let L = step; L < dm.max_depth_mm + 1e-9 && levels.length < DEPTH_MAX_LEVELS; L += step) levels.push(L);
+	  const byLevel = levels.map(L => ({ L, segs: [] }));
+	  let total = 0;
+	  outer: for (let j = 0; j + 1 < ny; j++) {
+	    for (let i = 0; i + 1 < nx; i++) {
+	      const k00 = j * nx + i, k10 = k00 + 1, k01 = k00 + nx, k11 = k01 + 1;
+	      const v = [d(k00), d(k10), d(k11), d(k01)];
+	      if (v.some(x => !isFinite(x))) continue;
+	      const mn = Math.min(v[0], v[1], v[2], v[3]), mx = Math.max(v[0], v[1], v[2], v[3]);
+	      if (mx - mn < 1e-6) continue;
+	      const x0 = dm.x0 + (i + 0.5) * c, y0 = dm.y0 + (j + 0.5) * c;
+	      const P = [[x0, y0], [x0 + c, y0], [x0 + c, y0 + c], [x0, y0 + c]];
+	      const t = Math.max(tc(k00), tc(k10), tc(k01), tc(k11));
+	      for (let li = 0; li < levels.length; li++) {
+	        const L = levels[li];
+	        if (L <= mn || L > mx) continue;
+	        const pts = [];
+	        for (let e = 0; e < 4; e++) {
+	          const a = v[e], b = v[(e + 1) % 4];
+	          if ((a < L) !== (b < L)) {
+	            const f = (L - a) / (b - a);
+	            const pa = P[e], pb = P[(e + 1) % 4];
+	            pts.push([pa[0] + (pb[0] - pa[0]) * f, pa[1] + (pb[1] - pa[1]) * f]);
+	          }
+	        }
+	        for (let q = 0; q + 1 < pts.length; q += 2) {
+	          byLevel[li].segs.push(pts[q][0], pts[q][1], pts[q + 1][0], pts[q + 1][1], t);
+	          total++;
+	        }
+	        if (total >= DEPTH_MAX_CONTOUR_SEGS) break outer;
+	      }
+	    }
+	  }
+	  return { levels: byLevel.filter(l => l.segs.length), n_levels: levels.length, total, truncated: total >= DEPTH_MAX_CONTOUR_SEGS, step };
+	}
+
+	function vpDepthReveal(t) {
+	  if (VP.pass1End > 0 && t >= VP.pass1End) return 1e12;
+	  if (t >= VP.total) return 1e12;
+	  return t * 10;
+	}
+
+	function vpDrawDepth(ctx, t) {
+	  if (!VP.show.depth) return;
+	  const prep = vpDepthPrep();
+	  if (!prep) return;
+	  const dm = prep.dm;
+	  const ramp = vpDepthRamp();
+	  const canvas = ctx.canvas;
+	  const lim = vpDepthReveal(t);
+	  const reach = prep.partial ? vpDepthReach(t) : Infinity;
+	  const rb = isFinite(reach) ? Math.round(Math.min(1, reach / ramp.hi) * (DEPTH_BUCKETS - 1)) : 'F';
+	  const key = [tpRotX.toFixed(4), tpRotY.toFixed(4), tpScale.toFixed(4), canvas.width, canvas.height, ramp.hi.toFixed(4), ramp.palette, ramp.mark, tpMaxX, tpMaxY, tpMinZ, tpMaxZ, rb].join('|');
+	  if (!prep.layer || prep.layer.width !== canvas.width || prep.layer.height !== canvas.height) {
+	    prep.layer = document.createElement('canvas');
+	    prep.layer.width = canvas.width;
+	    prep.layer.height = canvas.height;
+	    prep.layerKey = '';
+	  }
+	  let n = prep.times.length;
+	  { let lo = 0, hi = prep.times.length; while (lo < hi) { const m = (lo + hi) >> 1; if (prep.times[m] <= lim) lo = m + 1; else hi = m; } n = lo; }
+	  const lctx = prep.layer.getContext('2d');
+	  if (prep.layerKey !== key || n < prep.drawn) {
+	    lctx.clearRect(0, 0, prep.layer.width, prep.layer.height);
+	    prep.layerKey = key;
+	    prep.drawn = 0;
+	  }
+	  if (n > prep.drawn) {
+	    const proj = vpProjector();
+	    const o = { px: 0, py: 0, depth: 0 };
+	    const cellPx = dm.cell_mm * tpScale;
+	    const colors = [];
+	    for (let b = 0; b < DEPTH_BUCKETS; b++) { const c = vpPaletteRGB(ramp.palette, b / (DEPTH_BUCKETS - 1)); colors.push(`rgba(${c[0]},${c[1]},${c[2]},0.9)`); }
+	    const stride = dm.nx * dm.ny > 90000 ? 2 : 1;
+	    for (let q = prep.drawn; q < n; q++) {
+	      const k = prep.order[q];
+	      if (stride > 1 && ((k % dm.nx) + Math.floor(k / dm.nx)) % stride) continue;
+	      const i = k % dm.nx, j = Math.floor(k / dm.nx);
+	      let dep = dm.depth_um[k] / 1000;
+	      if (lim < prep.last[q]) dep = Math.min(dep, reach);
+	      proj(dm.x0 + (i + 0.5) * dm.cell_mm, dm.y0 + (j + 0.5) * dm.cell_mm, -dep, o);
+	      const b = Math.max(0, Math.min(DEPTH_BUCKETS - 1, Math.round(dep / ramp.hi * (DEPTH_BUCKETS - 1))));
+	      lctx.fillStyle = colors[b];
+	      if (ramp.mark === 'boxes') {
+	        const s = Math.max(1.4, Math.min(3.6, 0.75 * cellPx));
+	        lctx.fillRect(o.px - s / 2, o.py - s / 2, s, s);
+	      } else if (ramp.mark === 'lines') {
+	        const w = Math.max(2, Math.min(5, 0.9 * cellPx));
+	        lctx.fillRect(o.px - w / 2, o.py - 0.5, w, 1);
+	      } else {
+	        const s = Math.max(1, Math.min(2.2, 0.45 * cellPx));
+	        lctx.fillRect(o.px - s / 2, o.py - s / 2, s, s);
+	      }
+	    }
+	    prep.drawn = n;
+	  }
+	  ctx.drawImage(prep.layer, 0, 0);
+	  const cont = vpDepthContours(prep, ramp.step);
+	  if (cont.levels.length) {
+	    const proj = vpProjector();
+	    const a = { px: 0, py: 0, depth: 0 }, b = { px: 0, py: 0, depth: 0 };
+	    ctx.lineWidth = 0.8;
+	    for (const lv of cont.levels) {
+	      if (lv.L > reach + 1e-9) break;
+	      const c = vpPaletteRGB(ramp.palette, Math.min(1, lv.L / ramp.hi));
+	      ctx.strokeStyle = `rgba(${Math.round(0.75 * c[0] + 50)},${Math.round(0.75 * c[1] + 50)},${Math.round(0.75 * c[2] + 55)},0.9)`;
+	      ctx.beginPath();
+	      let any = false;
+	      const sg = lv.segs;
+	      for (let q = 0; q < sg.length; q += 5) {
+	        if (sg[q + 4] > lim) continue;
+	        proj(sg[q], sg[q + 1], -lv.L, a);
+	        proj(sg[q + 2], sg[q + 3], -lv.L, b);
+	        ctx.moveTo(a.px, a.py);
+	        ctx.lineTo(b.px, b.py);
+	        any = true;
+	      }
+	      if (any) ctx.stroke();
+	    }
+	  }
+	  vpDrawDepthGuide(ctx, ramp, Math.min(dm.max_depth_mm, reach), cont.step);
+	}
+
+	function vpDrawDepthGuide(ctx, ramp, curMax, step) {
+	  const dm = VP.sim && VP.sim.depth;
+	  const st = VP.sim && VP.sim.stock;
+	  if (!dm || !st) return;
+	  const proj = vpProjector();
+	  const a = { px: 0, py: 0, depth: 0 }, b = { px: 0, py: 0, depth: 0 };
+	  const zMax = Math.min(dm.thickness_mm, Math.max(ramp.hi, dm.max_depth_mm));
+	  const gstep = Math.max(step || ramp.step, zMax / 40);
+	  const ticks = [];
+	  for (let L = 0; L <= zMax + 1e-9 && ticks.length < 41; L += gstep) ticks.push(L);
+	  ctx.font = '9px Consolas, monospace';
+	  ctx.lineWidth = 1.4;
+	  let lastLab = null;
+	  ticks.forEach((L, idx) => {
+	    const c = vpPaletteRGB(ramp.palette, Math.min(1, L / ramp.hi));
+	    proj(0, 0, -L, a);
+	    proj(-Math.max(1.5, 6 / Math.max(tpScale, 0.1)), 0, -L, b);
+	    ctx.strokeStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
+	    ctx.beginPath(); ctx.moveTo(a.px, a.py); ctx.lineTo(b.px, b.py); ctx.stroke();
+	    const due = idx % Math.max(1, Math.ceil(ticks.length / 6)) === 0 || idx === ticks.length - 1;
+	    if (due && (!lastLab || Math.hypot(b.px - lastLab.x, b.py - lastLab.y) >= 12)) {
+	      const txt = L < 1e-9 ? '0' : `-${fmt(L, L < 1 ? 2 : 1)}`;
+	      ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},0.95)`;
+	      ctx.fillText(txt, b.px - 4 - ctx.measureText(txt).width, b.py + 3);
+	      lastLab = { x: b.px, y: b.py };
+	    }
+	  });
+	  const m = isFinite(curMax) ? curMax : dm.max_depth_mm;
+	  if (m > 0) {
+	    proj(0, 0, -m, a);
+	    ctx.fillStyle = '#ffffff';
+	    ctx.beginPath(); ctx.moveTo(a.px, a.py); ctx.lineTo(a.px - 6, a.py - 3); ctx.lineTo(a.px - 6, a.py + 3); ctx.closePath(); ctx.fill();
+	  }
+	}
+
+	function vpWearSeries() {
+	  const sim = VP.sim;
+	  if (!sim || !sim.samples || !sim.tool_wear) return null;
+	  if (VP.wearRef && VP.wearRef.sim === sim) return VP.wearRef;
+	  const tw = sim.tool_wear;
+	  const p1 = VP.pass1End > 0 ? VP.pass1End : (sim.total_s || 0);
+	  let vb1 = tw.vb_start_mm || 0, vb2 = null, vb2s = null;
+	  for (const s of sim.samples) {
+	    if (s.t_s <= p1 + 1e-9) {
+	      vb1 = Math.max(vb1, s.vb_mm || 0);
+	    } else {
+	      if (vb2s === null) vb2s = s.vb_mm || 0;
+	      vb2 = Math.max(vb2 === null ? 0 : vb2, s.vb_mm || 0);
+	    }
+	  }
+	  if (vb2s === null) vb2s = vb1;
+	  if (vb2 === null) vb2 = vb2s;
+	  VP.wearRef = { sim, p1, vb0: tw.vb_start_mm || 0, vb1, vb2s, vb2: Math.max(vb2, vb2s) };
+	  return VP.wearRef;
+	}
+
+	function vpWearNow(t) {
+	  const sim = VP.sim;
+	  const tw = sim && sim.tool_wear;
+	  if (!tw || !tw.run || !tw.run.vb_mm || !tw.run.vb_mm.length) return null;
+	  const ref = vpWearSeries();
+	  const s = vpSampleAt(t);
+	  const vb = s ? (s.vb_mm || 0) : (t > VP.total ? ref.vb2 : ref.vb0);
+	  let f1 = 1, f2 = 0;
+	  if (t <= ref.p1 && t <= VP.total) f1 = ref.vb1 > ref.vb0 + 1e-12 ? Math.max(0, Math.min(1, (vb - ref.vb0) / (ref.vb1 - ref.vb0))) : (t >= ref.p1 ? 1 : 0);
+	  if (VP.pass2T0 > 0 && t >= VP.pass2T0) f2 = t > VP.total ? 1 : (ref.vb2 > ref.vb2s + 1e-12 ? Math.max(0, Math.min(1, (vb - ref.vb2s) / (ref.vb2 - ref.vb2s))) : 0);
+	  if (t > VP.total) { f1 = 1; f2 = VP.pass2T0 > 0 ? 1 : 0; }
+	  const fresh = !!tw.tool_change && VP.pass2T0 > 0 && t >= VP.pass2T0;
+	  const f = tw.run, n = f.vb_mm.length;
+	  const st = tw.start && tw.start.vb_mm && tw.start.vb_mm.length === n ? tw.start.vb_mm : null;
+	  const p2 = tw.pass2 && tw.pass2.vb_mm && tw.pass2.vb_mm.length === n ? tw.pass2.vb_mm : null;
+	  const out = new Float64Array(n);
+	  let mx = 0;
+	  for (let q = 0; q < n; q++) {
+	    out[q] = fresh ? (p2 ? p2[q] * f2 : 0) : (st ? st[q] : 0) + f.vb_mm[q] * f1 + (p2 ? p2[q] * f2 : 0);
+	    if (out[q] > mx) mx = out[q];
+	  }
+	  return { vb: out, nz: f.nz, flutes: f.flutes, dz: f.dz_mm, loc: f.loc_mm, max: mx, tw, fresh };
+	}
+
+	function vpWearRgb(radialUm, refUm) {
+	  const viz = vpViz();
+	  return vpPaletteRGB(viz.wear_palette === 'mono' ? 'mono' : (DEPTH_PALETTES[viz.wear_palette] ? viz.wear_palette : 'thermal'), Math.max(0, Math.min(1, radialUm / Math.max(refUm, 1e-6))));
+	}
+
+	function vpDrawToolWear(ctx, pose, toolVisible) {
+	  if (!VP.show.wear) { vpDrawWearInset(null); return; }
+	  const tool = vpTool();
+	  const w = vpWearNow(VP.t);
+	  if (!tool || !w) { vpDrawWearInset(null); return; }
+	  const tw = w.tw;
+	  const tanC = vpTanClear(tw.clearance_deg);
+	  const refUm = Math.max(1, (tw.local_limit_mm || 0.3) * tanC * 1000);
+	  vpDrawWearInset(w, refUm, tanC);
+	  if (!pose || toolVisible === false) return;
+	  const r = tool.diameter_mm / 2;
+	  const cr = tool.nose === 'ball' ? r : (tool.nose === 'corner' ? Math.min(tool.corner_r_mm || 0, r) : 0);
+	  const lift = pose.after ? Math.min(30, (VP.t - VP.total) * 4) : 0;
+	  const zt = pose.z + lift;
+	  const tanH = Math.tan((tool.helix_deg || 30) * Math.PI / 180);
+	  const proj = vpProjector();
+	  const view = vpViewDir();
+	  const o = { px: 0, py: 0, depth: 0 }, inn = { px: 0, py: 0, depth: 0 };
+	  const strip = tw.coating_strip_um || 0;
+	  for (let f = 0; f < w.flutes; f++) {
+	    for (let k = 0; k < w.nz; k++) {
+	      const vb = w.vb[f * w.nz + k];
+	      if (vb < 0.002) continue;
+	      const zz = (k + 0.5) * w.dz;
+	      if (zz > tool.loc_mm) break;
+	      const rr = zz < cr ? (r - cr) + Math.sqrt(Math.max(0, cr * cr - (cr - zz) * (cr - zz))) : r;
+	      const a = VP.spin + f * 2 * Math.PI / tool.flutes + zz * tanH / Math.max(r, 0.1);
+	      const ca = Math.cos(a), sa = Math.sin(a);
+	      if (ca * view.x + sa * view.y < -0.05) continue;
+	      proj(pose.x + rr * 1.03 * ca, pose.y + rr * 1.03 * sa, zt + zz, o);
+	      const radial = vb * tanC * 1000;
+	      const rel = Math.min(1, radial / refUm);
+	      const col = vpWearRgb(radial, refUm);
+	      const len = Math.max(1.5, rel * Math.max(4, 0.3 * r * tpScale));
+	      const back = Math.min(len / Math.max(tpScale, 1e-6), 0.9 * rr);
+	      proj(pose.x + (rr * 1.03 - back) * ca, pose.y + (rr * 1.03 - back) * sa, zt + zz, inn);
+	      ctx.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},0.95)`;
+	      ctx.lineWidth = 1.1;
+	      ctx.beginPath(); ctx.moveTo(o.px, o.py); ctx.lineTo(inn.px, inn.py); ctx.stroke();
+	      const s = 1.2 + 1.6 * rel;
+	      ctx.fillStyle = `rgb(${col[0]},${col[1]},${col[2]})`;
+	      ctx.fillRect(o.px - s / 2, o.py - s / 2, s, s);
+	      if (strip > 0 && vb * 1000 > strip) {
+	        ctx.fillStyle = 'rgba(235,240,245,0.95)';
+	        ctx.fillRect(inn.px - 0.6, inn.py - 0.6, 1.2, 1.2);
+	      }
+	    }
+	  }
+	}
+
+	function vpDrawWearInset(w, refUm, tanC) {
+	  const cv = document.getElementById('vp-wear-inset');
+	  if (!cv) return;
+	  if (!VP.show.wear || !w) { cv.classList.add('hidden'); return; }
+	  cv.classList.remove('hidden');
+	  const tw = w.tw;
+	  const W = 168, H = 196;
+	  if (cv.width !== W) { cv.width = W; cv.height = H; }
+	  const ctx = cv.getContext('2d');
+	  ctx.clearRect(0, 0, W, H);
+	  ctx.fillStyle = 'rgba(0,0,0,0.72)';
+	  ctx.fillRect(0, 0, W, H);
+	  ctx.font = '9px Consolas, monospace';
+	  ctx.fillStyle = '#d0d0e0';
+	  ctx.fillText(w.fresh ? '새 공구 마모 지도 (반경 손실 µm)' : '공구 마모 지도 (반경 손실 µm)', 6, 11);
+	  const L = 24, T = 18, B = 34, R = 8;
+	  const gw = W - L - R, gh = H - T - B;
+	  const cw = gw / Math.max(1, w.flutes), rh = gh / Math.max(1, w.nz);
+	  const strip = tw.coating_strip_um || 0;
+	  ctx.lineWidth = 1;
+	  for (let f = 0; f < w.flutes; f++) {
+	    const x0 = Math.round(L + f * cw) + 2.5, span = Math.max(4, cw - 8);
+	    ctx.strokeStyle = 'rgba(120,120,140,0.5)';
+	    ctx.beginPath(); ctx.moveTo(x0, T); ctx.lineTo(x0, T + gh); ctx.stroke();
+	    for (let k = 0; k < w.nz; k++) {
+	      const vb = w.vb[f * w.nz + k];
+	      if (vb < 0.0005) continue;
+	      const radial = vb * tanC * 1000;
+	      const len = Math.max(1, Math.min(1, radial / refUm) * span);
+	      const y = Math.round(T + gh - (k + 0.5) * rh) + 0.5;
+	      const c = vpWearRgb(radial, refUm);
+	      ctx.strokeStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
+	      ctx.beginPath(); ctx.moveTo(x0 + 1, y); ctx.lineTo(x0 + 1 + len, y); ctx.stroke();
+	      if (strip > 0 && vb * 1000 > strip) { ctx.fillStyle = 'rgba(240,244,250,0.95)'; ctx.fillRect(x0 + 2 + len, y - 0.5, 1, 1); }
+	    }
+	    ctx.fillStyle = '#9aa';
+	    ctx.fillText(`날${f + 1}`, L + f * cw + cw / 2 - 8, H - B + 10);
+	  }
+	  const ap = (APP.detail && APP.detail.conditions) ? APP.detail.conditions.axial_doc_mm : 0;
+	  if (ap > 0 && w.loc > 0) {
+	    const y = T + gh - Math.min(1, ap / w.loc) * gh;
+	    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+	    ctx.setLineDash([3, 2]);
+	    ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(W - R, y); ctx.stroke();
+	    ctx.setLineDash([]);
+	    ctx.fillStyle = '#ccd';
+	    ctx.fillText('ap', 4, y + 3);
+	  }
+	  ctx.fillStyle = '#99a';
+	  ctx.fillText('끝', 6, T + gh);
+	  ctx.fillText(`${fmt(w.loc, 0)}`, 4, T + 8);
+	  for (let i = 0; i <= 20; i++) {
+	    const c = vpWearRgb(refUm * i / 20, refUm);
+	    ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
+	    ctx.fillRect(L + gw * i / 21, H - 16, gw / 21 + 0.5, 5);
+	  }
+	  ctx.fillStyle = '#aab';
+	  ctx.fillText('0', L, H - 3);
+	  ctx.fillText(`${fmt(refUm, 0)} µm`, W - R - 38, H - 3);
+	}
+
+	function vpLegendDepth() {
+	  const dm = VP.sim && VP.sim.depth;
+	  if (!VP.show.depth || !dm) return '';
+	  const ramp = vpDepthRamp();
+	  const ticks = vpDepthTicks(ramp);
+	  const prep = vpDepthPrep();
+	  const reach = prep && prep.partial ? vpDepthReach(VP.t) : Infinity;
+	  const cont = prep ? vpDepthContours(prep, ramp.step) : null;
+	  const eff = cont ? cont.step : ramp.step;
+	  const why = [];
+	  if (ramp.step > ramp.asked + 1e-9) why.push(`${DEPTH_MAX_LEVELS}단 한도`);
+	  if (eff > ramp.step + 1e-9) why.push(`선분 ${DEPTH_MAX_CONTOUR_SEGS / 1000}k개 한도`);
+	  const note = [why.length ? `${ramp.user ? '설정' : '자동'} ${fmt(ramp.asked, 2)} mm에서 ${why.join(' · ')}로 늘림` : '', cont && cont.truncated ? '일부 영역만 표시' : ''].filter(Boolean).join(' · ');
+	  return `<b>절삭 깊이 — ${esc(dm.material_label || MATERIAL_FAMILY_LABEL[dm.material_key] || dm.material_key)}</b> (${ramp.auto ? '자동 범위' : '고정 범위'} 0–${fmt(ramp.hi, 2)} mm · 등고선 ${fmt(eff, 2)} mm${note ? ` (${note})` : ''} · ${esc(DEPTH_MARK_LABEL[ramp.mark] || ramp.mark)})`
+	    + `<div class="lg-bar" style="background:linear-gradient(90deg, ${vpPaletteCss(ramp.palette, 0.95)})"></div>`
+	    + vpScaleHtml(ticks, ramp.hi, 'mm')
+	    + `<span style="font-size:0.6rem">${isFinite(reach) ? `지금까지 ${fmt(Math.min(reach, dm.max_depth_mm), 2)} mm 깊이까지 가공 (최종 ${fmt(dm.max_depth_mm, 2)} mm)` : `최대 ${fmt(dm.max_depth_mm, 2)} mm`} (▶ 표시) · 왼쪽 앞 모서리 눈금이 깊이 기준선</span>`;
+	}
+
+	function vpLegendWear() {
+	  const sim = VP.sim;
+	  const tw = sim && sim.tool_wear;
+	  if (!VP.show.wear || !tw || !tw.run || !tw.run.vb_mm) return '';
+	  const w = vpWearNow(VP.t);
+	  if (!w) return '';
+	  const tanC = vpTanClear(tw.clearance_deg);
+	  const refUm = Math.max(1, (tw.local_limit_mm || 0.3) * tanC * 1000);
+	  const ap = (APP.detail && APP.detail.conditions) ? APP.detail.conditions.axial_doc_mm : w.loc;
+	  let band = 0;
+	  for (let f = 0; f < w.flutes; f++) {
+	    let s = 0, len = 0;
+	    for (let k = 0; k < w.nz; k++) { const a = k * w.dz; if (a >= ap) break; const fr = (Math.min((k + 1) * w.dz, ap) - a) / w.dz; s += w.vb[f * w.nz + k] * fr; len += fr; }
+	    if (len > 0) band = Math.max(band, s / len);
+	  }
+	  const viz = vpViz();
+	  const pal = DEPTH_PALETTES[viz.wear_palette] ? viz.wear_palette : 'thermal';
+	  const inst = w.fresh ? '새 공구 (공구 교체 후 2차)' : (tw.instance_id ? `공구 #${tw.instance_id} (${tw.generation}세대 · 이전 작업 ${tw.jobs}회 · ${fmt(tw.cut_min, 1)}분)` : '새 날');
+	  const exposed = tw.coating_strip_um > 0 && band * 1000 > tw.coating_strip_um;
+	  const tf0 = w.fresh ? 0 : (tw.thermal_damage || 0);
+	  const tf1 = tf0 + (w.fresh ? 0 : (tw.thermal_damage_run || 0));
+	  return `<b>공구 마모 깊이 (반경 손실)</b> · ${esc(inst)}`
+	    + `<div class="lg-bar" style="background:linear-gradient(90deg, ${vpPaletteCss(pal, 0.95)})"></div>`
+	    + vpScaleHtml([0, refUm / 2, refUm], refUm, 'µm', 1)
+	    + `VB ${fmt(band, 3)} / 한계 ${fmt(tw.vb_limit_mm, 2)} mm · 국부 최대 ${fmt(w.max, 3)} / ${fmt(tw.local_limit_mm, 2)} mm`
+	    + (tw.coating_strip_um > 0 ? `<br>${esc(tw.coating)} ${fmt(tw.coating_um, 1)} µm · 랜드 ${fmt(tw.coating_strip_um, 1)} µm 넘으면 모재 노출 ${exposed ? '<b style="color:#e8eef5">(노출 중 · 흰 점)</b>' : '(코팅 유지)'}` : '')
+	    + (tf1 > 1e-3 ? `<br>열피로(빗살 균열) 손상 ${fmt(tf0, 2)} → ${fmt(tf1, 2)} / 1.0` : '');
+	}
+
+	const TOOLS = { state: null, resetArm: 0, jobs: [], detail: null };
+
+	async function toolPanelRefresh() {
+	  const el = document.getElementById('tool-state-panel');
+	  if (!el) return;
+	  let s = null;
+	  try { s = await invoke('tool_state', { profileName: getActiveProfile() }); } catch (e) { el.innerHTML = `<div class="ts-note">공구 개체 상태를 읽지 못했습니다: ${esc(e)}</div>`; return; }
+	  TOOLS.state = s;
+	  toolPanelRender();
+	}
+
+	function toolResetLabel() {
+	  const t = TOOLS.state && TOOLS.state.instance;
+	  return t && t.pending_job_id ? '새 공구 장착 완료 (리셋)' : '마모 리셋 (새 공구 장착)';
+	}
+
+	function toolPanelRender() {
+	  const el = document.getElementById('tool-state-panel');
+	  const s = TOOLS.state;
+	  if (!el || !s) return;
+	  const t = s.instance, m = s.summary;
+	  const used = Math.max(m.life_used_max || 0, m.life_used || 0);
+	  const pct = Math.max(0, Math.min(100, used * 100));
+	  const now = Math.max(0, Math.min(100, (m.life_used || 0) * 100));
+	  const cls = pct >= 100 ? 'sev-3' : pct >= 80 ? 'sev-2' : pct >= 50 ? 'sev-1' : 'sev-0';
+	  const tf = Math.max(0, m.thermal_damage || 0);
+	  const tfCls = tf >= 1 ? 'sev-3' : tf >= 0.7 ? 'sev-2' : tf >= 0.4 ? 'sev-1' : 'sev-0';
+	  const flutes = (m.flute_band_vb_mm || []).map((v, i) => `날${i + 1} ${fmt(v, 3)}`).join(' · ');
+	  const dry = !!(APP.settings && APP.settings.dry_run);
+	  const head = t.id > 0 ? `<b>공구 개체 #${t.id}</b> · ${t.generation}세대` : '<b>새 공구</b> · 아직 가공 기록 없음';
+	  el.innerHTML = `<div class="ts-head">${head} · ${esc(s.tool_name)}</div>
+	    <div class="ts-bar"><span class="${cls}" style="width:${pct.toFixed(0)}%"></span></div>
+	    <div class="ts-row">수명 사용 <b class="${cls}">${fmt(pct, 0)}%</b> (지금까지 도달한 최대 · 이 프로필 조건 ${fmt(now, 0)}%) · VB ${fmt(m.vb_band_mm, 3)} / ${fmt(m.vb_limit_mm, 2)} mm · 국부 ${fmt(m.vb_max_mm, 3)} / ${fmt(m.local_limit_mm, 2)} mm</div>
+	    <div class="ts-bar"><span class="${tfCls}" style="width:${Math.min(100, tf * 100).toFixed(0)}%"></span></div>
+	    <div class="ts-row">열피로(빗살 균열) 손상 <b class="${tfCls}">${fmt(tf, 2)}</b> / 1.0 — 단속 절삭에서 날이 회전마다 가열·급랭되며 쌓임 (냉각 방식·회전수·온도에 따라 속도가 다름)</div>
+	    <div class="ts-row">작업 ${t.jobs}회 · 절삭 ${fmt(t.cut_min, 1)}분 · 제거 ${fmt(t.removed_cm3, 1)} cm³${t.last_measured_um !== null && t.last_measured_um !== undefined ? ` · 실측 ${fmt(t.last_measured_um, 1)} µm` : ''}</div>
+	    ${flutes ? `<div class="ts-row">${esc(flutes)} mm (런아웃 하중 분배)</div>` : ''}
+	    ${t.pending_job_id ? `<div class="ts-note sev-2">작업 #${t.pending_job_id} 의 결정이 '공구 교체 후 보정'입니다 — 새 공구를 장착했으면 아래 버튼을 누르세요 (그 작업의 2차 마모가 새 공구 개체에 기록됨)</div>` : ''}
+	    ${s.spec_changed ? '<div class="ts-note sev-1">프리셋의 공구 사양이 바뀌어 다음 작업을 기록할 때 이 개체를 은퇴시키고 새 공구로 시작합니다 (시뮬레이션만이거나 기록 전에 취소하면 그대로 유지)</div>' : ''}
+	    ${(s.lines || []).map(n => `<div class="ts-note">${esc(n)}</div>`).join('')}
+	    ${(m.notes || []).map(n => `<div class="ts-note">${esc(n)}</div>`).join('')}
+	    <div class="ts-actions"><button class="btn btn-sm btn-outline" id="ts-reset" onclick="toolReset()">${toolResetLabel()}</button><button class="btn btn-sm btn-outline" onclick="jobListShow()">가공 기록</button>
+	      <label class="pv-check" title="켜면 재생해도 가공 기록·공구 마모 누적을 저장하지 않습니다 (조건 비교용)"><input type="checkbox" id="ts-dry" ${dry ? 'checked' : ''} onchange="toolDryRun(this.checked)"/> 시뮬레이션만</label></div>`;
+	}
+
+	async function toolDryRun(on) {
+	  let s;
+	  try { s = await invoke('settings_set_dry_run', { dryRun: !!on }); } catch (e) { appendLog(`시뮬레이션만 모드 설정 실패: ${esc(e)}`); toolPanelRender(); return; }
+	  APP.settings = s;
+	  ST.settings = s;
+	  appendLog(on ? '시뮬레이션만 모드 — 재생해도 가공 기록과 공구 마모 누적을 저장하지 않음 (공구 상태는 읽어서 계산에 사용)' : '실가공 기록 모드 — 재생할 때마다 별도 가공 기록 프로젝트가 생기고 공구 마모·열피로가 누적됨');
+	  toolPanelRender();
+	}
+
+	async function toolReset() {
+	  const btn = document.getElementById('ts-reset');
+	  const now = Date.now();
+	  if (now - TOOLS.resetArm > 4000) {
+	    TOOLS.resetArm = now;
+	    if (btn) btn.textContent = '한 번 더 누르면 리셋 (4초 안)';
+	    setTimeout(() => { if (Date.now() - TOOLS.resetArm >= 4000) { const b = document.getElementById('ts-reset'); if (b) b.textContent = toolResetLabel(); } }, 4100);
+	    return;
+	  }
+	  TOOLS.resetArm = 0;
+	  let s;
+	  try { s = await invoke('tool_state_reset', { profileName: getActiveProfile(), reason: null }); } catch (e) { appendLog(`공구 리셋 실패: ${esc(e)}`); return; }
+	  TOOLS.state = s;
+	  toolPanelRender();
+	  appendLog(`공구 마모 리셋: '${esc(s.tool_name)}' → 공구 개체 #${s.instance.id} (${s.instance.generation}세대, 새 날) · 이전 개체는 기록과 함께 보관`);
+	  (s.lines || []).forEach(l => appendLog(esc(l)));
+	  JOB.stale = true;
+	  VP.sim = null;
+	  VP.simKey = '';
+	  renderToolpath2D();
+	}
+
+	async function jobListShow() {
+	  compShow(true);
+	  if (!JOB.result) document.getElementById('comp-view').classList.add('visible');
+	  await jobListRefresh();
+	}
+
+	async function jobListRefresh() {
+	  const el = document.getElementById('job-list');
+	  if (!el) return;
+	  let rows = [];
+	  try { rows = await invoke('job_records', { limit: 40, allProjects: false }) || []; } catch (e) { el.innerHTML = `<div class="ts-note">가공 기록을 읽지 못했습니다: ${esc(e)}</div>`; return; }
+	  TOOLS.jobs = rows;
+	  const passCell = p => p ? `${esc({ done: '완료', reused: '재사용', planned: '계획', hold: '보류', skip: '안 함', replaced: '대체됨', awaiting_tool: '새 공구 대기', done_new_tool: '새 공구로 완료', none: '-' }[p.status] || p.status)} · ${fmt(p.cut_min, 2)}분 · VB ${fmt(p.vb_start_mm, 3)}→${fmt(p.vb_end_mm, 3)}` : '-';
+	  el.innerHTML = pvTable([
+	    { t: '#', f: j => `<a href="#" onclick="event.preventDefault(); jobDetailShow(${j.id})">${j.id}</a>` },
+	    { t: '시각', f: j => esc(j.stamp), nw: true },
+	    { t: '프로필 · 패턴', f: j => `${esc(j.profile_name)} · ${esc(j.pattern)}${j.parent_job_id ? ` <span class="sev-1">재계획←#${j.parent_job_id}${j.root_job_id && j.root_job_id !== j.parent_job_id ? ` (원 #${j.root_job_id})` : ''}</span>` : ''}` },
+	    { t: '공구 개체', f: j => j.tool_instance_id ? `#${j.tool_instance_id} (${j.tool_generation}세대)` : '-' },
+	    { t: '1차', f: j => passCell(j.passes.find(p => p.pass === 1)) },
+	    { t: '2차', f: j => `${esc(COMP_LABEL[COMP_KEY[j.final_action] || j.final_action] || j.final_action)} · ${passCell(j.passes.find(p => p.pass === 2))}` },
+	  ], rows);
+	}
+
+	async function jobDetailShow(id) {
+	  const el = document.getElementById('job-detail');
+	  if (!el) return;
+	  let d;
+	  try { d = await invoke('job_record', { id }); } catch (e) { el.innerHTML = `<div class="ts-note">${esc(e)}</div>`; return; }
+	  TOOLS.detail = d;
+	  const j = d.job;
+	  const passes = pvTable([
+	    { t: '패스', f: p => `${p.pass}차` }, { t: '상태', f: p => esc(p.status) + (p.committed ? '' : ' (공구 누적 미반영)') }, { t: '동작', f: p => esc(p.action) },
+	    { t: '절삭 분', f: p => fmt(p.cut_min, 2) }, { t: '제거 cm³', f: p => fmt(p.removed_cm3, 2) },
+	    { t: 'VB 시작→끝', f: p => `${fmt(p.vb_start_mm, 4)} → ${fmt(p.vb_end_mm, 4)}`, nw: true },
+	    { t: '반경 µm', f: p => fmt(p.radial_end_um, 1) },
+	    { t: '잔여 P50/P90', f: p => `${p.residual_p50_um === null ? '-' : fmt(p.residual_p50_um, 1)} / ${p.residual_p90_um === null ? '-' : fmt(p.residual_p90_um, 1)}` },
+	    { t: '채터 마모 가속', f: p => p.chatter_wear === null ? '-' : '×' + fmt(p.chatter_wear, 2) },
+	  ], j.passes);
+	  const recs = pvTable([
+	    { t: '패스', f: r => `${r.pass}차` }, { t: '방향', f: r => esc(r.mode) },
+	    { t: 'ap / ae mm', f: r => `${fmt(r.ap_mm, 2)} / ${fmt(r.ae_mm, 3)}`, nw: true },
+	    { t: '진입→이탈 각', f: r => `${fmt(r.phi_st_deg, 0)}° → ${fmt(r.phi_ex_deg, 0)}°`, nw: true },
+	    { t: 'vc · fz', f: r => `${fmt(r.vc_m_min, 0)} · ${fmt(r.fz_mm, 4)}`, nw: true },
+	    { t: '칩 µm', f: r => fmt(r.h_mean_um, 2) }, { t: '시간 s', f: r => fmt(r.t_cut_s, 1) },
+	    { t: '온도 °C', f: r => fmt(r.temp_c, 0) }, { t: '채터 여유', f: r => fmt(r.chatter_min, 2) },
+	    { t: 'VB 증가 µm · 속도', f: r => `${fmt(r.dvb_mm * 1000, 2)} · ${fmt(r.vb_rate_um_min, 2)}/min`, nw: true },
+	    { t: '날 하중 분배', f: r => (r.flute_shares || []).map(v => fmt(v, 2)).join(' / ') },
+	    { t: '실측/예측', f: r => r.measured_ratio === null || r.measured_ratio === undefined ? '-' : '×' + fmt(r.measured_ratio, 2) },
+	  ], d.records.slice(0, 48));
+	  const ev = pvTable([
+	    { t: '종류', f: e => esc({ pass1: '1차 누적', pass2: '2차 누적', measure: '실측 고정', reset: '리셋', geometry_change: '사양 변경 은퇴', change_pending: '교체 대기' }[e.kind] || e.kind) },
+	    { t: 'VB 전→후', f: e => `${fmt(e.vb_before_mm, 4)} → ${fmt(e.vb_after_mm, 4)}` },
+	    { t: '누적 절삭 분', f: e => fmt(e.cut_min_after, 2) }, { t: '출처', f: e => esc(e.source) }, { t: '메모', f: e => esc(e.note) },
+	  ], d.events);
+	  el.innerHTML = `<div class="ts-head"><b>가공 기록 프로젝트 #${j.id}</b> · ${esc(j.name)}</div><div class="pv-log">${esc(j.report_line)}</div>
+	    <div class="ct-sec">1차 · 2차 기록</div>${passes}<div class="ct-sec">절삭 영역 기록 (이후 비슷한 절삭의 참조값)</div>${recs}<div class="ct-sec">공구 누적 이벤트</div>${ev}`;
+	}
+
+	let VIZ_DIRTY = false;
+
+	function vizRender() {
+	  const el = document.getElementById('viz-form');
+	  if (!el) return;
+	  VIZ_DIRTY = false;
+	  el.oninput = () => { VIZ_DIRTY = true; };
+	  el.onchange = () => { VIZ_DIRTY = true; };
+	  const viz = vpViz();
+	  const opt = (map, cur) => Object.entries(map).map(([k, v]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(v)}</option>`).join('');
+	  const rows = Object.entries(MATERIAL_FAMILY_LABEL).map(([k, label]) => {
+	    const r = Object.assign({ mode: 'auto', max_mm: 0, palette: 'terrain', contour_mm: 0 }, viz.ramps[k] || {});
+	    return `<tr data-mat="${k}"><td>${esc(label)}</td>
+	      <td><select class="viz-mode"><option value="auto" ${r.mode !== 'fixed' ? 'selected' : ''}>자동 (가공된 최대 깊이)</option><option value="fixed" ${r.mode === 'fixed' ? 'selected' : ''}>고정</option></select></td>
+	      <td><input type="number" class="viz-max" step="0.5" min="0" max="500" value="${r.max_mm > 0 ? r.max_mm : ''}" placeholder="mm" style="width:64px;"/></td>
+	      <td><select class="viz-pal">${opt(DEPTH_PALETTE_LABEL, r.palette)}</select></td>
+	      <td><input type="number" class="viz-step" step="0.1" min="0" max="100" value="${r.contour_mm > 0 ? r.contour_mm : ''}" placeholder="자동" style="width:64px;"/></td>
+	      <td><div class="viz-swatch" style="background:linear-gradient(90deg, ${vpPaletteCss(r.palette, 1)})"></div></td></tr>`;
+	  }).join('');
+	  el.innerHTML = `<table class="pv-table"><thead><tr><th>피삭재</th><th>깊이 범위</th><th>최대 깊이</th><th>색상표</th><th>등고선 간격 mm</th><th>미리보기</th></tr></thead><tbody>${rows}</tbody></table>
+	    <div class="pv-row" style="margin-top:6px;">
+	      <label class="pv-check">깊이 표시 <select id="viz-mark">${opt(DEPTH_MARK_LABEL, viz.mark)}</select></label>
+	      <label class="pv-check">공구 마모 색상표 <select id="viz-wear-pal">${opt(DEPTH_PALETTE_LABEL, viz.wear_palette)}</select></label>
+	      <button class="btn btn-sm" onclick="vizSave()">깊이·마모 표시 저장</button>
+	    </div>`;
+	}
+
+	async function vizSave() {
+	  const ramps = {};
+	  document.querySelectorAll('#viz-form tr[data-mat]').forEach(tr => {
+	    const mode = tr.querySelector('.viz-mode').value;
+	    const max = parseFloat(tr.querySelector('.viz-max').value);
+	    const step = parseFloat(tr.querySelector('.viz-step').value);
+	    const pal = tr.querySelector('.viz-pal').value;
+	    if (mode === 'auto' && !(step > 0) && pal === 'terrain') return;
+	    ramps[tr.dataset.mat] = { mode, max_mm: isFinite(max) && max > 0 ? max : 0, palette: pal, contour_mm: isFinite(step) && step > 0 ? step : 0 };
+	  });
+	  const viz = { ramps, mark: document.getElementById('viz-mark').value, wear_palette: document.getElementById('viz-wear-pal').value };
+	  let s;
+	  try { s = await invoke('settings_set_viz', { viz }); } catch (e) { document.getElementById('st-status').textContent = `깊이 표시 설정 오류: ${e}`; appendLog(`깊이 표시 설정 오류: ${esc(e)}`); return; }
+	  APP.settings = s;
+	  ST.settings = s;
+	  if (VP.depthPrep) { VP.depthPrep.layerKey = ''; }
+	  vizRender();
+	  document.getElementById('st-status').textContent = '깊이·마모 표시 설정 저장';
+	  appendLog('깊이·마모 표시 설정 저장 (피삭재별 깊이 색상 범위·등고선·표시 방식)');
+	  if (!VP.playing) renderViewport();
 	}
 
 	function renderViewport(dtReal) {
@@ -2549,11 +3327,12 @@
 	    const p1 = tpProject(0, gy, 0), p2 = tpProject(tpMaxX, gy, 0);
 	    ctx.beginPath(); ctx.moveTo(p1.px, p1.py); ctx.lineTo(p2.px, p2.py); ctx.stroke();
 	  }
-	  if (!tpData.length) return;
+	  if (!tpData.length) { vpDrawWearInset(null); document.getElementById('vp-legend').classList.add('hidden'); return; }
 	  vpDrawStock(ctx);
 	  const t = VP.t;
 	  vpDrawSegments(ctx, null, 'all');
 	  vpDrawSegments(ctx, Math.min(t, VP.total), 'done');
+	  if (VP.sim) vpDrawDepth(ctx, t);
 	  let field = null;
 	  let scaleMax = 30;
 	  if (VP.show.heat && VP.sim) {
@@ -2564,6 +3343,7 @@
 	  const pose = vpPose(t);
 	  const sample = vpSampleAt(t);
 	  if (VP.show.tool) vpDrawTool(ctx, pose);
+	  vpDrawToolWear(ctx, pose, VP.show.tool);
 	  if (VP.show.heat) vpDrawStress(ctx, pose, sample);
 	  if (VP.show.coolant) {
 	    if (dtReal) vpStepParticles(dtReal);
@@ -2666,7 +3446,7 @@
 	}
 
 	function vpSaveUi() {
-	  invoke('settings_set_ui', { ui: { anim_speed: VP.speed, show_tool: VP.show.tool, show_coolant: VP.show.coolant, show_heat: VP.show.heat } }).catch(() => {});
+	  invoke('settings_set_ui', { ui: { anim_speed: VP.speed, show_tool: VP.show.tool, show_coolant: VP.show.coolant, show_heat: VP.show.heat, show_depth: VP.show.depth, show_wear: VP.show.wear } }).catch(() => {});
 	}
 
 	const JOB = { id: 0, key: '', result: null, running: false, stale: false };
@@ -2839,13 +3619,68 @@
 	    appendLog(esc(r.comp.report_line));
 	    (r.comp.notes || []).forEach(n => appendLog('2차: ' + esc(n)));
 	    if (r.files && r.files.length) appendLog(`마모 로그·분포 저장: ${r.files.map(esc).join(', ')}`);
+	    (r.records || []).forEach(l => appendLog(esc(l)));
 	  }
+	  toolPanelRefresh();
+	  if (document.getElementById('comp-view').classList.contains('visible')) jobListRefresh();
 	  VP.t = Math.min(VP.t, VP.total);
 	  renderViewport();
 	  if (opts.autoplay) {
 	    VP.t = 0;
 	    animPlay();
 	  }
+	}
+
+	function compToolCard(r) {
+	  const tb = r.tool, c = r.comp;
+	  if (!tb) return '<div class="ts-note">이 결과는 공구 개체에 기록되지 않았습니다 (시뮬레이션만 · 기록 실패 · 공구 리셋 뒤 같은 사양 공구 없음 · 이전 버전 결과)</div>';
+	  const pl = v => (v === null || v === undefined ? '-' : fmt(v, 0));
+	  return pvKv([
+	    ['공구 개체', tb.instance_id > 0 ? `#${tb.instance_id} · ${tb.generation}세대 · ${tb.label}` : `새 공구 (기록 안 됨) · ${tb.generation}세대 · ${tb.label}`],
+	    ['이번 작업 시작 → 기록 후 VB', `${fmt(tb.start_vb_mm, 4)} → ${fmt(tb.vb_band_mm, 4)} mm (국부 최대 ${fmt(tb.vb_max_mm, 4)})`],
+	    ['누적', `작업 ${tb.jobs}회 · 절삭 ${fmt(tb.cut_min, 2)}분 · 수명 사용 ${fmt(Math.max(tb.life_used_max || 0, tb.life_used || 0) * 100, 0)}% (도달 최대)`],
+	    ['열피로(빗살 균열) 손상', `${fmt(tb.thermal_damage || 0, 3)} / 1.0${(tb.thermal_damage || 0) >= 1 ? ' — 균열 개시 추정, 정삭 전 날 확인' : ''}`],
+	    ...(tb.pending_job_id ? [['공구 교체 대기', `작업 #${tb.pending_job_id} — 새 공구 장착 후 공구 패널의 리셋을 누르면 2차 마모가 새 공구에 기록`]] : []),
+	    ['한계 (균일 VB / 국부)', `${fmt(tb.vb_limit_mm, 2)} / ${fmt(tb.local_limit_mm, 2)} mm`],
+	    ['교체까지 (P50 / 보수 P90)', `${pl(c.parts_left_p50)} / ${pl(c.parts_left_p90)} 개 · ${c.parts_source || '-'}`],
+	    ['마지막 실측 반경', tb.last_measured_um === null || tb.last_measured_um === undefined ? '없음 (실측으로 재계획하면 학습 기준점이 됨)' : `${fmt(tb.last_measured_um, 1)} µm`],
+	  ]) + (tb.notes || []).map(n => `<div class="ts-note">${esc(n)}</div>`).join('');
+	}
+
+	function compRefsCard(r) {
+	  const rf = r.refs;
+	  if (!rf || !rf.n) return '<div class="ts-note">비슷한 과거 절삭 기록이 아직 없습니다 — 작업이 쌓이면 같은 피삭재·날 수의 절삭 영역 기록을 자동으로 찾아 2차 마모 예측 상위 분위와 laya 상태 설명에 반영합니다</div>';
+	  return `<div class="pv-log">${(rf.lines || []).map(esc).join('\n')}</div>` + pvTable([
+	    { t: '작업', f: x => `<a href="#" onclick="event.preventDefault(); jobDetailShow(${x.job_id})">#${x.job_id}</a> ${x.pass}차` },
+	    { t: '유사도', f: x => fmt(x.similarity, 2) },
+	    { t: '방향', f: x => esc(x.mode) },
+	    { t: 'ap / ae mm', f: x => `${fmt(x.ap_mm, 2)} / ${fmt(x.ae_mm, 3)}`, nw: true },
+	    { t: '진입→이탈', f: x => `${fmt(x.phi_st_deg, 0)}°→${fmt(x.phi_ex_deg, 0)}°`, nw: true },
+	    { t: 'vc · fz', f: x => `${fmt(x.vc_m_min, 0)} · ${fmt(x.fz_mm, 4)}` },
+	    { t: '마모 속도 µm/min', f: x => fmt(x.vb_rate_um_min, 2) },
+	    { t: '실측/예측', f: x => x.measured_ratio === null || x.measured_ratio === undefined ? '-' : '×' + fmt(x.measured_ratio, 2) },
+	  ], rf.refs);
+	}
+
+	function compLifeChart(lg) {
+	  const cv = document.getElementById('comp-life');
+	  if (!cv) return;
+	  cv.width = cv.clientWidth || 600;
+	  const lf = lg && lg.life;
+	  if (!lf || !lf.series_t_min || !lf.series_t_min.length) { pvBlank(cv, '공구 개체 수명 예측 없음 (절삭 구간이 짧음)'); return; }
+	  const tl = lf.series_t_min[lf.series_t_min.length - 1], vl = lf.series_vb_mm[lf.series_vb_mm.length - 1];
+	  const vlines = [];
+	  if (lf.cross_p50_min !== null && lf.cross_p50_min !== undefined) vlines.push({ x: lf.t_now_min + lf.cross_p50_min, label: '한계 도달 P50', color: '#00d4ff' });
+	  if (lf.cross_p90_min !== null && lf.cross_p90_min !== undefined) vlines.push({ x: lf.t_now_min + lf.cross_p90_min, label: '보수 P90', color: '#ff6b6b' });
+	  pvChart(cv, {
+	    lines: [
+	      { x: lf.series_t_min, y: lf.series_vb_mm, color: '#e0e0e0', label: `공구 개체 누적 VB (이력 ${lf.history_n}점 · 간격 ${fmt(lf.step_min, 2)}분)` },
+	      { x: [tl, ...lf.future_t_min], y: [vl, ...lf.future_p50_mm], color: '#00d4ff', width: 2, label: `수명 예측 (${lf.method})` },
+	    ],
+	    band: { x: lf.future_t_min, lo: lf.future_p50_mm, hi: lf.future_p90_mm, color: 'rgba(255,107,107,0.15)' },
+	    hlines: [{ y: lf.limit_mm, label: `VB 한계 ${lf.limit_mm}` }],
+	    vlines,
+	  });
 	}
 
 	function compShow(show) {
@@ -2924,6 +3759,7 @@
 	    ['최소 / 최대', `${fmt(rs.min_um, 1)} / ${fmt(rs.max_um, 1)} µm (${rs.n}점 · ${rs.zones}구간)`],
 	    ['2차 후 예측 (구간 중앙값 최대 / 최소 / 최대 · 과삭 구간 제외)', `${fmt(c.after_p50_um, 1)} / ${fmt(c.after_min_um, 1)} / ${fmt(c.after_max_um, 1)} µm`],
 	    ['반경 마모 출처', `${esc({ simulated: '1차 시뮬레이션', measured: '실측 입력', image: '공구 이미지' }[d.radial_source] || d.radial_source)} ${fmt(d.radial_used_um, 1)} µm (시뮬레이션 ${fmt(d.radial_end1_um, 1)} µm)`],
+	    ['VB 1차 시작 (공구 누적) → 1차 끝', `${fmt(d.vb_start_mm || 0, 4)} → ${fmt(d.vb_end1_mm, 4)} mm${d.vb_start_mm > 0 ? ' · 길들이기 반복 없음' : ' · 새 날'}`],
 	    ['VB 1차 끝 → 2차 끝 (P50 / P90)', `${fmt(d.vb_end1_mm, 4)} → ${fmt(d.vb_end2_p50_mm, 4)} / ${fmt(d.vb_end2_p90_mm, 4)} mm (한계 ${fmt(d.vb_limit_mm, 2)})`],
 	    ['잔열 · 냉각 대기', `${fmt(d.bulk_excess_k, 1)} K · ${fmt(d.thermal_err_um, 1)} → ${fmt(d.thermal_err_after_um, 1)} µm · G04 ${fmt(d.cooldown_s, 0)} s`],
 	    ['최소 칩 두께 · 기준 fz', `${fmt(d.h_min_um, 2)} µm · ${fmt(d.fz_nominal_mm, 4)} mm`],
@@ -2956,7 +3792,7 @@
 	    ['절삭 시간 · 제거량', `${fmt(lg.cut_time_s, 1)} s · ${fmt(lg.removed_cm3, 2)} cm³`],
 	    ['비마모 (VB / 제거 부피)', `${fmt(lg.specific_wear_um_cm3, 2)} µm/cm³`],
 	    ['다음 부품당 VB 증가 P50 / P90', `${fmt(lg.per_part_vb_p50_mm, 4)} / ${fmt(lg.per_part_vb_p90_mm, 4)} mm`],
-	    ['공구 교체까지 (P50 / 보수 P90)', `${c.parts_left_p50 === null || c.parts_left_p50 === undefined ? '-' : fmt(c.parts_left_p50, 0)} / ${c.parts_left_p90 === null || c.parts_left_p90 === undefined ? '-' : fmt(c.parts_left_p90, 0)} 개`],
+	    ['공구 교체까지 (P50 / 보수 P90)', `${c.parts_left_p50 === null || c.parts_left_p50 === undefined ? '-' : fmt(c.parts_left_p50, 0)} / ${c.parts_left_p90 === null || c.parts_left_p90 === undefined ? '-' : fmt(c.parts_left_p90, 0)} 개${c.parts_source ? ' · ' + c.parts_source : ''}`],
 	    ['마모 단계', phases || '-'],
 	  ]);
 	  const hists = `<div class="comp-hists">${(lg.histograms || []).map((h, i) => `<div class="comp-hist"><div class="h-title">${esc(h.label)} (${esc(h.unit)})</div><canvas id="comp-h-${i}"></canvas><div class="h-meta">가중: ${esc(h.weight)} · 평균 ${pvShort(h.mean)} · P10 ${pvShort(h.p10)} · P50 ${pvShort(h.p50)} · P90 ${pvShort(h.p90)} · n ${h.n}</div></div>`).join('')}</div>`;
@@ -3010,7 +3846,12 @@
 	    <div class="pv-card"><h4>2차 보정 G-code (1차 종료 후 별도 실행)</h4>${prog}</div>
 	    <div class="pv-card"><h4>Plan B 측정 체크포인트 (비절삭 구간 · 1차 프로그램은 그대로)</h4>${cp}</div>
 	  </div>
+	  <div class="pv-grid" style="margin-top:10px;">
+	    <div class="pv-card"><h4>공구 개체 · 수명 예측 (누적 마모 이력 → TTM-R3 / Holt)</h4>${compToolCard(r)}<canvas class="pv-canvas" id="comp-life" height="180"></canvas></div>
+	    <div class="pv-card"><h4>참조한 과거 절삭 기록 (진입·이탈 각 · ap/D · ae/D · vc · fz 근접)</h4>${compRefsCard(r)}</div>
+	  </div>
 	  <div class="pv-card" style="margin-top:10px;"><h4>보정 설정 · 실측 재계획</h4>${form}</div>`;
+	  compLifeChart(lg);
 	  (lg.histograms || []).forEach((h, i) => { const cv = document.getElementById(`comp-h-${i}`); if (cv) compHist(cv, h); });
 	  const cv = document.getElementById('comp-fc');
 	  const f = lg.forecast;
@@ -3402,6 +4243,7 @@
 	    `).join('');
 	  }
 	  if (!document.getElementById('preset-lib').classList.contains('hidden')) presetLibraryRender();
+	  toolPanelRefresh();
 	}
 
 	async function selectPreset(el) {
@@ -3808,8 +4650,9 @@
 	  document.getElementById('mdl-token').placeholder = s.models.token_set ? '설정됨 (바꾸려면 새 토큰 입력)' : 'hf_... (선택)';
 	  VP.speed = s.ui.anim_speed || 0;
 	  document.getElementById('vt-speed').value = String(VP.speed);
-	  ['tool', 'coolant', 'heat'].forEach(k => { VP.show[k] = !!s.ui['show_' + k]; document.getElementById('tg-' + k).classList.toggle('active', VP.show[k]); });
+	  ['tool', 'coolant', 'heat', 'depth', 'wear'].forEach(k => { VP.show[k] = s.ui['show_' + k] !== false; document.getElementById('tg-' + k).classList.toggle('active', VP.show[k]); });
 	  document.getElementById('sb-env').textContent = `${fmt(e.ambient_c, 1)} °C · ${fmt(e.humidity_pct, 0)} %`;
+	  if (!VIZ_DIRTY) vizRender();
 	}
 
 	function envRenderDerived(d) {

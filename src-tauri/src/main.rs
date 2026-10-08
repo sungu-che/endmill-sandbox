@@ -101,6 +101,13 @@ fn main() {
             commands::settings_set_models,
             commands::settings_set_ui,
             commands::settings_set_comp,
+            commands::settings_set_viz,
+            commands::settings_set_dry_run,
+            commands::tool_state,
+            commands::tool_state_reset,
+            commands::tool_instances,
+            commands::job_records,
+            commands::job_record,
             commands::sim_job_start,
             commands::sim_job_replan,
             commands::sim_job_status,
@@ -124,3 +131,4 @@ fn main() {
             }
         });
 }
+

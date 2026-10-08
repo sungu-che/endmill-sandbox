@@ -2,6 +2,7 @@ use crate::gcode::{GCodeGenerator, ToolPathPattern, ToolPathSegment};
 use crate::physics::{self, CutContext, Engagement, ForceResult, MillMode, ThermalBody, ToolGeometry};
 use crate::profile::{MachiningProfile, ToolNose};
 use crate::timeseries::split_episodes;
+use crate::toolwear::{self, AxialProfile, WearField};
 use crate::workpiece_setup::StockShape;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -85,7 +86,9 @@ impl StockGrid {
         self.h[j as usize * self.nx + i as usize]
     }
 
-    fn cut(&mut self, cx: f64, cy: f64, z_tip: f64, r: f64, nose: ToolNose, dir: (f64, f64), front_only: bool, floor_err: &mut [f32], floor_val: f32) -> Removal {
+    #[allow(clippy::too_many_arguments)]
+    fn cut(&mut self, cx: f64, cy: f64, z_tip: f64, r: f64, nose: ToolNose, dir: (f64, f64), front_only: bool, floor_err: &mut [f32], floor_val: f32, cut_times: (&mut [f32], &mut [f32]), t_now: f32) -> Removal {
+        let (first_cut, last_cut) = cut_times;
         let rc = nose.corner_radius(2.0 * r);
         let mut out = Removal::default();
         let i0 = (((cx - r) - self.x0) / self.cell).floor().max(0.0) as usize;
@@ -132,12 +135,38 @@ impl StockGrid {
                         out.max_depth = out.max_depth.max(old as f64 - z_tip);
                         out.cells += 1;
                         floor_err[k] = floor_val;
+                        if first_cut[k].is_nan() {
+                            first_cut[k] = t_now;
+                        }
+                        if removed > 1e-3 {
+                            last_cut[k] = t_now;
+                        }
                     }
                     self.h[k] = if prof <= self.bottom as f64 { NO_MATERIAL } else { new };
                 }
             }
         }
         out
+    }
+
+    pub fn downsample_max(&self, max_side: usize) -> HeightmapView {
+        let mut v = self.downsample(max_side);
+        let f = ((self.nx.max(self.ny) as f64) / max_side as f64).ceil().max(1.0) as usize;
+        for j in 0..v.ny {
+            for i in 0..v.nx {
+                let mut m = f32::NEG_INFINITY;
+                for jj in j * f..((j + 1) * f).min(self.ny) {
+                    for ii in i * f..((i + 1) * f).min(self.nx) {
+                        let x = self.h[jj * self.nx + ii];
+                        if x != NO_MATERIAL && x > m {
+                            m = x;
+                        }
+                    }
+                }
+                v.z[j * v.nx + i] = if m.is_finite() { m } else { f32::NAN };
+            }
+        }
+        v
     }
 
     pub fn downsample(&self, max_side: usize) -> HeightmapView {
@@ -471,6 +500,77 @@ impl WearAcc {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CutRegime {
+    pub mode: String,
+    pub ap_mm: f64,
+    pub ae_mm: f64,
+    pub phi_st_deg: f64,
+    pub phi_ex_deg: f64,
+    pub engage_deg: f64,
+    pub vc_m_min: f64,
+    pub fz_mm: f64,
+    pub h_mean_um: f64,
+    pub t_cut_s: f64,
+    pub removed_mm3: f64,
+    pub temp_c: f64,
+    pub force_n: f64,
+    pub chatter_min: f64,
+    pub chatter_wear: f64,
+    pub dvb_mm: f64,
+    pub vb_rate_um_min: f64,
+    pub samples: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+struct RegimeCell {
+    mode: &'static str,
+    dt: f64,
+    removed: f64,
+    ap_dt: f64,
+    ae_dt: f64,
+    st_dt: f64,
+    ex_dt: f64,
+    eng_dt: f64,
+    vc_dt: f64,
+    fz_dt: f64,
+    h_dt: f64,
+    temp_dt: f64,
+    force_dt: f64,
+    chat_min: f64,
+    cwf_dt: f64,
+    dvb: f64,
+    n: usize,
+}
+
+impl RegimeCell {
+    fn regime(&self) -> CutRegime {
+        let dt = self.dt.max(1e-12);
+        CutRegime {
+            mode: self.mode.to_string(),
+            ap_mm: self.ap_dt / dt,
+            ae_mm: self.ae_dt / dt,
+            phi_st_deg: self.st_dt / dt,
+            phi_ex_deg: self.ex_dt / dt,
+            engage_deg: self.eng_dt / dt,
+            vc_m_min: self.vc_dt / dt,
+            fz_mm: self.fz_dt / dt,
+            h_mean_um: self.h_dt / dt * 1000.0,
+            t_cut_s: self.dt,
+            removed_mm3: self.removed,
+            temp_c: self.temp_dt / dt,
+            force_n: self.force_dt / dt,
+            chatter_min: if self.chat_min.is_finite() { self.chat_min } else { 99.0 },
+            chatter_wear: self.cwf_dt / dt,
+            dvb_mm: self.dvb,
+            vb_rate_um_min: self.dvb / dt * 60.0 * 1000.0,
+            samples: self.n,
+        }
+    }
+}
+
+pub const MAX_REGIMES: usize = 24;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ThinWall {
     pub defl_um: f64,
@@ -532,6 +632,44 @@ pub struct LoadSimReport {
     pub final_wall_count: usize,
     #[serde(default)]
     pub transient_wall_count: usize,
+    #[serde(default)]
+    pub vb_start_mm: f64,
+    #[serde(default)]
+    pub wear_age0_min: f64,
+    #[serde(default = "one_f64")]
+    pub chatter_wear_factor: f64,
+    #[serde(default)]
+    pub chatter_probability: f64,
+    #[serde(default = "one_f64")]
+    pub chatter_wear_factor_fresh: f64,
+    #[serde(default)]
+    pub growth_cut_min: f64,
+    #[serde(default)]
+    pub growth_calib_mm: f64,
+    #[serde(default)]
+    pub growth_fixed_mm: f64,
+    #[serde(default)]
+    pub wear_field: WearField,
+    #[serde(default)]
+    pub flute_shares: Vec<f64>,
+    #[serde(default)]
+    pub axial: AxialProfile,
+    #[serde(default)]
+    pub regimes: Vec<CutRegime>,
+    #[serde(default)]
+    pub compat_severity: u8,
+    #[serde(default)]
+    pub first_cut: Option<HeightmapView>,
+    #[serde(default)]
+    pub last_cut: Option<HeightmapView>,
+    #[serde(default)]
+    pub thermal_damage: f64,
+    #[serde(default)]
+    pub thermal_fatigue_per_min: f64,
+}
+
+fn one_f64() -> f64 {
+    1.0
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -970,6 +1108,8 @@ pub fn simulate_segments_prog(
 ) -> Result<LoadSimReport, String> {
     let mut grid = StockGrid::from_setup(profile, max_cells.max(10_000));
     let mut floor_err = vec![f32::NAN; grid.nx * grid.ny];
+    let mut first_cut = vec![f32::NAN; grid.nx * grid.ny];
+    let mut last_cut = vec![f32::NAN; grid.nx * grid.ny];
     let tool = &ctx.tool;
     let r = tool.radius();
     let z = tool.flutes.max(1) as f64;
@@ -980,6 +1120,30 @@ pub fn simulate_segments_prog(
     let kappa = nominal.trajectory.kappa.max(1e-6);
     let vb_break = nominal.trajectory.break_in_vb_mm;
     let tau_break = nominal.trajectory.break_in_tau_min.max(1e-6);
+    let vb_cap = 2.0 * ctx.vb_limit_mm();
+    let vb_start = ctx.tool.flank_wear_mm.clamp(0.0, vb_cap);
+    let tracked_age = vb_start > 0.0 && ctx.tool_age_min > 0.0;
+    let age0 = if tracked_age {
+        ctx.tool_age_min
+    } else if vb_start > 0.0 {
+        nominal.trajectory.time_at(vb_start).max(0.0)
+    } else {
+        0.0
+    };
+    let frf_measured = ctx.tool.measured_fn_hz.is_some() && ctx.tool.measured_k_n_per_um.is_some();
+    let axial = AxialProfile::of(ctx);
+    let mut field = WearField::for_tool(&ctx.tool);
+    let n_flutes = ctx.tool.flutes.max(1) as usize;
+    let mut share_dt = vec![0.0f64; n_flutes];
+    let mut cwf_dt = 0.0f64;
+    let mut cwf_fresh_dt = 0.0f64;
+    let mut grow_t = 0.0f64;
+    let mut chat_p_dt = 0.0f64;
+    let mut cwf_cache: HashMap<u64, (f64, f64)> = HashMap::new();
+    let mut tf_damage = 0.0f64;
+    let mut growth_calib = 0.0f64;
+    let mut growth_fixed = 0.0f64;
+    let mut regimes: HashMap<(u8, i64, i64, i64), RegimeCell> = HashMap::new();
     let e_wp = ctx.wp.elastic_gpa * 1000.0 / (1.0 - ctx.wp.poisson.powi(2)).max(0.5);
     let reference = physics::reference_state(ctx);
     let heat_props = HeatFieldProps::of(ctx);
@@ -995,6 +1159,9 @@ pub fn simulate_segments_prog(
     let mut wtool = tool.clone();
     let mut cache: HashMap<(i64, i64, i64, i64, i64), CacheEntry> = HashMap::new();
     let mut chatter_cache: HashMap<(i64, i64, i64), f64> = HashMap::new();
+    let mut fresh_cache: HashMap<(i64, i64, i64), f64> = HashMap::new();
+    let mut fresh_tool = tool.clone();
+    fresh_tool.flank_wear_mm = 0.0;
     let mut min_margin = f64::INFINITY;
     let mut chatter_samples = 0usize;
     let mut cut_samples = 0usize;
@@ -1016,7 +1183,7 @@ pub fn simulate_segments_prog(
     let mut t = 0.0f64;
     let mut cut_time = 0.0f64;
     let mut rapid_time = 0.0f64;
-    let mut vb = 0.0f64;
+    let mut vb = vb_start;
     let mut wp_rise = 0.0f64;
     let mut removed = 0.0f64;
     let mut ema_ae = 0.0f64;
@@ -1098,7 +1265,7 @@ pub fn simulate_segments_prog(
                 (wear_len - drift) as f32
             };
             let plunge_like = is_plunge || lateral < 0.2 * dl;
-            let rem = grid.cut(p.0, p.1, p.2, r, tool.nose, dir, !plunge_like && !first && tool.nose == ToolNose::Square, &mut floor_err, floor_val);
+            let rem = grid.cut(p.0, p.1, p.2, r, tool.nose, dir, !plunge_like && !first && tool.nose == ToolNose::Square, &mut floor_err, floor_val, (&mut first_cut, &mut last_cut), (t + dt) as f32);
             first = false;
             removed += rem.volume;
             t += dt;
@@ -1112,12 +1279,14 @@ pub fn simulate_segments_prog(
             let mut defl_wall = 0.0;
             let mut temp = ctx.coolant.temperature_c;
             let mut margin = f64::INFINITY;
+            let mut margin_fresh = f64::INFINITY;
             let mut wp_defl = 0.0;
             let mut wp_heat = 0.0;
             let mut pre_here = 0.0;
             let mut cdir = (0.0, 0.0);
             let mut down_here = false;
             let mut bin_dt = 0.0;
+            let mut fz_here = fz_nom;
             if cutting && dt > 0.0 {
                 cut_time += dt;
                 cut_samples += 1;
@@ -1127,11 +1296,13 @@ pub fn simulate_segments_prog(
                     wtool.flank_wear_mm = vbq;
                 }
                 let mut wall: Option<(f64, (f64, f64), f64)> = None;
+                let phi_deg: (f64, f64);
                 if plunge_like {
                     plunges += usize::from(is_plunge && first_cut_of_seg);
                     sample_force = physics::plunge_forces(&wtool, &co, fz_nom, rpm);
                     mode = "plunge";
                     eng_deg = 360.0;
+                    phi_deg = (0.0, 360.0);
                     ap_eff = rem.max_depth.min(tool.loc_mm);
                     ae_eff = 2.0 * r;
                 } else {
@@ -1176,6 +1347,8 @@ pub fn simulate_segments_prog(
                     });
                     sample_force = entry.f.clone();
                     eng_deg = eng.span().to_degrees();
+                    phi_deg = (eng.phi_st.to_degrees(), eng.phi_ex.to_degrees());
+                    fz_here = fz;
                     let ckey = (quant(ap_eff, 0.1), quant(eng.phi_st, 0.07), quant(eng.phi_ex, 0.07));
                     let h_mean = sample_force.h_mean_mm;
                     margin = *chatter_cache.entry(ckey).or_insert_with(|| {
@@ -1191,6 +1364,23 @@ pub fn simulate_segments_prog(
                             ctx.wp.process_damping,
                         )
                     });
+                    margin_fresh = if vb_start > 0.0 {
+                        *fresh_cache.entry(ckey).or_insert_with(|| {
+                            crate::dynamics::stability_margin(
+                                &fresh_tool,
+                                &co,
+                                &eng,
+                                h_mean,
+                                rpm,
+                                ap_eff,
+                                ctx.calib.deflection,
+                                nominal.vc_effective_m_min,
+                                ctx.wp.process_damping,
+                            )
+                        })
+                    } else {
+                        margin
+                    };
                     if margin.is_finite() {
                         min_margin = min_margin.min(margin);
                         if margin < 1.0 {
@@ -1236,10 +1426,70 @@ pub fn simulate_segments_prog(
                     heat.prune(t);
                     last_prune_t = t;
                 }
-                let wr = physics::wear(ctx, &sample_force, &th, vce, fz_nom.max(1e-6), &eng_for_heat, reference);
+                let wr = physics::wear_at(ctx, &sample_force, &th, vce, fz_nom.max(1e-6), &eng_for_heat, reference, vb);
                 let t_cut_min = cut_time / 60.0;
-                let rate = kappa * wr.vb_rate_mm_per_min + vb_break / tau_break * (-t_cut_min / tau_break).exp();
-                vb = (vb + rate * dt / 60.0).min(2.0 * ctx.vb_limit_mm());
+                let (cwf, chat_p) = *cwf_cache
+                    .entry(margin.to_bits())
+                    .or_insert_with(|| (toolwear::chatter_wear_factor(margin, frf_measured), toolwear::chatter_probability(margin, frf_measured)));
+                tf_damage += toolwear::thermal_fatigue_rate(th.shock.severity, eng_for_heat.span(), rpm) * dt;
+                let steady = kappa * wr.vb_rate_mm_per_min * cwf;
+                let rate = steady + vb_break / tau_break * (-(t_cut_min + age0) / tau_break).exp();
+                let vb_prev = vb;
+                if vb_prev < vb_cap {
+                    grow_t += dt;
+                }
+                vb = (vb + rate * dt / 60.0).min(vb_cap);
+                let dvb = (vb - vb_prev).max(0.0);
+                if dvb > 0.0 && rate > 0.0 {
+                    let f = (steady / rate).clamp(0.0, 1.0);
+                    growth_calib += dvb * f;
+                    growth_fixed += dvb * (1.0 - f);
+                }
+                let shares = toolwear::flute_shares(tool, sample_force.h_mean_mm, ctx.wp.mc);
+                field.deposit(ap_eff, dvb, &axial, &shares);
+                for (acc, s) in share_dt.iter_mut().zip(shares.iter()) {
+                    *acc += s * dt;
+                }
+                cwf_dt += cwf * dt;
+                cwf_fresh_dt += if margin_fresh == margin { cwf } else { cwf_cache.entry(margin_fresh.to_bits()).or_insert_with(|| (toolwear::chatter_wear_factor(margin_fresh, frf_measured), toolwear::chatter_probability(margin_fresh, frf_measured))).0 } * dt;
+                chat_p_dt += chat_p * dt;
+                let mode_code: u8 = match mode {
+                    "plunge" => 0,
+                    "slot" => 1,
+                    "down" => 2,
+                    "up" => 3,
+                    _ => 4,
+                };
+                let rkey = (mode_code, (ap_eff / 0.5).round() as i64, (phi_deg.0 / 10.0).round() as i64, (phi_deg.1 / 10.0).round() as i64);
+                let cell = regimes.entry(rkey).or_insert_with(|| RegimeCell {
+                    mode: match mode_code {
+                        0 => "plunge",
+                        1 => "slot",
+                        2 => "down",
+                        3 => "up",
+                        _ => "center",
+                    },
+                    chat_min: f64::INFINITY,
+                    ..Default::default()
+                });
+                cell.dt += dt;
+                cell.removed += rem.volume;
+                cell.ap_dt += ap_eff * dt;
+                cell.ae_dt += ae_eff * dt;
+                cell.st_dt += phi_deg.0 * dt;
+                cell.ex_dt += phi_deg.1 * dt;
+                cell.eng_dt += eng_deg * dt;
+                cell.vc_dt += vce * dt;
+                cell.fz_dt += fz_here * dt;
+                cell.h_dt += sample_force.h_mean_mm * dt;
+                cell.temp_dt += th.interface_c * dt;
+                cell.force_dt += sample_force.f_res_mean * dt;
+                if margin.is_finite() {
+                    cell.chat_min = cell.chat_min.min(margin);
+                }
+                cell.cwf_dt += cwf * dt;
+                cell.dvb += dvb;
+                cell.n += 1;
                 temp = th.interface_c;
                 wp_rise += ((th.workpiece_heat_w - wp_rise * ha) / mc_wp.max(1e-6)) * dt;
                 if let Some((z_mid, side, away_force)) = wall {
@@ -1362,6 +1612,40 @@ pub fn simulate_segments_prog(
             if tool.measured_fn_hz.is_some() && tool.measured_k_n_per_um.is_some() { "실측 FRF" } else { "모델 추정 FRF · 탭 테스트로 확정" }
         ));
     }
+    if vb_start > 0.0 {
+        warnings.push(format!(
+            "공구 누적 마모 VB {:.3} mm ({} {:.1}분) 에서 이어서 절삭 — 새 날의 길들이기 마모는 반복하지 않고, 마모 랜드의 절삭력·발열 증가를 처음부터 반영",
+            vb_start,
+            if tracked_age { "이 공구의 실제 절삭" } else { "이 조건의 등가 사용" },
+            age0
+        ));
+    }
+    let cwf_mean = if cut_time > 0.0 { cwf_dt / cut_time } else { 1.0 };
+    let cwf_fresh = if cut_time > 0.0 { cwf_fresh_dt / cut_time } else { 1.0 };
+    let chat_p = if cut_time > 0.0 { chat_p_dt / cut_time } else { 0.0 };
+    if cwf_mean > 1.02 {
+        warnings.push(format!(
+            "채터 기대 손실로 플랭크 마모 가속 평균 ×{:.2} 반영 (완전 채터에서 공구 수명 약 1/3 로 둔 모델 값을 안정 한계 불확실성으로 기대값 처리 · 평균 채터 확률 {:.0}%, {})",
+            cwf_mean,
+            chat_p * 100.0,
+            if frf_measured { "실측 FRF · 안정 한계 로그 표준편차 0.26" } else { "모델 추정 FRF · 로그 표준편차 0.4 · 깊은 불안정 예측은 신뢰도 50%부터 (여유 1 이상은 100%) — FRF 를 실측하면 확정" }
+        ));
+    }
+    let tf_per_min = if cut_time > 0.0 { tf_damage / cut_time * 60.0 } else { 0.0 };
+    if tf_damage > 0.005 {
+        warnings.push(format!(
+            "단속 절삭 열피로(빗살 균열) 손상 +{:.3} 누적 (이 작업 절삭 1분당 {:.4}, 냉각 {}) — 손상 1.0 에서 균열 개시로 보고 공구 개체에 이어서 저장",
+            tf_damage,
+            tf_per_min,
+            ctx.coolant.method.label()
+        ));
+    }
+    let compat = &nominal.tribology.compat;
+    if compat.severity >= 2 {
+        for m in compat.messages.iter() {
+            warnings.push(format!("공구·소재 궁합: {}", m));
+        }
+    }
     flag_final_walls(&grid, &mut wall_errors);
     let final_count = wall_errors.iter().filter(|w| w.final_wall).count();
     let transient_count = wall_errors.len() - final_count;
@@ -1412,6 +1696,26 @@ pub fn simulate_segments_prog(
         nx: grid.nx,
         ny: grid.ny,
         h: floor_err.iter().map(|v| if v.is_finite() { *v } else { NO_MATERIAL }).collect(),
+        top: 0.0,
+        bottom: grid.bottom,
+    };
+    let first_cut_grid = StockGrid {
+        x0: grid.x0,
+        y0: grid.y0,
+        cell: grid.cell,
+        nx: grid.nx,
+        ny: grid.ny,
+        h: first_cut.iter().map(|v| if v.is_finite() { *v } else { NO_MATERIAL }).collect(),
+        top: 0.0,
+        bottom: grid.bottom,
+    };
+    let last_cut_grid = StockGrid {
+        x0: grid.x0,
+        y0: grid.y0,
+        cell: grid.cell,
+        nx: grid.nx,
+        ny: grid.ny,
+        h: last_cut.iter().map(|v| if v.is_finite() { *v } else { NO_MATERIAL }).collect(),
         top: 0.0,
         bottom: grid.bottom,
     };
@@ -1467,6 +1771,28 @@ pub fn simulate_segments_prog(
         wear_log: wear_acc.finish(),
         final_wall_count: final_count,
         transient_wall_count: transient_count,
+        vb_start_mm: vb_start,
+        wear_age0_min: age0,
+        chatter_wear_factor: cwf_mean,
+        chatter_wear_factor_fresh: cwf_fresh,
+        growth_cut_min: grow_t / 60.0,
+        chatter_probability: chat_p,
+        growth_calib_mm: growth_calib,
+        growth_fixed_mm: growth_fixed,
+        wear_field: field,
+        flute_shares: share_dt.iter().map(|v| if cut_time > 0.0 { v / cut_time } else { 1.0 }).collect(),
+        axial,
+        regimes: {
+            let mut v: Vec<CutRegime> = regimes.values().map(|c| c.regime()).collect();
+            v.sort_by(|a, b| b.t_cut_s.partial_cmp(&a.t_cut_s).unwrap_or(std::cmp::Ordering::Equal));
+            v.truncate(MAX_REGIMES);
+            v
+        },
+        compat_severity: compat.severity,
+        first_cut: Some(first_cut_grid.downsample(256)),
+        last_cut: Some(last_cut_grid.downsample_max(256)),
+        thermal_damage: tf_damage,
+        thermal_fatigue_per_min: tf_per_min,
     })
 }
 

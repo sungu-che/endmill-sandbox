@@ -279,6 +279,7 @@ impl CuttingCalculator {
             wp: props,
             tool,
             env: crate::profile::ShopEnvironment::default(),
+            tool_age_min: 0.0,
         };
         let body = crate::physics::ThermalBody {
             mass_kg: 2.0,
@@ -343,3 +344,4 @@ mod tests {
         assert!(derated.axial_doc_mm < base.axial_doc_mm);
     }
 }
+

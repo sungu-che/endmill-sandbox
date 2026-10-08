@@ -37,7 +37,8 @@ fn three_phase_trajectory_is_consistent() {
     assert!(tr.life_min.is_finite() && tr.life_min > 0.0);
     assert!(tr.life_min < tr.linear_life_min, "{} {}", tr.life_min, tr.linear_life_min);
     assert!(tr.acceleration > 1.2, "acceleration {}", tr.acceleration);
-    assert!((a.wear.tool_life_min - tr.life_min).abs() < 1e-9);
+    assert!(a.wear.chatter_factor >= 1.0);
+    assert!((a.wear.tool_life_min * a.wear.chatter_factor - tr.life_min).abs() < 1e-6 * tr.life_min);
     let early = tr.vb_at(0.02 * tr.life_min) / (0.02 * tr.life_min);
     let mid = (tr.vb_at(0.5 * tr.life_min) - tr.vb_at(0.4 * tr.life_min)) / (0.1 * tr.life_min);
     assert!(early > mid, "break-in {} vs steady {}", early, mid);

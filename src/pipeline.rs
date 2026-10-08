@@ -205,6 +205,8 @@ pub fn trim_sim(r: &LoadSimReport) -> LoadSimReport {
     out.wall_errors = out.wall_errors.iter().step_by(wstride).cloned().collect();
     out.heightmap = shrink_heightmap(&out.heightmap, 160);
     out.floor_error = shrink_heightmap(&out.floor_error, 96);
+    out.first_cut = None;
+    out.last_cut = None;
     out
 }
 
@@ -1371,7 +1373,8 @@ impl Workspace {
                 match s.minutes_per_t(part_min) {
                     Some(k) => {
                         let c = self.applied_factor("wear").max(1e-9);
-                        let traj = &analysis.trajectory;
+                        let effective = analysis.effective_trajectory();
+                        let traj = &effective;
                         let t_last = s.t.last().cloned().unwrap_or(0.0);
                         let mut pairs = Vec::new();
                         for (a, b) in timeseries::episodes_of(&s) {
@@ -1573,11 +1576,12 @@ impl Workspace {
             self.cut_minutes = m;
         }
         let rad_per_vb = ctx.tool.clearance_deg.to_radians().tan() * 1000.0;
-        let predicted = minutes.map(|m| analysis.trajectory.vb_at(m) * rad_per_vb);
+        let effective = analysis.effective_trajectory();
+        let predicted = minutes.map(|m| effective.vb_at(m) * rad_per_vb);
         let mut ratio = None;
         if let (Some(meas), Some(pred), Some(m)) = (measured, predicted, minutes) {
             if record && reliable && meas >= 3.0 && pred >= 0.5 {
-                let base = analysis.trajectory.vb_at(m / self.applied_factor("wear").max(1e-9)) * rad_per_vb;
+                let base = effective.vb_at(m / self.applied_factor("wear").max(1e-9)) * rad_per_vb;
                 ratio = Some(meas / base.max(1e-9));
                 let pscope = process_scope(&self.profile);
                 sds.record_calibration(&pscope, "wear", meas, base);
@@ -2077,7 +2081,7 @@ impl Workspace {
             "radial_loss_um" => Some(ctx.tool.clearance_deg.to_radians().tan() * 1000.0),
             _ => None,
         };
-        let traj = analysis.trajectory.clone();
+        let traj = analysis.effective_trajectory();
         let life = traj.life_min;
         let prior: Option<Box<dyn Fn(f64) -> f64>> = match (scale, k) {
             (Some(sc), Some(k)) if !traj.t_min.is_empty() => {
@@ -2312,3 +2316,4 @@ impl Workspace {
         }
     }
 }
+

@@ -4,6 +4,7 @@ use crate::physics::CutContext;
 use crate::pipeline::calibrated_context;
 use crate::profile::{CoolantConfig, CoolantMethod, MachiningProfile, ShopEnvironment, ToolNose};
 use crate::sds::SdsStore;
+use crate::toolwear::{self, WearField};
 use crate::workpiece_setup::StockShape;
 use serde::{Deserialize, Serialize};
 
@@ -117,6 +118,134 @@ pub struct StockView {
     pub diameter_mm: f64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DepthMap {
+    pub x0: f64,
+    pub y0: f64,
+    pub cell_mm: f64,
+    pub nx: usize,
+    pub ny: usize,
+    pub depth_um: Vec<i32>,
+    pub first_cut_ds: Vec<i32>,
+    #[serde(default)]
+    pub last_cut_ds: Vec<i32>,
+    pub max_depth_mm: f64,
+    pub thickness_mm: f64,
+    pub material_key: String,
+    pub material_label: String,
+}
+
+impl DepthMap {
+    pub fn of(rep: &loadsim::LoadSimReport, profile: &MachiningProfile) -> Option<Self> {
+        let h = &rep.heightmap;
+        if h.nx == 0 || h.ny == 0 || h.z.len() != h.nx * h.ny {
+            return None;
+        }
+        let first = rep.first_cut.as_ref().filter(|f| f.nx == h.nx && f.ny == h.ny && f.z.len() == h.z.len());
+        let last = rep.last_cut.as_ref().filter(|f| f.nx == h.nx && f.ny == h.ny && f.z.len() == h.z.len());
+        let thick = profile.workpiece_setup.thickness_mm.max(0.1);
+        let mut depth = Vec::with_capacity(h.z.len());
+        let mut first_ds = Vec::with_capacity(h.z.len());
+        let mut last_ds = Vec::with_capacity(h.z.len());
+        let mut max_depth = 0.0f64;
+        for (k, z) in h.z.iter().enumerate() {
+            let fc = first.map(|f| f.z[k]).filter(|v| v.is_finite());
+            first_ds.push(fc.map(|v| (v as f64 * 10.0).round() as i32).unwrap_or(-1));
+            let lc = last.map(|f| f.z[k]).filter(|v| v.is_finite()).or(fc);
+            last_ds.push(lc.map(|v| (v as f64 * 10.0).round() as i32).unwrap_or(-1));
+            let d = if z.is_finite() {
+                (-(*z as f64)).max(0.0)
+            } else if fc.is_some() {
+                thick
+            } else {
+                -1.0
+            };
+            if d > max_depth {
+                max_depth = d;
+            }
+            depth.push(if d < 0.0 { -1 } else { (d * 1000.0).round() as i32 });
+        }
+        let mat = profile.workpiece_setup.effective_material();
+        Some(Self {
+            x0: h.x0,
+            y0: h.y0,
+            cell_mm: h.cell_mm,
+            nx: h.nx,
+            ny: h.ny,
+            depth_um: depth,
+            first_cut_ds: first_ds,
+            last_cut_ds: last_ds,
+            max_depth_mm: max_depth,
+            thickness_mm: thick,
+            material_key: mat.family_key().to_string(),
+            material_label: profile.workpiece_setup.material_label(),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ToolWearView {
+    pub clearance_deg: f64,
+    pub vb_limit_mm: f64,
+    pub local_limit_mm: f64,
+    pub coating: String,
+    pub coating_um: f64,
+    pub coating_strip_um: f64,
+    pub coating_color: String,
+    pub vb_start_mm: f64,
+    pub start: WearField,
+    pub run: WearField,
+    pub pass2: WearField,
+    pub flute_shares: Vec<f64>,
+    pub instance_id: Option<i64>,
+    pub generation: i64,
+    pub label: String,
+    pub jobs: i64,
+    pub cut_min: f64,
+    pub notes: Vec<String>,
+    #[serde(default)]
+    pub thermal_damage: f64,
+    #[serde(default)]
+    pub thermal_damage_run: f64,
+    #[serde(default)]
+    pub tool_change: bool,
+}
+
+impl ToolWearView {
+    pub fn of(rep: &loadsim::LoadSimReport, ctx: &CutContext, color: &str) -> Self {
+        let limit = ctx.vb_limit_mm();
+        let mut start = WearField::for_tool(&ctx.tool);
+        if rep.vb_start_mm > 0.0 {
+            let shares = vec![1.0; start.flutes];
+            let ap = rep.samples.iter().map(|s| s.ap_mm).fold(0.0, f64::max).max(0.5).min(ctx.tool.loc_mm);
+            start.deposit(ap, rep.vb_start_mm, &crate::toolwear::AxialProfile::default(), &shares);
+        }
+        Self {
+            clearance_deg: ctx.tool.clearance_deg,
+            vb_limit_mm: limit,
+            local_limit_mm: limit * toolwear::LOCAL_LIMIT_RATIO,
+            coating: ctx.tool.coating.family.clone(),
+            coating_um: ctx.tool.coating.thickness_um,
+            coating_strip_um: toolwear::coating_strip_um(&ctx.tool),
+            coating_color: color.to_string(),
+            vb_start_mm: rep.vb_start_mm,
+            start,
+            run: rep.wear_field.clone(),
+            pass2: WearField::default(),
+            flute_shares: rep.flute_shares.clone(),
+            instance_id: None,
+            generation: 0,
+            label: String::new(),
+            jobs: 0,
+            cut_min: 0.0,
+            notes: Vec::new(),
+            thermal_damage: 0.0,
+            thermal_damage_run: rep.thermal_damage,
+            tool_change: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ViewportSim {
     pub profile_name: String,
@@ -139,6 +268,10 @@ pub struct ViewportSim {
     pub decay: Vec<(f64, f64)>,
     pub checks: Vec<String>,
     pub warnings: Vec<String>,
+    #[serde(default)]
+    pub depth: Option<DepthMap>,
+    #[serde(default)]
+    pub tool_wear: ToolWearView,
 }
 
 pub fn build(profile: &MachiningProfile, pattern_key: &str, sds: Option<&SdsStore>) -> Result<ViewportSim, String> {
@@ -238,10 +371,13 @@ pub fn assemble(profile: &MachiningProfile, pattern: &str, ctx: &CutContext, rep
         StockShape::Cylindrical { diameter_mm } => (true, diameter_mm),
         _ => (false, 0.0),
     };
+    let tool_shape = ToolShape::of(profile);
+    let depth = DepthMap::of(&rep, profile);
+    let tool_wear = ToolWearView::of(&rep, ctx, &tool_shape.color_hex);
     ViewportSim {
         profile_name: profile.name.clone(),
         pattern: pattern.into(),
-        tool: ToolShape::of(profile),
+        tool: tool_shape,
         coolant: CoolantVisual::of(&profile.coolant_config, &profile.machine.environment),
         stock: StockView {
             width_mm: w.width_mm,
@@ -265,5 +401,8 @@ pub fn assemble(profile: &MachiningProfile, pattern: &str, ctx: &CutContext, rep
         checks,
         warnings: rep.warnings.clone(),
         samples,
+        depth,
+        tool_wear,
     }
 }
+
