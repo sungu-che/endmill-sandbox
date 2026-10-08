@@ -114,6 +114,13 @@ fn main() {
             commands::models_ensure,
             commands::ingest_needs,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::ExitRequested { .. } = &event {
+                if let Some(state) = app_handle.try_state::<commands::AppState>() {
+                    state.shutdown();
+                }
+            }
+        });
 }

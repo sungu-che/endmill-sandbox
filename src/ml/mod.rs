@@ -135,3 +135,20 @@ pub fn l2_normalize(v: &mut [f32]) {
         }
     }
 }
+
+pub fn flush_device() {
+    #[cfg(feature = "cuda")]
+    {
+        let dev = device();
+        if dev.is_cuda() {
+            use candle_core::{DType, Tensor};
+            if let Ok(t) = Tensor::zeros((1,), DType::F32, &dev) {
+                let _ = t.to_device(&dev);
+            }
+        }
+    }
+}
+
+pub fn purge_device_memory() {
+    flush_device();
+}

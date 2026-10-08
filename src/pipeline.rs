@@ -319,6 +319,26 @@ impl Models {
         was
     }
 
+    pub fn unload_and_flush(&mut self, key: &str) -> bool {
+        let was = self.unload(key);
+        if was {
+            crate::ml::flush_device();
+        }
+        was
+    }
+
+    pub fn flush_after_job(&mut self, keys: &[&str]) {
+        let mut any = false;
+        for key in keys {
+            if self.unload(key) {
+                any = true;
+            }
+        }
+        if any {
+            crate::ml::flush_device();
+        }
+    }
+
     pub fn detected_dir(&self, key: &str) -> Option<PathBuf> {
         match key {
             "siglip" => locate(&self.root, SIGLIP_KEYWORD, &|d: &Path| d.join("config.json").exists()).into_iter().next(),

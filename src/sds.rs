@@ -872,6 +872,9 @@ impl SdsStore {
         }
         self.write_tick = 0;
         self.last_flush = Some(std::time::Instant::now());
+        if self.log.len() >= 200 {
+            self.log.drain(0..100);
+        }
         if !lines.is_empty() {
             self.log.push(format!("[SDS] 저장: {}", lines.join(" | ")));
         }

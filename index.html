@@ -2511,7 +2511,7 @@
 	  const comp = JOB.result && VP.combinedKey === JOB.result.key ? JOB.result.comp : null;
 	  if (comp && pose && pose.seg === VP.dwellIndex) {
 	    const left = Math.max(0, VP.pass2T0 - VP.t);
-	    lines.push(`<b>2차 보정 전 대기</b> · 잔열 냉각 G04 ${fmt(comp.draft.cooldown_s, 0)} s${comp.checkpoint ? ' · Plan B 체크포인트 (M09 → 에어 → 저속 → ' + (comp.decision.operator_confirm ? 'M00' : 'M01') + ')' : (comp.decision.operator_confirm ? ' · M00 작업자 확인' : '')} · 남은 ${fmt(left, 0)} s`);
+	    lines.push(`<b>2차 보정 전 대기</b> · 잔열 냉각 G04 ${fmt(comp.draft.cooldown_s, 0)} s${comp.checkpoint ? ' · Plan B 체크포인트 (' + esc((comp.checkpoint.lines || []).map(l => l.split(' (')[0]).filter(c => !c.startsWith('G04')).join(' → ')) + ')' : (comp.decision.operator_confirm ? ' · M00 작업자 확인' : '')} · 남은 ${fmt(left, 0)} s`);
 	  } else if (comp && pose && VP.pass2Start >= 0 && pose.seg >= VP.pass2Start && !pose.after) {
 	    lines.push(`<b style="color:#ff5cd6">2차 보정 패스</b> · ${esc(COMP_LABEL[comp.decision.final_action] || '')}${cutting ? ` · 반경 절입 ${fmt((sample.ae_mm || 0) * 1000, 1)} µm · 휨 ${fmt(Math.abs(sample.wall_defl_um) + Math.abs(sample.workpiece_um), 1)} µm · 채터 여유 ${fmt(sample.chatter_margin, 2)}` : ' · 진입/이동'}`);
 	  }
@@ -2936,7 +2936,7 @@
 	    { t: '길이', f: z => fmt(z.len_mm, 1) },
 	    { t: '방향', f: z => z.down ? '하향' : '상향' },
 	    { t: '잔여 P50/P90', f: z => `${fmt(z.residual_p50_um, 1)} / ${fmt(z.residual_p90_um, 1)}`, nw: true },
-	    { t: '보정량', f: z => z.needs ? fmt(z[offKey], 1) : (z.excluded ? '<span class="sev-2">과삭 제외</span>' : (z.thin ? '<span class="sev-1">최소 절입 미만</span>' : '-')) },
+	    { t: '반경 절입 / 경로 이동', f: z => z.needs ? `${fmt(z[offKey], 1)} / ${fmt(z[offKey] - z.residual_p50_um, 1)}` : (z.excluded ? '<span class="sev-2">과삭 제외</span>' : (z.thin ? '<span class="sev-1">최소 절입 미만</span>' : '-')) },
 	    { t: '휨(공구+벽)', f: z => fmt(Math.abs(z[evKey].defl_um) + Math.abs(z[evKey].wall_um), 1) },
 	    { t: '채터', f: z => fmt(z[evKey].chatter, 2) },
 	    { t: '칩 µm', f: z => fmt(z[evKey].h_max_um, 2) },
@@ -2979,7 +2979,8 @@
 	      <label class="pv-check"><input type="checkbox" id="comp-opt-ttm" ${st.use_ttm !== false ? 'checked' : ''}/> TTM-R3 예측 사용</label>
 	    </div>
 	    <div class="pv-row">
-	      <label class="pv-check">에어 블로우 코드 <input type="text" id="comp-opt-air" value="${esc(st.air_blast_code || 'M07')}" style="width:60px;"/></label>
+	      <label class="pv-check">에어 블로우 ON/OFF <input type="text" id="comp-opt-air" value="${esc(st.air_blast_code || 'M83')}" style="width:60px;"/> / <input type="text" id="comp-opt-air-off" value="${esc(st.air_off_code || 'M84')}" style="width:60px;"/></label>
+	      <label class="pv-check"><input type="checkbox" id="comp-opt-cool-air" ${st.cooldown_air ? 'checked' : ''}/> 냉각 대기 중 에어 블로우</label>
 	      <label class="pv-check">목표 잔여 (공차 비율) <input type="number" id="comp-opt-target" value="${fmt(st.target_fraction ?? 0.15, 2)}" step="0.05" style="width:70px;"/></label>
 	      <label class="pv-check">최대 냉각 대기 s <input type="number" id="comp-opt-cool" value="${fmt(st.max_cooldown_s ?? 600, 0)}" step="30" style="width:70px;"/></label>
 	      <button class="btn btn-sm btn-outline" onclick="compSaveSettings()">설정 저장</button>
@@ -3045,6 +3046,8 @@
 	    use_laya: document.getElementById('comp-opt-laya').checked,
 	    use_ttm: document.getElementById('comp-opt-ttm').checked,
 	    air_blast_code: document.getElementById('comp-opt-air').value.trim(),
+	    air_off_code: document.getElementById('comp-opt-air-off').value.trim(),
+	    cooldown_air: document.getElementById('comp-opt-cool-air').checked,
 	    target_fraction: parseFloat(document.getElementById('comp-opt-target').value),
 	    max_cooldown_s: parseFloat(document.getElementById('comp-opt-cool').value),
 	    measured_radial_um: null,
@@ -5535,3 +5538,4 @@
 	</script>
 </body>
 </html>
+

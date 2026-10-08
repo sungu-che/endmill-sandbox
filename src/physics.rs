@@ -854,14 +854,22 @@ impl CoolantState {
         matches!(self.method, CoolantMethod::Flood | CoolantMethod::ThroughTool)
     }
 
-    pub fn workpiece_h(&self) -> f64 {
-        20.0 + match self.method {
+    pub fn workpiece_h_of(method: &CoolantMethod, flow_l_min: f64) -> f64 {
+        20.0 + match method {
             CoolantMethod::Dry => 10.0,
             CoolantMethod::AirBlast => 40.0,
             CoolantMethod::Mist => 80.0,
-            CoolantMethod::Flood => 1000.0 * (self.flow_l_min / 12.0).clamp(0.3, 1.5),
+            CoolantMethod::Flood => 1000.0 * (flow_l_min / 12.0).clamp(0.3, 1.5),
             CoolantMethod::ThroughTool => 300.0,
         }
+    }
+
+    pub fn workpiece_h(&self) -> f64 {
+        Self::workpiece_h_of(&self.method, self.flow_l_min)
+    }
+
+    pub fn idle_workpiece_h(&self) -> f64 {
+        Self::workpiece_h_of(&CoolantMethod::Dry, 0.0)
     }
 
     pub fn chip_evacuation(&self) -> f64 {
@@ -2475,3 +2483,4 @@ pub fn flute_count_from_conditions(conds: &CuttingConditions) -> u32 {
     }
     (conds.feed_rate_mm_min / (conds.spindle_rpm as f64 * conds.feed_per_tooth_mm)).round().clamp(1.0, 12.0) as u32
 }
+

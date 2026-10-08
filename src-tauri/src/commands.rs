@@ -220,6 +220,7 @@ pub struct Shared {
     pub loading_model: Mutex<Option<String>>,
     pub job: Mutex<JobSlot>,
     pub job_cache: Mutex<Option<JobCache>>,
+    pub shutdown: Arc<AtomicBool>,
 }
 
 fn yes() -> bool {
@@ -391,6 +392,7 @@ impl AppState {
                 job: Mutex::new(JobSlot::default()),
                 job_cache: Mutex::new(None),
                 data_dir,
+                shutdown: Arc::new(AtomicBool::new(false)),
             }),
         }
     }
@@ -399,6 +401,22 @@ impl AppState {
         lock(&self.shared.sds).flush();
         persist_store(&self.shared);
         lock(&self.shared.library).flush();
+    }
+
+    pub fn shutdown(&self) {
+        let sh = &self.shared;
+        sh.shutdown.store(true, Ordering::SeqCst);
+        {
+            let mut slot = lock(&sh.job);
+            slot.cancel.store(true, Ordering::SeqCst);
+        }
+        {
+            let hub = lock(&sh.hub);
+            for spec in endmill_model::modelhub::catalog() {
+                hub.cancel(&spec.key);
+            }
+        }
+        self.flush();
     }
 }
 
@@ -1246,7 +1264,13 @@ pub async fn sds_status(state: tauri::State<'_, AppState>) -> Result<SdsStatus, 
 
 #[tauri::command]
 pub async fn sds_flush(state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
-    blocking(&state, |sh| Ok(lock(&sh.sds).flush())).await
+    blocking(&state, |sh| {
+        let mut sds = lock(&sh.sds);
+        let mut out = sds.flush();
+        sds.close_runs();
+        out.extend(sds.flush());
+        Ok(out)
+    }).await
 }
 
 #[tauri::command]
@@ -2592,6 +2616,9 @@ enum JobMode {
 }
 
 fn job_set(sh: &Shared, id: u64, pct: f64, stage: &str, label: &str) -> bool {
+    if sh.shutdown.load(Ordering::Relaxed) {
+        return false;
+    }
     let mut s = lock(&sh.job);
     if s.id != id || s.cancel.load(Ordering::Relaxed) {
         return false;
@@ -2606,7 +2633,7 @@ fn job_set(sh: &Shared, id: u64, pct: f64, stage: &str, label: &str) -> bool {
     true
 }
 
-fn job_finish(sh: &Shared, id: u64, result: Result<JobResult, String>) {
+fn job_finish(sh: &Shared, id: u64, result: Result<Arc<JobResult>, String>) {
     let mut s = lock(&sh.job);
     if s.id != id {
         return;
@@ -2618,7 +2645,7 @@ fn job_finish(sh: &Shared, id: u64, result: Result<JobResult, String>) {
             s.pct = 100.0;
             s.stage = "done".into();
             s.label = "완료".into();
-            s.result = Some(Arc::new(r));
+            s.result = Some(r);
         }
         Err(e) => {
             s.label = if s.cancel.load(Ordering::Relaxed) { "취소됨".into() } else { "실패".into() };
@@ -2628,12 +2655,18 @@ fn job_finish(sh: &Shared, id: u64, result: Result<JobResult, String>) {
 }
 
 fn run_job(sh: Arc<Shared>, id: u64, mode: JobMode) {
+    if sh.shutdown.load(Ordering::SeqCst) {
+        return;
+    }
     let t_start = std::time::Instant::now();
     let res = run_job_inner(&sh, id, mode, t_start);
+    if sh.shutdown.load(Ordering::SeqCst) {
+        return;
+    }
     job_finish(&sh, id, res);
 }
 
-fn run_job_inner(sh: &Arc<Shared>, id: u64, mode: JobMode, t_start: std::time::Instant) -> Result<JobResult, String> {
+fn run_job_inner(sh: &Arc<Shared>, id: u64, mode: JobMode, t_start: std::time::Instant) -> Result<Arc<JobResult>, String> {
     let cancelled = || "작업을 취소했습니다".to_string();
     let mut stages: Vec<(String, f64)> = Vec::new();
     let mut mark = |name: &str, t0: &mut std::time::Instant| {
@@ -2752,7 +2785,7 @@ fn run_job_inner(sh: &Arc<Shared>, id: u64, mode: JobMode, t_start: std::time::I
         models_info.laya = msg;
         laya_ready = ok;
     } else if opts.use_laya {
-        models_info.laya = "판단할 선택지가 없어 호출하지 않음".into();
+        models_info.laya = if draft.need { "판단할 선택지가 하나뿐이라 호출하지 않음" } else { "2차로 깎을 구간이 없어 호출하지 않음" }.into();
     }
     if !job_set(sh, id, 74.0, "decide", "4. laya-typed-decisions 판단 중") {
         return Err(cancelled());
@@ -2804,8 +2837,24 @@ fn run_job_inner(sh: &Arc<Shared>, id: u64, mode: JobMode, t_start: std::time::I
     let files = endmill_model::wearcomp::save_job_files(&sh.data_dir.join("wear_logs"), &stamp, &p.name, &csv, &summary);
     mark("record", &mut t0);
     stages.push(("total".into(), t_start.elapsed().as_secs_f64()));
+
+    {
+        let mut models = lock(&sh.models);
+        let mut used_keys: Vec<&str> = Vec::new();
+        if models_info.ttm_used {
+            used_keys.push("ttm");
+        }
+        if models_info.laya_used {
+            used_keys.push("laya");
+        }
+        if !used_keys.is_empty() {
+            models.flush_after_job(&used_keys);
+        }
+        *lock(&sh.model_snapshot) = models.status();
+    }
+
     let key = lock(&sh.job).key.clone();
-    let result = JobResult {
+    let result = Arc::new(JobResult {
         id,
         key,
         profile_name: p.name.clone(),
@@ -2828,21 +2877,23 @@ fn run_job_inner(sh: &Arc<Shared>, id: u64, mode: JobMode, t_start: std::time::I
         settings: opts.clone(),
         stamp,
         comp: comp.clone(),
-    };
-    let shared = Arc::new(result.clone());
+    });
     *lock(&sh.job_cache) = Some(JobCache {
         profile: p,
         pattern,
         ctx,
         report,
         segments,
-        result: shared,
+        result: result.clone(),
         last_action: Some(comp.decision.final_action.key().to_string()),
     });
     Ok(result)
 }
 
 fn start_job(sh: &Arc<Shared>, key: String, mode: JobMode) -> JobStatus {
+    if sh.shutdown.load(Ordering::SeqCst) {
+        return job_status(&lock(&sh.job));
+    }
     let id = {
         let mut slot = lock(&sh.job);
         slot.cancel.store(true, Ordering::Relaxed);
@@ -3079,16 +3130,17 @@ pub async fn settings_set_ui(state: tauri::State<'_, AppState>, ui: UiSettings) 
 #[tauri::command]
 pub async fn settings_set_comp(state: tauri::State<'_, AppState>, comp: CompOptions) -> Result<SettingsResponse, String> {
     blocking(&state, move |sh| {
-        let code = comp.air_blast_code.trim().to_uppercase();
-        let valid = code.len() >= 2 && code.len() <= 5 && code.starts_with('M') && code[1..].chars().all(|c| c.is_ascii_digit());
-        if !valid {
-            return Err("에어 블로우 코드는 M 과 숫자로 입력하세요 (예: M07, M51)".into());
+        if let Some(problem) = endmill_model::wearcomp::air_code_problem(&comp.air_blast_code, &comp.air_off_code) {
+            return Err(problem);
         }
+        let code = comp.air_blast_code.trim().to_uppercase();
+        let off = comp.air_off_code.trim().to_uppercase();
         if !(comp.target_fraction.is_finite() && (-0.5..=0.8).contains(&comp.target_fraction)) {
             return Err("목표 잔여량 비율은 -0.5 ~ 0.8 사이여야 합니다".into());
         }
         let mut c = comp;
         c.air_blast_code = code;
+        c.air_off_code = off;
         c.measured_radial_um = None;
         c.slow_rpm = c.slow_rpm.clamp(1, 2000);
         c.ramp_ms = c.ramp_ms.clamp(0, 30_000);
@@ -3235,7 +3287,7 @@ pub async fn models_unload(state: tauri::State<'_, AppState>, key: String) -> Re
     blocking(&state, move |sh| {
         {
             let mut models = lock(&sh.models);
-            models.unload(&key);
+            models.unload_and_flush(&key);
             *lock(&sh.model_snapshot) = models.status();
         }
         Ok(catalog_of(sh))
@@ -3248,7 +3300,7 @@ pub async fn models_delete(state: tauri::State<'_, AppState>, key: String) -> Re
     blocking(&state, move |sh| {
         {
             let mut models = lock(&sh.models);
-            models.unload(&key);
+            models.unload_and_flush(&key);
             *lock(&sh.model_snapshot) = models.status();
         }
         lock(&sh.hub).delete(&key)?;
@@ -3315,3 +3367,4 @@ pub async fn models_ensure(state: tauri::State<'_, AppState>, key: String, downl
 pub fn ingest_needs(name: String, options: Option<IngestOptions>) -> Vec<String> {
     endmill_model::pipeline::ingest_model_needs(&name, &options.unwrap_or_default())
 }
+

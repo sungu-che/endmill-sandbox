@@ -1,5 +1,5 @@
 use candle_core::{DType, Device, Tensor};
-use endmill_model::ml::laya::LayaAdvisor;
+use endmill_model::ml::laya::{AdvisorAnswer, LayaAdvisor};
 use endmill_model::ml::ttm::{TtmConfig, TtmForecaster};
 use endmill_model::physics::{self, Engagement};
 use endmill_model::profile::{MachiningPreset, MachiningProfile};
@@ -117,7 +117,7 @@ fn tiny_laya(dir: &PathBuf) -> LayaAdvisor {
 }
 
 #[test]
-fn titanium_pocket_plans_a_split_second_pass_without_touching_pass_one() {
+fn titanium_pocket_holds_when_pass_one_walls_yield_without_touching_pass_one() {
     let p = preset("티타늄");
     let dir = temp_dir("ti");
     let mut sds = SdsStore::open(&dir.join("sds"));
@@ -143,17 +143,15 @@ fn titanium_pocket_plans_a_split_second_pass_without_touching_pass_one() {
     let d = &o.draft;
     assert!(d.need && d.zones.iter().any(|z| z.needs));
     assert!(d.gates.iter().any(|g| g.id == "overcut_pass1" && g.severity == 2));
-    assert!(d.gates.iter().any(|g| g.id == "pass2_deflection" && g.blocks.contains(&CompAction::Execute)));
-    assert_eq!(o.decision.final_action, CompAction::Split);
+    let p1 = d.gates.iter().find(|g| g.id == "pass1_validity").expect("pass1 gate");
+    assert_eq!(p1.severity, 3, "{}", p1.message);
+    assert!(p1.blocks.contains(&CompAction::Execute) && p1.blocks.contains(&CompAction::ExecuteReduced) && p1.blocks.contains(&CompAction::Split));
+    assert!(r.report.seg_walls.iter().any(|s| s.wall_stress_mpa > 0.0));
+    assert!(!d.allowed.contains(&CompAction::ToolChange));
+    assert_eq!(o.decision.final_action, CompAction::Hold);
     assert!(o.decision.operator_confirm);
-    assert!(o.after_min_um > -d.residual.tolerance_um, "overcut after pass 2: {}", o.after_min_um);
-    assert!(o.after_p50_um.abs() < d.residual.p50_um.abs().max(d.residual.tolerance_um));
-    let text = &o.program_text;
-    assert!(text.contains("G04 P") && text.contains("M00") && text.trim_end().ends_with('%'));
-    assert!(text.contains("G02") || text.contains("G03"));
-    assert!(text.contains("보정 패스") && text.contains("스프링 패스"));
-    assert!(o.segments.len() == o.segment_end_s.len() && o.segment_end_s.windows(2).all(|w| w[1] >= w[0]));
-    assert!(!o.samples.is_empty() && o.samples.iter().any(|s| s.force_n > 0.0));
+    assert!(o.program_text.is_empty() && o.segments.is_empty());
+    assert!(o.notes.iter().any(|n| n.contains("1차 조건을 고쳐")));
     let pass1 = endmill_model::gcode::GCodeGenerator::program_from_segments(&p, &r.segments, "P1").to_text();
     assert!(!pass1.contains("COMP2") && !pass1.contains("G04"));
     let status = sds.status(400);
@@ -230,37 +228,302 @@ fn ttm_and_laya_models_are_actually_used_in_the_job() {
 }
 
 #[test]
-fn titanium_finishing_leaves_sub_edge_radius_zones_and_runs_one_pass() {
+fn titanium_finishing_holds_instead_of_skipping_when_every_cut_is_blocked() {
     let p = titanium_finishing();
     let dir = temp_dir("ti-fin");
     let mut sds = SdsStore::open(&dir.join("sds"));
     let r = wearcomp::run_pipeline(&p, "pocket_zigzag", &mut sds, None, None, &CompOptions::default(), None, None, &mut |_, _| true).unwrap();
     let o = &r.outcome;
     let d = &o.draft;
-    let thin: Vec<&wearcomp::CompZone> = d.zones.iter().filter(|z| z.thin).collect();
-    assert!(!thin.is_empty() && thin.iter().all(|z| !z.needs && z.execute.h_max_um.min(z.fresh.h_max_um) < d.h_min_um));
-    assert!(d.gates.iter().any(|g| g.id == "min_engagement" && g.severity == 1 && g.blocks.is_empty()));
+    assert!(d.need);
+    let p1 = d.gates.iter().find(|g| g.id == "pass1_validity").expect("pass1 gate");
+    assert_eq!(p1.severity, 2, "{}", p1.message);
+    assert!(p1.blocks.contains(&CompAction::Execute) && p1.blocks.contains(&CompAction::ExecuteReduced) && !p1.blocks.contains(&CompAction::Split));
+    assert!(d.zones.iter().filter(|z| z.needs).all(|z| (z.wear_bias_um - d.radial_used_um).abs() < 1e-9 && z.wear_bias_um > 0.0));
     assert!(d.zones.iter().filter(|z| z.needs).all(|z| z.execute.h_max_um.min(z.fresh.h_max_um) >= d.h_min_um - 1e-9));
     let chip = d.gates.iter().find(|g| g.id == "min_chip").unwrap();
-    assert!(chip.blocks.contains(&CompAction::ExecuteReduced) && !chip.blocks.contains(&CompAction::Execute));
-    assert_eq!(o.decision.final_action, CompAction::Execute);
+    assert!(chip.blocks.contains(&CompAction::ExecuteReduced) && chip.blocks.contains(&CompAction::Split) && !chip.blocks.contains(&CompAction::Execute));
     let tol = d.residual.tolerance_um;
     assert!(d.zones.iter().filter(|z| z.needs).all(|z| {
         let (_, mn, mx) = z.after_for(CompAction::Execute);
         mn > -tol && mx < tol
     }));
-    assert!(o.after_max_um >= thin.iter().map(|z| z.residual_max_um).fold(f64::NEG_INFINITY, f64::max) - 1e-9);
-    let rpm = p.conditions.spindle_rpm as f64;
-    let flutes = p.endmill_setting.flute_count as f64;
-    let feeds: Vec<String> = d.zones.iter().filter(|z| z.needs).map(|z| format!("F{:.0}", (z.execute.fz_mm * rpm * flutes).round())).collect();
-    assert!(o.program_text.lines().any(|l| l.split_whitespace().any(|t| feeds.iter().any(|f| f == t))));
+    assert!(!d.allowed.iter().any(|a| a.cuts()));
+    assert_ne!(o.decision.final_action, CompAction::Skip);
+    assert_eq!(o.decision.final_action, CompAction::Hold);
+    assert!(o.decision.operator_confirm);
     let (ctx, _) = endmill_model::pipeline::calibrated_context(&p, None);
     let mut opts = CompOptions::default();
     opts.measured_radial_um = Some(40.0);
     let worn = wearcomp::evaluate(&p, &ctx, &r.report, &r.log, &opts, None);
     assert!(worn.gates.iter().any(|g| g.id == "vb_now" && g.severity == 3));
+    assert!(!worn.allowed.contains(&CompAction::Execute));
     assert!(worn.allowed.contains(&CompAction::ToolChange), "{:?}", worn.allowed);
     assert_eq!(worn.rule_action, CompAction::ToolChange);
+}
+
+fn forced(tag: &str, p: &MachiningProfile, opts: &CompOptions, action: CompAction) -> (wearcomp::CompDraft, wearcomp::CompOutcome) {
+    let dir = temp_dir(&format!("forced-{}-{}", tag, action.key()));
+    let sds = SdsStore::open(&dir.join("sds"));
+    let (ctx, _) = endmill_model::pipeline::calibrated_context(p, Some(&sds));
+    let (_, rep, segs) = endmill_model::viewport::build_report_prog(p, "pocket_zigzag", &ctx, &mut |_| true).unwrap();
+    let log = wearcomp::analyze_job(p, &ctx, &rep, None, &sds);
+    let draft = wearcomp::evaluate(p, &ctx, &rep, &log, opts, None);
+    let mut dec = wearcomp::consult(&draft, None, None, false);
+    dec.final_action = action;
+    dec.operator_confirm = true;
+    let out = wearcomp::finalize(p, &ctx, &rep, &segs, &log, &draft, &dec, opts);
+    (draft, out)
+}
+
+#[test]
+fn pass_two_path_is_measured_from_pass_one_path_not_from_the_residual_surface() {
+    for (p, action) in [(preset("탄소강"), CompAction::ExecuteReduced), (titanium_finishing(), CompAction::Split)] {
+        let (d, o) = forced("frame", &p, &CompOptions::default(), action);
+        let tol = d.residual.tolerance_um;
+        let active: Vec<&wearcomp::CompZone> = d.zones.iter().filter(|z| z.needs && z.offset_for(action) > 0.0).collect();
+        assert!(!active.is_empty());
+        for z in active.iter() {
+            let e = z.eval_for(action, 1);
+            let path = z.path_offset_for(action);
+            assert!(path < z.offset_for(action) - 0.5 * z.residual_p50_um, "seg {} path {} depth {}", z.seg, path, z.offset_for(action));
+            assert!(path.abs() <= e.defl_um.abs() + e.wall_um.abs() + z.bias_for(action).abs() + tol, "seg {} path {}", z.seg, path);
+            let (_, mn, mx) = z.after_for(action);
+            assert!(mn > -tol, "seg {} after min {}", z.seg, mn);
+            assert!(mx - mn <= 0.5 * (z.residual_max_um - z.residual_min_um) + 1e-6, "seg {} after spread {} vs residual spread {}", z.seg, mx - mn, z.residual_max_um - z.residual_min_um);
+        }
+        let text = &o.program_text;
+        assert!(!text.is_empty() && text.trim_end().ends_with('%'));
+        assert!(text.contains("G02") || text.contains("G03"));
+        assert!(o.segments.len() == o.segment_end_s.len() && o.segment_end_s.windows(2).all(|w| w[1] >= w[0]));
+        assert!(!o.samples.is_empty() && o.samples.iter().any(|s| s.force_n > 0.0));
+        if action == CompAction::Split {
+            assert!(text.contains("보정 패스") && text.contains("스프링 패스"));
+        }
+        assert!(!text.lines().any(|l| l.contains("M07") && l.contains("에어")));
+        assert!(text.contains("M83") && text.contains("M84"));
+        let m05 = text.lines().position(|l| l.contains(" M05 ")).expect("M05 before operator stop");
+        let m00 = text.lines().position(|l| l.contains(" M00 ")).expect("M00");
+        assert!(m05 < m00);
+        let s_on = text.lines().position(|l| l.contains(&format!("S{} M03", p.conditions.spindle_rpm))).unwrap();
+        let dwell = text.lines().position(|l| l.contains("잔열 냉각 대기")).unwrap_or(0);
+        assert!(s_on > dwell);
+        assert!(!text.lines().any(|l| {
+            let c = l.split_once(" (").map(|(_, c)| c).unwrap_or("");
+            let inner = c.trim_end().trim_end_matches(')');
+            inner.contains('(') || inner.contains(')')
+        }));
+        let first_rapid = text.lines().find(|l| l.contains("G00") && !l.contains("X0.000 Y0.000")).unwrap();
+        assert!(first_rapid.contains(&format!("Z{:.3}", p.endmill_setting.loc_mm + 10.0 - p.conditions.axial_doc_mm)), "{}", first_rapid);
+        assert!(text.lines().filter(|l| l.contains('%')).all(|l| l.trim() == "%"));
+        assert!(text.lines().any(|l| l.contains(&format!(" {} ", p.coolant_config.method.gcode_off_code())) && l.contains("냉각 정지")));
+    }
+}
+
+#[test]
+fn air_codes_are_checked_numerically_for_both_on_and_off() {
+    assert!(wearcomp::air_code_problem("M83", "M84").is_none());
+    assert!(wearcomp::air_code_problem("M83", "M09").is_none());
+    assert!(wearcomp::air_code_problem("M7", "M84").is_some());
+    assert!(wearcomp::air_code_problem("M083", "M08").is_some());
+    assert!(wearcomp::air_code_problem("M83", "M083").is_some());
+    assert!(wearcomp::air_code_problem("M00", "M84").is_some());
+    assert!(wearcomp::air_code_problem("M83", "M30").is_some());
+    assert!(wearcomp::air_code_problem("", "M84").is_some());
+    assert_eq!(wearcomp::m_number("m007"), Some(7));
+}
+
+#[test]
+fn far_walls_gain_stock_from_thermal_expansion_and_near_walls_do_not() {
+    let p = preset("탄소강");
+    let (ctx, _) = endmill_model::pipeline::calibrated_context(&p, None);
+    let (_, rep, _) = endmill_model::viewport::build_report_prog(&p, "pocket_zigzag", &ctx, &mut |_| true).unwrap();
+    assert!(rep.wp_temp_end_c > rep.bulk_c + 10.0);
+    let w = p.workpiece_setup.width_mm;
+    let far: Vec<&endmill_model::loadsim::SegWallStat> = rep.seg_walls.iter().filter(|s| s.nx > 0.5 && s.x_mm > 0.5 * w).collect();
+    let near: Vec<&endmill_model::loadsim::SegWallStat> = rep.seg_walls.iter().filter(|s| s.nx < -0.5 && s.x_mm < 0.1 * w).collect();
+    assert!(!far.is_empty() && !near.is_empty());
+    assert!(far.iter().all(|s| s.thermal_um > 0.0), "{:?}", far.iter().map(|s| s.thermal_um).collect::<Vec<_>>());
+    assert!(near.iter().all(|s| s.thermal_um < 1.0));
+    assert!(far.last().unwrap().thermal_um > far.first().unwrap().thermal_um + 20.0);
+}
+
+#[test]
+fn air_code_that_collides_with_coolant_is_never_emitted() {
+    let p = titanium_finishing();
+    let mut opts = CompOptions::default();
+    opts.air_blast_code = "M88".into();
+    let (d, o) = forced("air", &p, &opts, CompAction::Split);
+    assert!(!o.program_text.is_empty());
+    assert!(!o.program_text.contains("에어 블로우 ON"));
+    let cp = o.checkpoint.as_ref().expect("checkpoint");
+    assert!(cp.notes.iter().any(|n| n.contains("출력하지 않음")));
+    assert!(d.gates.iter().any(|g| g.id == "thermal_state" && g.message.contains("자연 대류")));
+}
+
+#[test]
+fn fresh_tool_single_pass_is_not_offered_on_slender_walls() {
+    let p = titanium_finishing();
+    let dir = temp_dir("slender");
+    let sds = SdsStore::open(&dir.join("sds"));
+    let (ctx, _) = endmill_model::pipeline::calibrated_context(&p, Some(&sds));
+    let (_, rep, _) = endmill_model::viewport::build_report_prog(&p, "pocket_zigzag", &ctx, &mut |_| true).unwrap();
+    let log = wearcomp::analyze_job(&p, &ctx, &rep, None, &sds);
+    let mut opts = CompOptions::default();
+    opts.measured_radial_um = Some(40.0);
+    let stocky = wearcomp::evaluate(&p, &ctx, &rep, &log, &opts, None);
+    assert_eq!(stocky.rule_action, CompAction::ToolChange);
+    let mut slender = rep.clone();
+    for s in slender.seg_walls.iter_mut() {
+        s.wall_mm = s.ap_mm / 20.0;
+    }
+    let d = wearcomp::evaluate(&p, &ctx, &slender, &log, &opts, None);
+    assert!(d.need);
+    assert!(d.gates.iter().any(|g| g.id == "thin_wall" && g.blocks.contains(&CompAction::Execute)));
+    assert!(!d.allowed.contains(&CompAction::ToolChange), "{:?}", d.allowed);
+    assert_eq!(d.rule_action, CompAction::Hold);
+    assert!(d.reasons.iter().any(|r| r.contains("높이/두께 > 15")), "{:?}", d.reasons);
+    let alert: endmill_model::wear::WearComparison = serde_json::from_value(serde_json::json!({
+        "domain": "test", "reference_key": "a", "current_key": "b", "grid": 4,
+        "global_distance": 0.5, "background_mean": 0.0, "background_sd": 1.0,
+        "patch_distance": [], "patch_z": [], "zones": [], "global_prompt_delta": [],
+        "geometry": null, "state": "Alert", "state_reasons": [], "wear_type": "flank",
+        "wear_type_label": "flank", "type_scores": [], "severity_index": 0.6, "sds_z": null, "notes": []
+    }))
+    .unwrap();
+    let mut mild = CompOptions::default();
+    mild.measured_radial_um = Some(0.5 * stocky.vb_limit_mm * ctx.tool.clearance_deg.to_radians().tan() * 1000.0);
+    let img_stocky = wearcomp::evaluate(&p, &ctx, &rep, &log, &mild, Some(&alert));
+    assert_eq!(img_stocky.rule_action, CompAction::ToolChange);
+    let img_slender = wearcomp::evaluate(&p, &ctx, &slender, &log, &mild, Some(&alert));
+    assert!(img_slender.allowed.contains(&CompAction::Split), "{:?}", img_slender.allowed);
+    assert_eq!(img_slender.rule_action, CompAction::Hold);
+    assert!(img_slender.reasons.iter().any(|r| r.contains("높이/두께 > 15")), "{:?}", img_slender.reasons);
+}
+
+#[test]
+fn laya_cannot_lower_a_rule_hold_but_can_still_lower_a_cutting_choice() {
+    let p = preset("티타늄");
+    let dir = temp_dir("lock");
+    let sds = SdsStore::open(&dir.join("sds"));
+    let (ctx, _) = endmill_model::pipeline::calibrated_context(&p, Some(&sds));
+    let (_, rep, _) = endmill_model::viewport::build_report_prog(&p, "pocket_zigzag", &ctx, &mut |_| true).unwrap();
+    let log = wearcomp::analyze_job(&p, &ctx, &rep, None, &sds);
+    let d = wearcomp::evaluate(&p, &ctx, &rep, &log, &CompOptions::default(), None);
+    assert_eq!(d.rule_action, CompAction::Hold);
+    assert!(d.gates.iter().any(|g| g.severity >= 3));
+    assert!(d.allowed.contains(&CompAction::Skip));
+    let answer = |top: &str, other: &str| AdvisorAnswer {
+        qtype: "choice".into(),
+        labels: vec![top.into(), other.into()],
+        probabilities: vec![0.9, 0.1],
+        top: top.into(),
+        top_probability: 0.9,
+        act_probability: 1.0,
+        temperature: 1.0,
+        state_tokens_used: 0,
+        state_tokens_dropped: 0,
+    };
+    let locked = "낮추는 선택이라 채택하지 않음";
+    let mut dec = wearcomp::consult(&d, None, Some((1.0, 50)), false);
+    wearcomp::apply_laya(&mut dec, &d, answer("skip", "hold"));
+    assert_eq!(dec.final_action, CompAction::Hold);
+    assert_eq!(dec.decided_by, "rule");
+    assert_eq!(dec.agreement, Some(false));
+    assert!(dec.laya_error.is_none());
+    assert!(dec.reasons.iter().any(|r| r.contains(locked) && r.contains("위험 등급 게이트:")), "{:?}", dec.reasons);
+    let mut relaxed = d.clone();
+    for g in relaxed.gates.iter_mut() {
+        g.severity = g.severity.min(2);
+    }
+    let mut dec2 = wearcomp::consult(&relaxed, None, Some((1.0, 50)), false);
+    wearcomp::apply_laya(&mut dec2, &relaxed, answer("skip", "hold"));
+    assert_eq!(dec2.final_action, CompAction::Hold);
+    assert!(dec2.reasons.iter().any(|r| r.contains(locked)), "{:?}", dec2.reasons);
+    let mut cutting = relaxed.clone();
+    cutting.rule_action = CompAction::Split;
+    cutting.allowed = vec![CompAction::Execute, CompAction::Split, CompAction::Skip, CompAction::Hold];
+    for g in cutting.gates.iter_mut() {
+        g.severity = g.severity.min(1);
+    }
+    let mut dec3 = wearcomp::consult(&cutting, None, Some((1.0, 50)), false);
+    wearcomp::apply_laya(&mut dec3, &cutting, answer("execute", "split"));
+    assert_eq!(dec3.final_action, CompAction::Execute);
+    assert_eq!(dec3.decided_by, "laya-confident");
+}
+
+#[test]
+fn walls_that_pass_two_cannot_fix_are_held_and_flagged() {
+    let p = titanium_finishing();
+    let dir = temp_dir("unfixable");
+    let sds = SdsStore::open(&dir.join("sds"));
+    let (ctx, _) = endmill_model::pipeline::calibrated_context(&p, Some(&sds));
+    let (_, rep, segs) = endmill_model::viewport::build_report_prog(&p, "pocket_zigzag", &ctx, &mut |_| true).unwrap();
+    let log = wearcomp::analyze_job(&p, &ctx, &rep, None, &sds);
+    let mut opts = CompOptions::default();
+    opts.measured_radial_um = Some(0.0);
+    let tol = wearcomp::evaluate(&p, &ctx, &rep, &log, &opts, None).residual.tolerance_um;
+    let datum = p.workpiece_setup.zero_point;
+    let set = |s: &mut endmill_model::loadsim::SegWallStat, p50: f64, p90: f64| {
+        s.p10_um = p50 - 0.2;
+        s.p50_um = p50;
+        s.p90_um = p90;
+        s.max_um = p90 + 0.1;
+        s.min_um = p50 - 0.3;
+        s.mean_um = p50;
+        s.sd_um = 0.1;
+        s.wear_um = 0.0;
+        s.x_mm = datum.0;
+        s.y_mm = datum.1;
+        for pc in s.pieces.iter_mut() {
+            pc.p50_um = p50;
+            pc.min_um = p50 - 0.3;
+            pc.max_um = p90 + 0.1;
+        }
+    };
+    let shaped = |p50: f64, p90: f64| {
+        let mut r = rep.clone();
+        for s in r.seg_walls.iter_mut() {
+            set(s, p50, p90);
+        }
+        r
+    };
+    let first_zone = |r: &endmill_model::loadsim::LoadSimReport| -> usize { r.seg_walls.iter().position(|s| s.n >= 3 && s.len_mm > 0.2).unwrap() };
+    let inside = wearcomp::evaluate(&p, &ctx, &shaped(0.7 * tol, 0.7 * tol + 0.2), &log, &opts, None);
+    assert!(!inside.need && inside.zones.iter().any(|z| z.thin));
+    let g = inside.gates.iter().find(|g| g.id == "min_engagement").expect("min engagement gate");
+    assert!(g.severity == 1 && g.blocks.is_empty());
+    assert_eq!(inside.rule_action, CompAction::Skip);
+    assert!(inside.reasons.iter().any(|r| r.contains("문지름 방지")), "{:?}", inside.reasons);
+    let out_rep = shaped(0.7 * tol, 1.05 * tol);
+    let outside = wearcomp::evaluate(&p, &ctx, &out_rep, &log, &opts, None);
+    assert!(!outside.need && outside.zones.iter().any(|z| z.thin && z.residual_p90_um > tol));
+    assert!(outside.gates.iter().any(|g| g.id == "min_engagement" && g.severity == 2));
+    assert!(outside.allowed.contains(&CompAction::Hold));
+    assert_eq!(outside.rule_action, CompAction::Hold);
+    let dec = wearcomp::consult(&outside, None, None, true);
+    assert_eq!(dec.final_action, CompAction::Hold);
+    let out = wearcomp::finalize(&p, &ctx, &out_rep, &segs, &log, &outside, &dec, &opts);
+    assert!(out.program_text.is_empty() && out.notes.iter().any(|n| n.contains("2차로 고칠 수 없는")));
+    let mut mixed = shaped(0.7 * tol, 1.05 * tol);
+    let k = first_zone(&mixed);
+    set(&mut mixed.seg_walls[k], 3.0 * tol, 3.0 * tol + 0.2);
+    mixed.chatter_fraction = 0.0;
+    let both = wearcomp::evaluate(&p, &ctx, &mixed, &log, &opts, None);
+    assert!(both.need && both.zones.iter().any(|z| z.thin && z.residual_p90_um > tol));
+    assert!(both.gates.iter().all(|g| !(g.id == "overcut_pass1" || g.id == "pass1_validity") || g.severity < 2));
+    assert!(both.gates.iter().any(|g| g.id == "min_engagement" && g.severity == 2));
+    assert!(wearcomp::consult(&both, None, None, false).operator_confirm);
+    let mut overcut = shaped(0.3 * tol, 0.3 * tol + 0.2);
+    let k = first_zone(&overcut);
+    overcut.seg_walls[k].min_um = -1.5 * tol;
+    let held = wearcomp::evaluate(&p, &ctx, &overcut, &log, &opts, None);
+    assert!(!held.need && held.zones.iter().any(|z| z.excluded));
+    assert_eq!(held.rule_action, CompAction::Hold);
+    assert!(held.reasons.iter().any(|r| r.contains("1차 과삭")), "{:?}", held.reasons);
+    assert!(held.gates.iter().any(|g| g.id == "residual_need" && g.message.contains("복구 불가")));
+    let dec = wearcomp::consult(&held, None, None, true);
+    assert!(dec.final_action == CompAction::Hold && dec.operator_confirm);
 }
 
 #[test]

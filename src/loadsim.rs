@@ -268,6 +268,10 @@ pub struct WallErrorSample {
     pub wall_mm: f64,
     #[serde(default)]
     pub wall_k_n_mm: f64,
+    #[serde(default)]
+    pub wall_stress_mpa: f64,
+    #[serde(default)]
+    pub wall_sigma_per_n: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -309,6 +313,14 @@ pub struct SegWallStat {
     pub len_mm: f64,
     #[serde(default)]
     pub pieces: Vec<WallPiece>,
+    #[serde(default)]
+    pub x_mm: f64,
+    #[serde(default)]
+    pub y_mm: f64,
+    #[serde(default)]
+    pub wall_stress_mpa: f64,
+    #[serde(default)]
+    pub wall_sigma_per_n: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -465,6 +477,8 @@ pub struct ThinWall {
     pub thickness_mm: f64,
     pub height_mm: f64,
     pub k_n_per_mm: f64,
+    pub stress_mpa: f64,
+    pub sigma_per_n: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -762,11 +776,14 @@ fn thin_wall_um(grid: &StockGrid, wx: f64, wy: f64, side: (f64, f64), z_tip: f64
         let l_eff = (ap + 2.0 * a).max(1.0);
         let k = (e_n_mm2 * l_eff * thick.powi(3) / (4.0 * a.powi(3))).max(1e-9);
         let um = (force_n / k * 1000.0).clamp(-500.0 * thick, 500.0 * thick);
+        let sigma_per_n = 6.0 * a / (l_eff * thick * thick);
         return Some(ThinWall {
             defl_um: um,
             thickness_mm: thick,
             height_mm: a,
             k_n_per_mm: k,
+            stress_mpa: force_n.abs() * sigma_per_n,
+            sigma_per_n,
         });
     }
     None
@@ -891,6 +908,10 @@ fn seg_wall_stats(walls: &[WallErrorSample], segments: &[ToolPathSegment], seg_s
             let t0 = seg_start_s.get(seg).cloned().unwrap_or(0.0);
             let t1 = segment_end_s.get(seg).cloned().unwrap_or(t0);
             let pieces = wall_pieces(&v, t0, t1);
+            let mut stresses: Vec<f64> = v.iter().map(|w| w.wall_stress_mpa).collect();
+            stresses.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let stress = quantile_sorted(&stresses, 0.9);
+            let sigma_per_n = thin.iter().map(|w| w.wall_sigma_per_n).fold(0.0, f64::max);
             SegWallStat {
                 seg,
                 n: v.len(),
@@ -915,6 +936,10 @@ fn seg_wall_stats(walls: &[WallErrorSample], segments: &[ToolPathSegment], seg_s
                 t_s: v.iter().map(|w| w.t_s).sum::<f64>() / n,
                 len_mm: len,
                 pieces,
+                x_mm: v.iter().map(|w| w.x).sum::<f64>() / n,
+                y_mm: v.iter().map(|w| w.y).sum::<f64>() / n,
+                wall_stress_mpa: stress,
+                wall_sigma_per_n: sigma_per_n,
             }
         })
         .collect();
@@ -1006,7 +1031,7 @@ pub fn simulate_segments_prog(
     let tan_clear = tool.clearance_deg.to_radians().tan();
     let drift_um_per_s = profile.machine.spindle_drift_um_per_hr / 3600.0;
     let lead_tan = 7f64.to_radians().tan();
-    let datum = (0.0f64, 0.0f64);
+    let datum = profile.workpiece_setup.zero_point;
     let mut done_len = 0.0f64;
     let mut tick = 0usize;
     for (si, seg) in segments.iter().enumerate() {
@@ -1222,8 +1247,8 @@ pub fn simulate_segments_prog(
                     let th_tool = -th.tool_radial_growth_um;
                     let wx = p.0 + side.0 * r;
                     let wy = p.1 + side.1 * r;
-                    let dist_datum = ((wx - datum.0) * side.0 + (wy - datum.1) * side.1).abs();
-                    let thermal_wp = -ctx.wp.expansion * dist_datum * wp_rise * 1000.0;
+                    let along_normal = (wx - datum.0) * side.0 + (wy - datum.1) * side.1;
+                    let thermal_wp = ctx.wp.expansion * along_normal * wp_rise * 1000.0;
                     let tw = thin_wall_um(&grid, wx, wy, side, p.2, z_mid, ap_eff, away_force, e_wp);
                     if let Some(w) = tw {
                         wp_defl = w.defl_um;
@@ -1248,6 +1273,8 @@ pub fn simulate_segments_prog(
                             down: down_here,
                             wall_mm: tw.map(|w| w.thickness_mm).unwrap_or(0.0),
                             wall_k_n_mm: tw.map(|w| w.k_n_per_mm).unwrap_or(0.0),
+                            wall_stress_mpa: tw.map(|w| w.stress_mpa).unwrap_or(0.0),
+                            wall_sigma_per_n: tw.map(|w| w.sigma_per_n).unwrap_or(0.0),
                         });
                     }
                 }
@@ -1650,3 +1677,4 @@ mod tests {
         assert!(w.thickness_mm < 0.5 && w.defl_um <= 500.0 * w.thickness_mm + 1e-9, "{:?}", w);
     }
 }
+

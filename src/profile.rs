@@ -52,6 +52,14 @@ impl CoolantMethod {
             Self::Dry => "M09",
         }
     }
+
+    pub fn gcode_off_code(&self) -> &str {
+        match self {
+            Self::AirBlast => "M84",
+            Self::ThroughTool => "M89",
+            _ => "M09",
+        }
+    }
 }
 
 pub const STANDARD_AMBIENT_C: f64 = 22.0;
@@ -1379,3 +1387,4 @@ impl ProfileStore {
         Ok(self.profiles.iter().find(|p| p.name == profile.name).unwrap())
     }
 }
+

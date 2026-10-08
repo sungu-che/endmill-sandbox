@@ -36,7 +36,7 @@ impl GCodeProgram {
     pub fn to_text(&self) -> String {
         let mut out = String::new();
         out.push_str("%\n");
-        out.push_str(&format!("O{} ({})\n", self.program_name, self.program_name));
+        out.push_str(&format!("O{} ({})\n", self.program_name, Self::comment_text(&self.program_name)));
         for line in &self.header {
             out.push_str(&Self::format_line(line));
         }
@@ -50,10 +50,14 @@ impl GCodeProgram {
         out
     }
 
+    fn comment_text(c: &str) -> String {
+        c.replace('(', "[").replace(')', "]").replace('%', "pct")
+    }
+
     fn format_line(line: &GCodeLine) -> String {
         let base = format!("N{:04} {}", line.line_number, line.code);
         match &line.comment {
-            Some(c) => format!("{} ({})\n", base, c),
+            Some(c) => format!("{} ({})\n", base, Self::comment_text(c)),
             None => format!("{}\n", base),
         }
     }
@@ -555,7 +559,7 @@ impl GCodeGenerator {
             line_num += 10;
         }
 
-        footer.push(GCodeLine { line_number: line_num, code: "M09".into(), comment: Some("냉각 정지".into()) });
+        footer.push(GCodeLine { line_number: line_num, code: profile.coolant_config.method.gcode_off_code().into(), comment: Some("냉각 정지".into()) });
         line_num += 10;
         footer.push(GCodeLine { line_number: line_num, code: "M05".into(), comment: Some("스핀들 정지".into()) });
         line_num += 10;

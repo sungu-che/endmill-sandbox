@@ -2,7 +2,7 @@ use crate::gcode::{GCodeLine, GCodeProgram, ToolPathSegment};
 use crate::loadsim::{self, HeightmapView, LoadSimReport, SegWallStat, SimSample};
 use crate::ml::laya::{AdvisorAnswer, LayaAdvisor};
 use crate::physics::{self, CutAnalysis, CutContext, Engagement, ThermalBody, ToolGeometry, WearReference};
-use crate::profile::MachiningProfile;
+use crate::profile::{CoolantMethod, MachiningProfile};
 use crate::sds::{decay_shape, DecayShape, Scope, SdsStore, Track};
 use crate::wear::{WearComparison, WearState};
 use crate::wearlog::WearLog;
@@ -15,6 +15,9 @@ pub const REDUCED_FEED: f64 = 0.6;
 pub const MAX_FEED_BOOST: f64 = 1.5;
 pub const CLEAR_Z: f64 = 2.0;
 pub const MODEL_DEFL_ERR: f64 = 0.3;
+pub const THERMAL_MODEL_ERR: f64 = 0.5;
+pub const SHORT_TIME_POWER: f64 = 1.5;
+pub const SEVERE_CHATTER_MARGIN: f64 = 0.5;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompOptions {
@@ -24,6 +27,10 @@ pub struct CompOptions {
     pub checkpoint: bool,
     #[serde(default = "default_air")]
     pub air_blast_code: String,
+    #[serde(default = "default_air_off")]
+    pub air_off_code: String,
+    #[serde(default)]
+    pub cooldown_air: bool,
     #[serde(default = "default_slow_rpm")]
     pub slow_rpm: u32,
     #[serde(default)]
@@ -49,7 +56,10 @@ fn default_target() -> f64 {
     0.15
 }
 fn default_air() -> String {
-    "M07".into()
+    "M83".into()
+}
+fn default_air_off() -> String {
+    "M84".into()
 }
 fn default_slow_rpm() -> u32 {
     60
@@ -70,6 +80,8 @@ impl Default for CompOptions {
             target_fraction: default_target(),
             checkpoint: false,
             air_blast_code: default_air(),
+            air_off_code: default_air_off(),
+            cooldown_air: false,
             slow_rpm: default_slow_rpm(),
             use_orient: false,
             ramp_ms: default_ramp(),
@@ -184,6 +196,8 @@ pub struct PassEval {
     pub vb_rate_mm_min: f64,
     pub engage_deg: f64,
     pub power_kw: f64,
+    #[serde(default)]
+    pub wall_stress_mpa: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -230,9 +244,40 @@ pub struct CompZone {
     pub tol_um: f64,
     pub pieces: Vec<CompPiece>,
     pub raw_offsets: [f64; 4],
+    #[serde(default)]
+    pub wear_bias_um: f64,
+    #[serde(default)]
+    pub thermal_bias_um: f64,
+    #[serde(default)]
+    pub cause_defl_um: f64,
+    #[serde(default)]
+    pub cause_wall_um: f64,
+    #[serde(default)]
+    pub cause_wear_um: f64,
+    #[serde(default)]
+    pub cause_thermal_um: f64,
 }
 
 impl CompZone {
+    pub fn bias_for(&self, a: CompAction) -> f64 {
+        self.thermal_bias_um + if a == CompAction::ToolChange { 0.0 } else { self.wear_bias_um }
+    }
+
+    pub fn path_offsets_um(&self, a: CompAction, scale: f64) -> Vec<f64> {
+        if self.pieces.is_empty() {
+            return vec![self.offset_for(a) * scale - self.residual_p50_um];
+        }
+        self.piece_offsets(a).iter().zip(self.pieces.iter()).map(|(o, p)| o * scale - p.p50_um).collect()
+    }
+
+    pub fn path_offset_for(&self, a: CompAction) -> f64 {
+        if !self.needs {
+            return 0.0;
+        }
+        let v = self.path_offsets_um(a, 1.0);
+        v.iter().sum::<f64>() / v.len().max(1) as f64
+    }
+
     pub fn raw_offset_for(&self, a: CompAction) -> f64 {
         match a {
             CompAction::ExecuteReduced => self.raw_offsets[1],
@@ -249,13 +294,15 @@ impl CompZone {
         let base = self.raw_offset_for(a);
         let e = self.eval_for(a, 1);
         let e2 = e.defl_um + e.wall_um;
+        let bias = self.bias_for(a);
         let gain = if base > 1.0 && e2 < 0.8 * base { 1.0 / (1.0 - e2 / base) } else { 1.0 };
+        let k = if base > 1e-6 { (e2 / base).clamp(0.0, 0.8) } else { 0.0 };
         self.pieces
             .iter()
             .map(|p| {
                 let raw = base + (p.p50_um - self.residual_p50_um) * gain;
-                let e2k = if base > 1e-6 { e2 * raw.max(0.0) / base } else { e2 };
-                raw.min(p.min_um + e2k + 0.8 * self.tol_um).max(0.0)
+                let cap = p.p50_um + (p.min_um * k + bias + 0.8 * self.tol_um) / (1.0 - k);
+                raw.min(cap).max(0.0)
             })
             .collect()
     }
@@ -305,23 +352,27 @@ impl CompZone {
         }
         let e = self.eval_for(a, 1);
         let e2 = e.defl_um + e.wall_um;
+        let bias = self.bias_for(a);
         let o = self.raw_offset_for(a).max(1e-6);
+        let fin = |path: f64, r: f64| {
+            let d = (path + r).max(0.0);
+            r - (d - e2 * d / o - bias).max(0.0)
+        };
         if self.pieces.is_empty() {
-            let o = self.offset_for(a);
-            return (self.residual_p50_um - o + e2, self.residual_min_um - o + e2, self.residual_max_um - o + e2);
+            let path = self.offset_for(a) - self.residual_p50_um;
+            return (fin(path, self.residual_p50_um), fin(path, self.residual_min_um), fin(path, self.residual_max_um));
         }
-        let offs = self.piece_offsets(a);
+        let paths = self.path_offsets_um(a, 1.0);
         let mut p50 = 0.0;
         let mut mn = f64::INFINITY;
         let mut mx = f64::NEG_INFINITY;
         let mut wsum = 0.0;
-        for (p, d) in self.pieces.iter().zip(offs.iter()) {
-            let e2k = if o > 1e-6 { e2 * d / o } else { e2 };
+        for (p, path) in self.pieces.iter().zip(paths.iter()) {
             let w = p.n.max(1) as f64;
-            p50 += (p.p50_um - d + e2k) * w;
+            p50 += fin(*path, p.p50_um) * w;
             wsum += w;
-            mn = mn.min(p.min_um - d + e2k);
-            mx = mx.max(p.max_um - d + e2k);
+            mn = mn.min(fin(*path, p.min_um));
+            mx = mx.max(fin(*path, p.max_um));
         }
         (p50 / wsum.max(1.0), mn, mx)
     }
@@ -498,6 +549,7 @@ fn eval_pass(env: &Env, tool: &ToolGeometry, zone: &SegWallStat, ae_mm: f64, fz:
         vb_rate_mm_min: wr.vb_rate_mm_per_min * env.nominal.trajectory.kappa.max(1e-6),
         engage_deg: eng.span().to_degrees(),
         power_kw: f.cutting_power_kw / env.profile.machine.efficiency.max(0.1),
+        wall_stress_mpa: away.abs() * zone.wall_sigma_per_n,
     }
 }
 
@@ -523,15 +575,16 @@ fn min_cut_ae_um(d: f64, h_min_mm: f64, fz_max: f64) -> f64 {
     0.5 * (1.0 - (1.0 - 4.0 * c).sqrt()) * d * 1000.0
 }
 
-fn solve_offset(env: &Env, tool: &ToolGeometry, zone: &SegWallStat, r50: f64, target: f64, fz_scale: f64, h_min_mm: f64) -> (f64, PassEval) {
-    let mut delta = (r50 - target).max(0.0);
+#[allow(clippy::too_many_arguments)]
+fn solve_offset(env: &Env, tool: &ToolGeometry, zone: &SegWallStat, r50: f64, target: f64, fz_scale: f64, h_min_mm: f64, bias_um: f64) -> (f64, PassEval) {
+    let mut delta = (r50 - target + bias_um).max(0.0);
     let mut ev = PassEval::default();
     for _ in 0..8 {
-        let ae = (delta / 1000.0).max(0.001);
+        let ae = ((delta - bias_um) / 1000.0).max(0.001);
         let fz = chip_feed(env, ae, h_min_mm) * fz_scale;
         ev = eval_pass(env, tool, zone, ae, fz);
         let e2 = ev.defl_um + ev.wall_um;
-        let next = (r50 - target + e2).max(0.0);
+        let next = (r50 - target + e2 + bias_um).max(0.0);
         if (next - delta).abs() < 0.3 {
             delta = next;
             break;
@@ -541,16 +594,17 @@ fn solve_offset(env: &Env, tool: &ToolGeometry, zone: &SegWallStat, r50: f64, ta
     (delta, ev)
 }
 
-fn solve_split(env: &Env, tool: &ToolGeometry, zone: &SegWallStat, r50: f64, target: f64, h_min_mm: f64, start: f64) -> (f64, PassEval, PassEval) {
+#[allow(clippy::too_many_arguments)]
+fn solve_split(env: &Env, tool: &ToolGeometry, zone: &SegWallStat, r50: f64, target: f64, h_min_mm: f64, start: f64, bias_um: f64) -> (f64, PassEval, PassEval) {
     let mut o = start.max(0.0);
     let mut first = PassEval::default();
     let mut last = PassEval::default();
     for _ in 0..8 {
-        let ae_a = (SPLIT_FIRST * o / 1000.0).max(0.001);
+        let ae_a = ((SPLIT_FIRST * o - bias_um) / 1000.0).max(0.001);
         first = eval_pass(env, tool, zone, ae_a, chip_feed(env, ae_a, h_min_mm));
         let ae_b = (((1.0 - SPLIT_FIRST) * o + first.defl_um + first.wall_um).max(1.0)) / 1000.0;
         last = eval_pass(env, tool, zone, ae_b, chip_feed(env, ae_b, h_min_mm));
-        let next = (r50 - target + last.defl_um + last.wall_um).max(0.0);
+        let next = (r50 - target + last.defl_um + last.wall_um + bias_um).max(0.0);
         if (next - o).abs() < 0.3 {
             o = next;
             break;
@@ -663,12 +717,18 @@ pub fn evaluate(
     let vb_now = if radial_source == "simulated" { vb1 } else { radial_used / 1000.0 / tan_clear };
     let ambient = ctx.env.ambient_c;
     let bulk_excess = (rep.wp_temp_end_c - ambient.min(rep.bulk_c)).max(0.0);
-    let tau = body.mass_kg * ctx.wp.specific_heat / (ctx.coolant.workpiece_h() * body.area_m2).max(1e-6);
+    let dwell_air = opts.cooldown_air && air_codes(profile, opts).is_some();
+    let h_dwell = if dwell_air { physics::CoolantState::workpiece_h_of(&CoolantMethod::AirBlast, 0.0) } else { ctx.coolant.idle_workpiece_h() };
+    let tau = body.mass_kg * ctx.wp.specific_heat / (h_dwell * body.area_m2).max(1e-6);
     let thermal_err = ctx.wp.expansion * body.size_mm * bulk_excess * 1000.0;
     let allowed_err = 0.25 * tol_um;
-    let cooldown = if thermal_err > allowed_err { (tau * (thermal_err / allowed_err).ln()).max(0.0) } else { 0.0 };
+    let comp_ceiling = allowed_err / THERMAL_MODEL_ERR;
+    let cooldown = if thermal_err > comp_ceiling { (tau * (thermal_err / comp_ceiling).ln()).max(0.0) } else { 0.0 };
     let cooldown_s = cooldown.min(opts.max_cooldown_s.max(0.0)).ceil();
-    let thermal_after = thermal_err * (-cooldown_s / tau.max(1e-6)).exp();
+    let decay = (-cooldown_s / tau.max(1e-6)).exp();
+    let thermal_after = thermal_err * decay;
+    let excess_after = bulk_excess * decay;
+    let datum = profile.workpiece_setup.zero_point;
     let env = Env {
         profile,
         ctx,
@@ -677,7 +737,7 @@ pub fn evaluate(
         reference,
         rpm: profile.conditions.spindle_rpm.max(1) as f64,
         flutes: ctx.tool.flutes.max(1) as f64,
-        bulk_excess: bulk_excess * (-cooldown_s / tau.max(1e-6)).exp(),
+        bulk_excess: excess_after,
     };
     let h_min_mm = ctx.wp.min_chip_ratio * ctx.tool.edge_radius_um / 1000.0;
     let mut worn = ctx.tool.clone();
@@ -697,15 +757,21 @@ pub fn evaluate(
         let zmax = if s.sd_um > 1e-9 { (mx - s.mean_um - wadj) / s.sd_um } else { 0.0 };
         let n_eff = (0.5 * zmax * zmax).min(20.0).exp();
         let localized = s.n >= 8 && n_eff > 10.0 * s.n as f64 && mx > tol_um;
-        let (delta_e, ev_e) = solve_offset(&env, &worn, s, p50, target, 1.0, h_min_mm);
-        let (delta_r, ev_r) = solve_offset(&env, &worn, s, p50, target, REDUCED_FEED, h_min_mm);
-        let (delta_f, ev_f) = solve_offset(&env, &fresh, s, p50, target, 1.0, h_min_mm);
-        let (delta_s, ev_a, ev_b) = solve_split(&env, &worn, s, p50, target, h_min_mm, delta_e);
+        let thermal_bias = ctx.wp.expansion * excess_after * ((s.x_mm - datum.0) * s.nx + (s.y_mm - datum.1) * s.ny) * 1000.0;
+        let bias_worn = radial_used + thermal_bias;
+        let bias_fresh = thermal_bias;
+        let (delta_e, ev_e) = solve_offset(&env, &worn, s, p50, target, 1.0, h_min_mm, bias_worn);
+        let (delta_r, ev_r) = solve_offset(&env, &worn, s, p50, target, REDUCED_FEED, h_min_mm, bias_worn);
+        let (delta_f, ev_f) = solve_offset(&env, &fresh, s, p50, target, 1.0, h_min_mm, bias_fresh);
+        let (delta_s, ev_a, ev_b) = solve_split(&env, &worn, s, p50, target, h_min_mm, delta_e, bias_worn);
         let thin = wants && ev_e.h_max_um.min(ev_f.h_max_um) < h_min_mm * 1000.0;
         let needs = wants && !thin;
-        let cap = |e: &PassEval| (mn + e.defl_um + e.wall_um + 0.8 * tol_um).max(0.0);
-        let limit = |d: f64, e: &PassEval| if needs { d.min(cap(e)) } else { 0.0 };
-        let delta = limit(delta_e, &ev_e);
+        let cap = |d: f64, e: &PassEval, b: f64| {
+            let k = if d > 1e-6 { ((e.defl_um + e.wall_um) / d).clamp(0.0, 0.8) } else { 0.0 };
+            (p50 + (mn * k + b + 0.8 * tol_um) / (1.0 - k)).max(0.0)
+        };
+        let limit = |d: f64, e: &PassEval, b: f64| if needs { d.min(cap(d, e, b)) } else { 0.0 };
+        let delta = limit(delta_e, &ev_e, bias_worn);
         zones.push(CompZone {
             seg: s.seg,
             len_mm: s.len_mm,
@@ -727,9 +793,9 @@ pub fn evaluate(
             localized,
             n_eff,
             offset_um: delta,
-            offset_reduced_um: limit(delta_r, &ev_r),
-            offset_split_um: limit(delta_s, &ev_b),
-            offset_fresh_um: limit(delta_f, &ev_f),
+            offset_reduced_um: limit(delta_r, &ev_r, bias_worn),
+            offset_split_um: limit(delta_s, &ev_b, bias_worn),
+            offset_fresh_um: limit(delta_f, &ev_f, bias_fresh),
             execute: ev_e,
             reduced: ev_r,
             split_first: ev_a,
@@ -749,6 +815,12 @@ pub fn evaluate(
                     max_um: pc.max_um + wadj,
                 })
                 .collect(),
+            wear_bias_um: radial_used,
+            thermal_bias_um: thermal_bias,
+            cause_defl_um: s.defl_um,
+            cause_wall_um: s.workpiece_um,
+            cause_wear_um: s.wear_um + wadj,
+            cause_thermal_um: s.thermal_um,
         });
     }
     all_res.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
@@ -786,13 +858,14 @@ pub fn evaluate(
     let least = |f: &dyn Fn(&CompZone) -> f64| active.iter().map(|z| f(z)).fold(f64::INFINITY, f64::min);
     let p90_max = zones.iter().filter(|z| !z.excluded).map(|z| z.residual_p90_um).fold(0.0, f64::max);
     let thin_zones: Vec<usize> = zones.iter().filter(|z| z.thin).map(|z| z.seg).collect();
+    let n_excluded = zones.iter().filter(|z| z.excluded).count();
     gates.push(CompGate {
         id: "residual_need".into(),
         label: "최종 벽면 잔여량".into(),
         value: p90_max,
         limit: tol_um,
         unit: "µm".into(),
-        severity: if need || !thin_zones.is_empty() { 1 } else { 0 },
+        severity: if need || !thin_zones.is_empty() || n_excluded > 0 { 1 } else { 0 },
         blocks: vec![],
         sole: false,
         message: if need {
@@ -804,9 +877,11 @@ pub fn evaluate(
                 if thin_zones.is_empty() { String::new() } else { format!(" · 최소 절입 미만이라 빠진 구간 {}개", thin_zones.len()) }
             )
         } else if !thin_zones.is_empty() {
-            format!("공차를 넘는 구간 {}개가 모두 최소 절삭 절입보다 얇아 2차로 깎을 대상이 없습니다 (상위 10% 최대 {:.1} µm)", thin_zones.len(), p90_max)
+            format!("보정 대상 구간 {}개가 모두 최소 절삭 절입보다 얇아 2차로 깎을 대상이 없습니다 (상위 10% 최대 {:.1} µm, 공차 {:.0} µm)", thin_zones.len(), p90_max, tol_um)
         } else if zones.is_empty() {
             "최종 벽면이 남는 구간이 없어 (바닥·슬롯 위주 패턴) 측면 보정 대상이 없습니다".into()
+        } else if n_excluded > 0 {
+            format!("보정할 수 있는 구간은 모두 공차 안 (상위 10% 최대 {:.1} µm ≤ {:.0} µm) · 1차에서 −공차 밖으로 과삭된 구간 {}개는 2차로 복구 불가", p90_max, tol_um, n_excluded)
         } else {
             format!("모든 구간이 공차 안 (상위 10% 최대 {:.1} µm ≤ {:.0} µm)", p90_max, tol_um)
         },
@@ -827,11 +902,11 @@ pub fn evaluate(
             value: thin_ae,
             limit: ae_min_um,
             unit: "µm".into(),
-            severity: 1,
+            severity: if thin_p90 > tol_um { 2 } else { 1 },
             blocks: vec![],
             sole: false,
             message: format!(
-                "구간 {:?} 은 2차 반경 절입(구간 중앙값 기준 최대 {:.1} µm)이 최소 절삭 절입 {:.1} µm 보다 작아 2차에서 깎지 않습니다. 이송 상한 {:.4} mm/날로도 최대 칩이 {:.2} µm (= {:.2} × 날끝 반경 {:.1} µm) 에 못 미쳐 잘리지 않고 문질러지기 때문입니다{} · 이 구간에 남는 상위 10% 잔여량 최대 {:.1} µm",
+                "구간 {:?} 은 2차 반경 절입(구간 중앙값 기준 최대 {:.1} µm)이 최소 절삭 절입 {:.1} µm 보다 작아 2차에서 깎지 않습니다. 이송 상한 {:.4} mm/날로도 최대 칩이 {:.2} µm (= {:.2} × 날끝 반경 {:.1} µm) 에 못 미쳐 잘리지 않고 문질러지기 때문입니다{} · 이 구간에 남는 상위 10% 잔여량 최대 {:.1} µm{}",
                 thin_zones,
                 thin_ae,
                 ae_min_um,
@@ -840,7 +915,8 @@ pub fn evaluate(
                 ctx.wp.min_chip_ratio,
                 ctx.tool.edge_radius_um,
                 if ctx.wp.work_hardening >= 0.1 { " (가공경화 소재라 문지르면 표면이 경화)" } else { " (문지르면 열과 버니싱만 생김)" },
-                thin_p90
+                thin_p90,
+                if thin_p90 > tol_um { format!(" > 공차 {:.0} µm → 측정 후 재계획 (날끝 반경이 작은 공구나 다른 공정 검토)", tol_um) } else { String::new() }
             ),
         });
     }
@@ -866,6 +942,94 @@ pub fn evaluate(
                 } else {
                     String::new()
                 }
+            )
+        },
+    });
+    let avail_kw = profile.machine.available_power_kw(env.rpm);
+    let power_ratio = if avail_kw > 1e-6 { rep.max_power_kw / avail_kw } else { 0.0 };
+    let sigma_y = ctx.wp.flow_stress(0.0, 1.0, ambient + bulk_excess).max(1.0);
+    let yield_ratio = rep.seg_walls.iter().map(|s| s.wall_stress_mpa / sigma_y).fold(0.0, f64::max);
+    let yielded: Vec<usize> = rep.seg_walls.iter().filter(|s| s.wall_stress_mpa > sigma_y).map(|s| s.seg).collect();
+    let chatter_severe = rep.chatter_fraction > 0.3 && rep.min_chatter_margin > 0.0 && rep.min_chatter_margin < SEVERE_CHATTER_MARGIN;
+    let frf_measured = ctx.tool.measured_fn_hz.is_some() && ctx.tool.measured_k_n_per_um.is_some();
+    let chatter_note = format!(
+        "재생 채터 — 경로의 {:.0}% 가 한계 밖, 최소 여유 {:.2}배(한계 절입의 약 {:.0}배로 절삭, {}): 실제 벽면 파형·날 치핑 가능, 채터를 반영하지 않은 마모·잔여량 예측은 신뢰할 수 없음{}",
+        rep.chatter_fraction * 100.0,
+        rep.min_chatter_margin,
+        1.0 / rep.min_chatter_margin.max(1e-3),
+        if frf_measured { "실측 FRF" } else { "모델 추정 FRF" },
+        if radial_source == "simulated" { " (공구 반경·치핑 실측 필요)" } else { "" }
+    );
+    let mut invalid: Vec<String> = Vec::new();
+    if chatter_severe && frf_measured {
+        invalid.push(chatter_note.clone());
+    }
+    if yield_ratio > 1.0 {
+        invalid.push(format!(
+            "얇은 벽 굽힘 응력 최대 {:.0} MPa > 항복 {:.0} MPa (×{:.1}, 구간 {:?}): 탄성 복원 가정이 깨져 벽이 영구 변형됐을 수 있고, 이 잔여량으로 만든 보정량은 무효",
+            yield_ratio * sigma_y,
+            sigma_y,
+            yield_ratio,
+            yielded
+        ));
+    }
+    if power_ratio > SHORT_TIME_POWER {
+        invalid.push(format!(
+            "1차 최대 동력 {:.2} kW = 가용 {:.2} kW 의 {:.0}% (단시간 정격 추정 {:.0}% 초과): 과부하 정지·회전 저하로 실제 경로가 시뮬레이션과 다름",
+            rep.max_power_kw,
+            avail_kw,
+            power_ratio * 100.0,
+            SHORT_TIME_POWER * 100.0
+        ));
+    }
+    let pass1_invalid = !invalid.is_empty();
+    let chatter_unverified = chatter_severe && !frf_measured;
+    let chatter_score = if rep.chatter_fraction > 0.3 && rep.min_chatter_margin > 0.0 { SEVERE_CHATTER_MARGIN / rep.min_chatter_margin } else { 0.0 };
+    gates.push(CompGate {
+        id: "pass1_validity".into(),
+        label: "1차 결과의 물리적 유효성".into(),
+        value: chatter_score.max(yield_ratio).max(power_ratio / SHORT_TIME_POWER),
+        limit: 1.0,
+        unit: "배".into(),
+        severity: if !need {
+            u8::from(pass1_invalid || chatter_unverified)
+        } else if pass1_invalid {
+            3
+        } else if chatter_unverified {
+            2
+        } else if power_ratio > 1.0 || rep.chatter_fraction > 0.3 || yield_ratio > 0.8 {
+            1
+        } else {
+            0
+        },
+        blocks: if !need {
+            vec![]
+        } else if pass1_invalid {
+            cutting.to_vec()
+        } else if chatter_unverified {
+            vec![CompAction::Execute, CompAction::ExecuteReduced]
+        } else {
+            vec![]
+        },
+        sole: false,
+        message: if pass1_invalid {
+            format!(
+                "{}{} → 보정 전에 공구·벽을 실측하고 1차 조건을 고쳐 다시 계산 (축방향 절입 분할, 안정 로브 회전수·탭 테스트, 마무리 윤곽 패스, 램핑 진입, 한 방향 하향)",
+                invalid.join(" · "),
+                if chatter_unverified { format!(" · {}", chatter_note) } else { String::new() }
+            )
+        } else if chatter_unverified {
+            format!(
+                "{} → 현재 공구로 한 번에 전량을 깎는 보정은 막고 분할 보정(또는 새 공구 교체 후 보정)만 허용, 2차 시작 전 M00 에서 날 치핑·벽 떨림 자국 확인 (탭 테스트로 FRF 를 실측하면 이 판단이 확정됨)",
+                chatter_note
+            )
+        } else {
+            format!(
+                "1차 동력 ×{:.2} · 채터 최소 여유 {:.2}배 (구간 비율 {:.0}%) · 벽 응력/항복 ×{:.2} — 보정 계산의 전제(탄성 복원·안정 절삭) 범위 안",
+                power_ratio,
+                rep.min_chatter_margin,
+                rep.chatter_fraction * 100.0,
+                yield_ratio
             )
         },
     });
@@ -1066,43 +1230,68 @@ pub fn evaluate(
         }
         let slender = active.iter().filter(|z| z.wall_mm > 0.0 && z.ap_mm / z.wall_mm.max(1e-3) > 15.0).count();
         let thin_min = active.iter().filter(|z| z.wall_mm > 0.0).map(|z| z.wall_mm).fold(f64::INFINITY, f64::min);
+        let y_of = |e: &PassEval| e.wall_stress_mpa / sigma_y;
+        let y_exec = worst(&|z| y_of(&z.execute));
+        let y_red = worst(&|z| y_of(&z.reduced));
+        let y_split = worst(&|z| y_of(&z.split_first).max(y_of(&z.split_final)));
+        let mut tb: Vec<CompAction> = if slender > 0 { vec![CompAction::Execute, CompAction::ExecuteReduced] } else { vec![] };
+        for (a, r) in [(CompAction::Execute, y_exec), (CompAction::ExecuteReduced, y_red), (CompAction::Split, y_split)] {
+            if r > 0.8 && !tb.contains(&a) {
+                tb.push(a);
+            }
+        }
+        let tsev = if tb.len() == 3 { 3 } else if !tb.is_empty() { 2 } else if thin_min.is_finite() { 1 } else { 0 };
         gates.push(CompGate {
             id: "thin_wall".into(),
-            label: "얇은 벽 세장비".into(),
+            label: "얇은 벽 세장비·응력".into(),
             value: if thin_min.is_finite() { thin_min } else { 0.0 },
             limit: 0.0,
             unit: "mm".into(),
-            severity: if slender > 0 { 2 } else if thin_min.is_finite() { 1 } else { 0 },
-            blocks: if slender > 0 { vec![CompAction::Execute, CompAction::ExecuteReduced] } else { vec![] },
+            severity: tsev,
+            blocks: tb,
             sole: false,
-            message: if slender > 0 {
-                format!("높이/두께 > 15 인 얇은 벽 {}개 구간: 한 번에 깎으면 벽 진동·휨 → 분할 권장", slender)
-            } else if thin_min.is_finite() {
-                format!("얇은 벽 최소 두께 {:.2} mm (2차 휨은 위 휨 게이트에 포함)", thin_min)
-            } else {
-                "얇은 벽 없음".into()
-            },
+            message: format!(
+                "{} · 2차 벽 굽힘 응력/항복({:.0} MPa): 1회 {:.2} · 감속 {:.2} · 분할 {:.2} (0.8 초과 선택지는 영구 변형 위험으로 차단)",
+                if slender > 0 {
+                    format!("높이/두께 > 15 인 얇은 벽 {}개 구간: 한 번에 깎으면 벽 진동·휨 → 분할 권장", slender)
+                } else if thin_min.is_finite() {
+                    format!("얇은 벽 최소 두께 {:.2} mm (2차 휨은 위 휨 게이트에 포함)", thin_min)
+                } else {
+                    "얇은 벽 없음".to_string()
+                },
+                sigma_y,
+                y_exec,
+                y_red,
+                y_split
+            ),
         });
     }
-    let th_sev = if thermal_after > half_tol { 3 } else if thermal_after > 0.25 * tol_um { 1 } else { 0 };
+    let u_th = THERMAL_MODEL_ERR * thermal_after;
+    let th_sev = if u_th > half_tol { 3 } else if u_th > 0.25 * tol_um { 1 } else { 0 };
+    let th_bias_max = zones.iter().filter(|z| z.needs).map(|z| z.thermal_bias_um.abs()).fold(0.0, f64::max);
     gates.push(CompGate {
         id: "thermal_state".into(),
-        label: "소재 잔열 열변위".into(),
-        value: thermal_err,
-        limit: allowed_err,
+        label: "소재 잔열 열변위 (보정 후 불확도)".into(),
+        value: u_th,
+        limit: half_tol,
         unit: "µm".into(),
         severity: if need { th_sev } else { 0 },
         blocks: if need && th_sev >= 3 { cutting.to_vec() } else { vec![] },
         sole: false,
         message: format!(
-            "덩어리 과열 {:.1} K × 팽창 {:.1} µm/m·K × {:.0} mm = {:.1} µm → 냉각 대기 {:.0} s (τ {:.0} s) 후 {:.1} µm",
+            "덩어리 과열 {:.1} K × 팽창 {:.1} µm/m·K × {:.0} mm = {:.1} µm → 냉각 대기 {:.0} s ({} h {:.0} W/m²K · τ {:.0} s) 후 {:.1} µm · 구간 벽 위치별로 2차 경로에 최대 {:.1} µm 반영, 남는 불확도 ±{:.1} µm (열모델 오차 {:.0}%) — 체크포인트에서 소재 온도 실측 권장",
             bulk_excess,
             ctx.wp.expansion * 1e6,
             body.size_mm,
             thermal_err,
             cooldown_s,
+            if dwell_air { "에어 블로우 냉각" } else { "절삭유 정지·자연 대류" },
+            h_dwell,
             tau,
-            thermal_after
+            thermal_after,
+            th_bias_max,
+            u_th,
+            THERMAL_MODEL_ERR * 100.0
         ),
     });
     gates.push(CompGate {
@@ -1115,7 +1304,7 @@ pub fn evaluate(
         blocks: vec![],
         sole: false,
         message: format!(
-            "1차 경로의 {:.0}% 가 채터 한계 밖 (최소 {:.2}배) — 1차 벽면에 떨림 자국이 남았을 수 있어 2차 보정이 표면 정리에도 유효",
+            "1차 경로의 {:.0}% 가 채터 한계 밖 (최소 {:.2}배) — 1차 벽면 떨림 자국 깊이는 모델에 없으므로 2차 반경 절입보다 깊으면 남음, 측정으로 확인",
             rep.chatter_fraction * 100.0,
             rep.min_chatter_margin
         ),
@@ -1155,6 +1344,8 @@ pub fn evaluate(
         .max()
         .unwrap_or(0);
     let max_sev = gates.iter().map(|g| g.severity).max().unwrap_or(0);
+    let unfixable: Vec<usize> = zones.iter().filter(|z| z.excluded || (z.thin && z.residual_p90_um > tol_um)).map(|z| z.seg).collect();
+    let mut fresh_slender = false;
     let mut allowed: Vec<CompAction> = Vec::new();
     let mut reasons: Vec<String> = Vec::new();
     if need {
@@ -1164,10 +1355,14 @@ pub fn evaluate(
             }
         }
         if tool_gate >= 1 {
-            let fresh_ok = active.iter().all(|z| defl_of(&z.fresh) <= half_tol && z.fresh.chatter >= 1.0 && z.fresh.h_max_um >= h_min_mm * 1000.0)
-                && !gates.iter().any(|g| g.id == "thermal_state" && g.severity >= 3);
-            if fresh_ok {
+            let fresh_ok = active.iter().all(|z| defl_of(&z.fresh) <= half_tol && z.fresh.chatter >= 1.0 && z.fresh.h_max_um >= h_min_mm * 1000.0 && z.fresh.wall_stress_mpa <= 0.8 * sigma_y)
+                && !gates.iter().any(|g| g.id == "thermal_state" && g.severity >= 3)
+                && !pass1_invalid;
+            let slender_any = active.iter().any(|z| z.wall_mm > 0.0 && z.ap_mm / z.wall_mm.max(1e-3) > 15.0);
+            if fresh_ok && !slender_any {
                 allowed.push(CompAction::ToolChange);
+            } else if fresh_ok {
+                fresh_slender = true;
             }
         }
         allowed.push(CompAction::Skip);
@@ -1176,18 +1371,30 @@ pub fn evaluate(
         }
     } else {
         allowed.push(CompAction::Skip);
+        if !unfixable.is_empty() {
+            allowed.push(CompAction::Hold);
+        }
     }
     let watch_force = gates.iter().any(|g| (g.id == "pass2_deflection" || g.id == "pass2_chatter" || g.id == "thin_wall") && g.severity == 1);
-    let rule_action = if !need {
+    let rule_action = if !need && !unfixable.is_empty() {
+        reasons.push(format!(
+            "2차로 고칠 수 없는 공차 밖 구간 {:?} (1차 과삭, 또는 최소 절삭 절입보다 얇은 공차 밖 잔여) → 보정 안 함 대신 보류: 측정 후 재계획",
+            unfixable
+        ));
+        CompAction::Hold
+    } else if !need {
         reasons.push(if thin_zones.is_empty() {
             "잔여량이 공차 안이라 2차 보정 불필요".into()
         } else {
-            "공차를 넘는 구간이 모두 최소 절삭 절입보다 얇아 2차 보정으로 깎지 않음 (문지름 방지)".into()
+            "보정 대상 구간이 모두 공차 안이고 최소 절삭 절입보다 얇아 2차 보정으로 깎지 않음 (문지름 방지)".into()
         });
         CompAction::Skip
     } else if tool_gate >= 2 && allowed.contains(&CompAction::ToolChange) {
         reasons.push("공구 마모 게이트 초과 → 새 공구로 교체한 뒤 보정".into());
         CompAction::ToolChange
+    } else if tool_gate >= 2 && fresh_slender {
+        reasons.push("공구 마모 게이트 초과지만 새 공구 보정은 한 번에 전량을 깎는 패스라 높이/두께 > 15 인 얇은 벽에는 쓸 수 없음 → 보류: 공구를 교체한 뒤 다시 계획하면 새 공구로 분할 보정을 고를 수 있음".into());
+        CompAction::Hold
     } else if let Some(first) = allowed.iter().cloned().find(|a| matches!(a, CompAction::Execute | CompAction::ExecuteReduced | CompAction::Split)) {
         if first == CompAction::Execute && watch_force {
             if allowed.contains(&CompAction::ExecuteReduced) {
@@ -1203,8 +1410,15 @@ pub fn evaluate(
             reasons.push(format!("모든 안전 게이트를 통과한 가장 생산적인 선택: {}", first.label()));
             first
         }
+    } else if allowed.contains(&CompAction::ToolChange) {
+        reasons.push("현재 공구로는 절삭 선택지가 모두 차단되지만 새 공구 조건은 게이트를 통과 → 공구 교체 후 보정".into());
+        CompAction::ToolChange
     } else if max_sev >= 3 {
-        reasons.push("절삭 선택지가 모두 차단되고 위험 등급 게이트가 있어 보류".into());
+        let critical: Vec<String> = gates.iter().filter(|g| g.severity >= 3).map(|g| g.label.clone()).collect();
+        reasons.push(format!("절삭 선택지가 모두 차단되고 위험 등급 게이트({})가 있어 보류", critical.join(", ")));
+        CompAction::Hold
+    } else if allowed.contains(&CompAction::Hold) {
+        reasons.push("보정이 필요한데 절삭 선택지가 모두 차단되어 보류 — 공차 밖 벽을 그대로 넘기지 않고 측정 후 재계획".into());
         CompAction::Hold
     } else {
         reasons.push("절삭 선택지가 모두 차단되어 2차 보정을 하지 않음".into());
@@ -1324,14 +1538,14 @@ pub fn consult(draft: &CompDraft, laya: Option<&LayaAdvisor>, agreement_rate: Op
         laya_error: None,
         final_action: draft.rule_action,
         decided_by: "rule".into(),
-        operator_confirm: draft.gates.iter().any(|g| g.id == "overcut_pass1" && g.severity >= 2),
+        operator_confirm: draft.gates.iter().any(|g| (g.id == "overcut_pass1" || g.id == "pass1_validity" || g.id == "min_engagement") && g.severity >= 2),
         agreement: None,
         agreement_rate,
         state_text: draft.state_text.clone(),
         reasons: draft.reasons.clone(),
     };
     if !draft.need {
-        d.reasons.push("보정이 필요 없어 laya 를 호출하지 않음".into());
+        d.reasons.push(if draft.rule_action == CompAction::Hold { "2차로 깎을 구간이 없어 laya 를 호출하지 않음 (보류 유지)" } else { "보정이 필요 없어 laya 를 호출하지 않음" }.into());
         return d;
     }
     if draft.allowed.len() < 2 {
@@ -1352,53 +1566,70 @@ pub fn consult(draft: &CompDraft, laya: Option<&LayaAdvisor>, agreement_rate: Op
     let options: Vec<(String, String)> = draft.allowed.iter().map(|a| (a.key().to_string(), a.english().to_string())).collect();
     let instruction = "Choose the safest way to run the optional second compensation pass that corrects the wall size left by tool wear and deflection after the first pass, without damaging the workpiece or the end mill.";
     match adv.ask_choice(instruction, &options, &draft.state_text) {
-        Ok(ans) => {
-            let act = CompAction::from_key(&ans.top);
-            let shape = decay_shape(&ans.probabilities);
-            d.laya_shape = shape;
-            d.laya_action = act;
-            d.agreement = act.map(|a| a == draft.rule_action);
-            if ans.act_probability < 0.5 {
-                d.operator_confirm = true;
-                d.reasons.push(format!("laya 행동 헤드가 사람 확인을 요청 (행동 확률 {:.2}) → 2차 시작 전 M00 정지", ans.act_probability));
-            }
-            if let Some(a) = act {
-                let margin = shape.map(|s| s.margin).unwrap_or(0.0);
-                let history_ok = matches!(agreement_rate, Some((r, n)) if n >= 10 && r >= 0.6);
-                if a == draft.rule_action {
-                    d.decided_by = "rule+laya".into();
-                    d.reasons.push(format!("laya 1위 {} ({:.0}%) 가 규칙 판단과 일치", a.label(), ans.top_probability * 100.0));
-                } else if a.rank() > draft.rule_action.rank() && ans.top_probability >= 0.35 && ans.act_probability >= 0.5 {
-                    d.final_action = a;
-                    d.decided_by = "laya-escalate".into();
-                    d.reasons.push(format!(
-                        "laya 가 더 보수적인 {} 을 {:.0}% 로 선택 → 허용 범위 안의 보수적 상향 채택",
-                        a.label(),
-                        ans.top_probability * 100.0
-                    ));
-                } else if a.rank() < draft.rule_action.rank() && ans.top_probability >= 0.6 && margin >= 0.2 && ans.act_probability >= 0.5 && history_ok {
-                    d.final_action = a;
-                    d.decided_by = "laya-confident".into();
-                    d.reasons.push(format!(
-                        "laya 가 {} 을 {:.0}% (1·2위 차 {:.2}) 로 선택했고 이 스코프 일치율 이력이 충분해 허용 범위 안에서 채택",
-                        a.label(),
-                        ans.top_probability * 100.0,
-                        margin
-                    ));
-                } else {
-                    d.reasons.push(format!(
-                        "laya 1위 {} ({:.0}%) 는 확신·이력 조건 미달 또는 덜 보수적이라 규칙 판단 {} 유지",
-                        a.label(),
-                        ans.top_probability * 100.0,
-                        draft.rule_action.label()
-                    ));
-                }
-            }
-            d.laya = Some(ans);
-        }
+        Ok(ans) => apply_laya(&mut d, draft, ans),
         Err(e) => d.laya_error = Some(e),
     }
     d
+}
+
+pub fn apply_laya(d: &mut CompDecision, draft: &CompDraft, ans: AdvisorAnswer) {
+    d.laya_error = None;
+    let act = CompAction::from_key(&ans.top).filter(|a| draft.allowed.contains(a));
+    let shape = decay_shape(&ans.probabilities);
+    d.laya_shape = shape;
+    d.laya_action = act;
+    d.agreement = act.map(|a| a == draft.rule_action);
+    if ans.act_probability < 0.5 {
+        d.operator_confirm = true;
+        d.reasons.push(format!("laya 행동 헤드가 사람 확인을 요청 (행동 확률 {:.2}) → 2차 시작 전 M00 정지", ans.act_probability));
+    }
+    if let Some(a) = act {
+        let margin = shape.map(|s| s.margin).unwrap_or(0.0);
+        let history_ok = matches!(d.agreement_rate, Some((r, n)) if n >= 10 && r >= 0.6);
+        let n_opts = ans.probabilities.len().max(1) as f32;
+        let risky = draft.gates.iter().any(|g| g.severity >= 2);
+        let escalate_min: f32 = if risky { (1.25 / n_opts).min(0.35) } else { 0.35 };
+        let critical: Vec<String> = draft.gates.iter().filter(|g| g.severity >= 3).map(|g| g.label.clone()).collect();
+        let hold_locked = draft.rule_action == CompAction::Hold;
+        if a == draft.rule_action {
+            d.decided_by = "rule+laya".into();
+            d.reasons.push(format!("laya 1위 {} ({:.0}%) 가 규칙 판단과 일치", a.label(), ans.top_probability * 100.0));
+        } else if a.rank() > draft.rule_action.rank() && ans.top_probability >= escalate_min && ans.act_probability >= 0.5 {
+            d.final_action = a;
+            d.decided_by = "laya-escalate".into();
+            d.reasons.push(format!(
+                "laya 가 더 보수적인 {} 을 {:.0}% 로 선택 (보수 방향 채택 기준 {:.0}%{}) → 허용 범위 안의 보수적 상향 채택",
+                a.label(),
+                ans.top_probability * 100.0,
+                escalate_min * 100.0,
+                if risky { " · 초과 이상 게이트가 있어 균등 확률의 1.25배로 완화" } else { "" }
+            ));
+        } else if hold_locked {
+            d.reasons.push(format!(
+                "laya 1위 {} ({:.0}%) 는 규칙이 정한 보류{}를 낮추는 선택이라 채택하지 않음 — 보정 안 함은 측정 없이 부품을 끝내므로 측정 후 재계획 유지",
+                a.label(),
+                ans.top_probability * 100.0,
+                if critical.is_empty() { String::new() } else { format!("(위험 등급 게이트: {})", critical.join(", ")) }
+            ));
+        } else if a.rank() < draft.rule_action.rank() && ans.top_probability >= 0.6 && margin >= 0.2 && ans.act_probability >= 0.5 && history_ok {
+            d.final_action = a;
+            d.decided_by = "laya-confident".into();
+            d.reasons.push(format!(
+                "laya 가 {} 을 {:.0}% (1·2위 차 {:.2}) 로 선택했고 이 스코프 일치율 이력이 충분해 허용 범위 안에서 채택",
+                a.label(),
+                ans.top_probability * 100.0,
+                margin
+            ));
+        } else {
+            d.reasons.push(format!(
+                "laya 1위 {} ({:.0}%) 는 확신·이력 조건 미달 또는 덜 보수적이라 규칙 판단 {} 유지",
+                a.label(),
+                ans.top_probability * 100.0,
+                draft.rule_action.label()
+            ));
+        }
+    }
+    d.laya = Some(ans);
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1583,11 +1814,7 @@ fn build_moves(
             let segs: Vec<OffsetSeg> = chain
                 .iter()
                 .flat_map(|(zi, z)| {
-                    let offs: Vec<f64> = if z.pieces.is_empty() {
-                        vec![z.offset_for(action) * off_scale / 1000.0]
-                    } else {
-                        z.piece_offsets(action).iter().map(|o| o * off_scale / 1000.0).collect()
-                    };
+                    let offs: Vec<f64> = z.path_offsets_um(action, *off_scale).iter().map(|o| o / 1000.0).collect();
                     offset_segment(segments, z, *zi, &offs)
                 })
                 .collect();
@@ -1620,11 +1847,16 @@ fn build_moves(
                 let l = tool_r.max(1.0);
                 let tangent = (p0.0 - u.0 * l, p0.1 - u.1 * l);
                 let inward = (p0.0 - n.0 * l, p0.1 - n.1 * l);
+                let standoff = zones[segs[0].zone].offset_for(action) * off_scale / 1000.0 + 0.05;
+                let backed = (p0.0 - n.0 * standoff, p0.1 - n.1 * standoff);
                 if clear_at(&rep.heightmap, tangent.0, tangent.1, tool_r, z) {
                     entry = Some((tangent.0, tangent.1, None));
                     straight_entries += 1;
                 } else if clear_at(&rep.heightmap, inward.0, inward.1, tool_r, z) {
                     entry = Some((inward.0, inward.1, None));
+                    straight_entries += 1;
+                } else if clear_at(&rep.heightmap, backed.0, backed.1, tool_r, z) {
+                    entry = Some((backed.0, backed.1, None));
                     straight_entries += 1;
                 } else {
                     entry = Some((p0.0, p0.1, None));
@@ -1736,33 +1968,97 @@ impl Lines {
     }
 }
 
+fn cause_shares(zones: &[CompZone]) -> Option<[f64; 3]> {
+    let mut s = [0.0f64; 3];
+    for z in zones.iter().filter(|z| z.needs) {
+        let w = z.n.max(1) as f64;
+        s[0] += (z.cause_defl_um + z.cause_wall_um).abs() * w;
+        s[1] += z.cause_wear_um.abs() * w;
+        s[2] += z.cause_thermal_um.abs() * w;
+    }
+    let total: f64 = s.iter().sum();
+    if total <= 1e-9 {
+        None
+    } else {
+        Some([s[0] / total, s[1] / total, s[2] / total])
+    }
+}
+
+pub fn m_number(code: &str) -> Option<u32> {
+    let c = code.trim().to_uppercase();
+    let digits = c.strip_prefix('M')?;
+    if digits.is_empty() || digits.len() > 3 || !digits.chars().all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse().ok()
+}
+
+pub fn air_code_problem(on: &str, off: &str) -> Option<String> {
+    let (a, b) = match (m_number(on), m_number(off)) {
+        (Some(a), Some(b)) => (a, b),
+        _ => return Some("에어 블로우 ON/OFF 코드는 M 과 숫자로 입력하세요 (예: M83 / M84)".into()),
+    };
+    let on_forbidden = [0u32, 1, 2, 3, 4, 5, 6, 7, 8, 9, 19, 30, 88, 89, 98, 99];
+    let off_forbidden = [0u32, 1, 2, 3, 4, 5, 6, 7, 8, 19, 30, 88, 98, 99];
+    if a == b {
+        Some("에어 블로우 ON 과 OFF 코드가 같습니다".into())
+    } else if on_forbidden.contains(&a) {
+        Some(format!("M{:02} 은 정지·주축·절삭유 계열 코드라 에어 블로우 ON 으로 쓸 수 없습니다 (M07·M08·M88 은 측정 직전 미스트·절삭유 분사)", a))
+    } else if off_forbidden.contains(&b) {
+        Some(format!("M{:02} 은 정지·주축·절삭유 ON 계열 코드라 에어 블로우 OFF 로 쓸 수 없습니다", b))
+    } else {
+        None
+    }
+}
+
+fn air_codes(profile: &MachiningProfile, opts: &CompOptions) -> Option<(String, String)> {
+    if air_code_problem(&opts.air_blast_code, &opts.air_off_code).is_some() {
+        return None;
+    }
+    let on = m_number(&opts.air_blast_code)?;
+    let off = m_number(&opts.air_off_code)?;
+    let method = &profile.coolant_config.method;
+    let coolant_on = m_number(method.gcode_m_code());
+    if !matches!(method, CoolantMethod::AirBlast | CoolantMethod::Dry) && (coolant_on == Some(on) || coolant_on == Some(off)) {
+        return None;
+    }
+    Some((format!("M{:02}", on), format!("M{:02}", off)))
+}
+
 fn checkpoint_plan(profile: &MachiningProfile, opts: &CompOptions, operator_stop: bool) -> CheckpointPlan {
     let rpm = profile.conditions.spindle_rpm;
-    let mut lines = vec![
-        "M09 (냉각 정지)".to_string(),
-        format!("{} (에어 블로우 ON · 장비별 코드)", opts.air_blast_code.trim()),
-        format!("G04 P{} (칩·절삭유 제거)", opts.blow_ms),
-        "M09 (에어 OFF)".to_string(),
-    ];
+    let air = air_codes(profile, opts);
+    let mut lines = vec![format!("{} (냉각 정지)", profile.coolant_config.method.gcode_off_code())];
+    let mut notes: Vec<String> = vec!["비절삭 구간(공중)에서만 실행되며 1차 프로그램은 그대로 둡니다".into()];
+    match air.as_ref() {
+        Some((on, off)) => {
+            lines.push(format!("{} (에어 블로우 ON · 장비별 코드)", on));
+            lines.push(format!("G04 P{} (칩·절삭유 제거)", opts.blow_ms));
+            lines.push(format!("{} (에어 블로우 OFF)", off));
+            notes.push("저속·정지 중에는 원심력이 없어 칩·절삭유가 날에 남기 쉬워 에어 블로우를 먼저 실행합니다".into());
+        }
+        None => notes.push(format!(
+            "에어 코드 '{}'/'{}' 를 출력하지 않음 — {}. 장비의 에어 전용 ON/OFF M코드를 설정하세요",
+            opts.air_blast_code.trim(),
+            opts.air_off_code.trim(),
+            air_code_problem(&opts.air_blast_code, &opts.air_off_code).unwrap_or_else(|| "현재 절삭유 ON 코드와 겹침 (측정 직전에 미스트·절삭유가 분사됨)".into())
+        )),
+    }
     if opts.use_orient {
         lines.push("M19 (주축 정위치 · 정지 촬영)".into());
+        lines.push(format!("G04 P{} (정위치 안정 대기)", opts.ramp_ms));
     } else {
         lines.push(format!("S{} M03 (저속 회전 · 롤링셔터 왜곡 억제)", opts.slow_rpm.max(1)));
+        lines.push(format!("G04 P{} (회전 안정 · 문 닫힌 상태 자동 촬영 구간)", opts.ramp_ms));
+        lines.push("M05 (주축 정지 · 작업자 접근 전)".into());
+        notes.push("저속 회전은 문을 닫은 자동 촬영 구간에서만 쓰고, 작업자가 측정·접근하는 M00/M01 전에는 M05 로 주축을 세웁니다".into());
     }
-    lines.push(format!("G04 P{} (회전 안정 대기)", opts.ramp_ms));
-    lines.push(format!("{} (측정·촬영 — Plan B 체크포인트)", if operator_stop { "M00" } else { "M01" }));
+    lines.push(format!("{} (측정·촬영 — Plan B 체크포인트 · 주축 정지)", if operator_stop { "M00" } else { "M01" }));
     lines.push(format!("S{} M03 (원래 회전수 복귀)", rpm));
     lines.push(format!("G04 P{} (가속 안정 대기)", opts.ramp_ms));
-    let time_s = (opts.blow_ms + 2 * opts.ramp_ms) as f64 / 1000.0 + 2.0;
-    CheckpointPlan {
-        lines,
-        time_s,
-        notes: vec![
-            "비절삭 구간(공중)에서만 실행되며 1차 프로그램은 그대로 둡니다".into(),
-            "저속·정지 중에는 원심력이 없어 칩·절삭유가 날에 남기 쉬워 에어 블로우를 먼저 실행합니다".into(),
-            "뜨거운 날을 공기 중에서 오래 세우면 열충격이 생길 수 있어 대기 시간을 짧게 유지합니다".into(),
-        ],
-    }
+    let blow = if air.is_some() { opts.blow_ms } else { 0 };
+    let time_s = (blow + 2 * opts.ramp_ms) as f64 / 1000.0 + 2.0;
+    CheckpointPlan { lines, time_s, notes }
 }
 #[allow(clippy::too_many_arguments)]
 pub fn finalize(
@@ -1792,17 +2088,42 @@ pub fn finalize(
         (if feed_cap > 0.0 { f.min(feed_cap) } else { f }).round().max(1.0)
     };
     let plunge_feed = (profile.conditions.feed_rate_mm_min * 0.4).round().max(1.0);
-    let moves = if passes.is_empty() {
+    let safe = profile.endmill_setting.loc_mm + 10.0 - profile.conditions.axial_doc_mm;
+    let mut moves = if passes.is_empty() {
         Vec::new()
     } else {
         build_moves(segments, &draft.zones, rep, tool_r, action, &passes, &feed_of, plunge_feed, &mut notes)
     };
+    if let Some(first) = moves.first().copied() {
+        if first.seg == ToolPathSegmentKind::Rapid && first.z < safe {
+            moves.insert(0, Move { z: safe, ..first });
+        }
+    }
+    if action.cuts() {
+        let active: Vec<&CompZone> = draft.zones.iter().filter(|z| z.needs && z.offset_for(action) > 0.0).collect();
+        let paths: Vec<f64> = active.iter().flat_map(|z| z.path_offsets_um(action, 1.0)).collect();
+        if !paths.is_empty() {
+            let (pmin, pmax) = paths.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |a, v| (a.0.min(*v), a.1.max(*v)));
+            let (dmin, dmax) = active.iter().map(|z| z.offset_for(action)).fold((f64::INFINITY, f64::NEG_INFINITY), |a, v| (a.0.min(v), a.1.max(v)));
+            let (tmin, tmax) = active.iter().map(|z| z.thermal_bias_um).fold((f64::INFINITY, f64::NEG_INFINITY), |a, v| (a.0.min(v), a.1.max(v)));
+            notes.push(format!(
+                "2차 경로는 1차 경로 대비 {:+.1}~{:+.1} µm 이동 (현재 표면 기준 반경 절입 {:.1}~{:.1} µm = 1차 잔여 − 목표 + 2차 휨 + 공구 반경 마모 {:.1} + 잔열 {:+.1}~{:+.1} µm)",
+                pmin,
+                pmax,
+                dmin,
+                dmax,
+                if action == CompAction::ToolChange { 0.0 } else { draft.radial_used_um },
+                tmin,
+                tmax
+            ));
+        }
+    }
     let pass_plans: Vec<PassPlan> = passes
         .iter()
         .enumerate()
         .map(|(i, (o, f))| PassPlan {
             name: if passes.len() == 2 {
-                if i == 0 { "보정 패스 (오프셋 70%)".into() } else { "스프링 패스 (최종 오프셋)".into() }
+                if i == 0 { "보정 패스 (오프셋 ×0.7)".into() } else { "스프링 패스 (최종 오프셋)".into() }
             } else {
                 "보정 패스".into()
             },
@@ -1837,15 +2158,23 @@ pub fn finalize(
                 if action == CompAction::ToolChange { " · 새 공구" } else { " · 1차와 같은 공구" }
             )),
         );
-        header.push(format!("S{} M03", profile.conditions.spindle_rpm), Some(format!("스핀들 {} RPM", profile.conditions.spindle_rpm)));
         header.push("G43 H1".into(), Some("공구 길이 보정".into()));
-        let safe = profile.endmill_setting.loc_mm + 10.0 - profile.conditions.axial_doc_mm;
-        header.push(format!("G00 X0.000 Y0.000 Z{:.3}", safe), Some("안전 높이".into()));
+        header.push(format!("G00 X0.000 Y0.000 Z{:.3}", safe), Some("안전 높이 · 주축 정지 상태".into()));
         if draft.cooldown_s > 0.0 {
+            let air = air_codes(profile, opts).filter(|_| opts.cooldown_air);
+            if let Some((on, _)) = air.as_ref() {
+                header.push(on.clone(), Some("에어 블로우 ON · 소재 강제 대류 냉각".into()));
+            }
             header.push(
                 format!("G04 P{}", (draft.cooldown_s * 1000.0).round() as u64),
-                Some(format!("잔열 냉각 대기 {:.0}s · 열변위 {:.1}→{:.1}µm", draft.cooldown_s, draft.thermal_err_um, draft.thermal_err_after_um)),
+                Some(format!(
+                    "잔열 냉각 대기 {:.0}s · 주축 정지 · 열변위 {:.1}→{:.1}µm, 남는 값은 구간별 경로에 반영",
+                    draft.cooldown_s, draft.thermal_err_um, draft.thermal_err_after_um
+                )),
             );
+            if let Some((_, off)) = air.as_ref() {
+                header.push(off.clone(), Some("에어 블로우 OFF".into()));
+            }
             pre_s += draft.cooldown_s;
         }
         if let Some(cp) = checkpoint.as_ref() {
@@ -1857,8 +2186,13 @@ pub fn finalize(
                 header.push(code, comment);
             }
             pre_s += cp.time_s;
-        } else if decision.operator_confirm {
-            header.push("M00".into(), Some("작업자 확인 후 2차 보정 시작".into()));
+        } else {
+            if decision.operator_confirm {
+                header.push("M00".into(), Some("작업자 확인 후 2차 보정 시작 · 주축 정지 상태".into()));
+            }
+            header.push(format!("S{} M03", profile.conditions.spindle_rpm), Some(format!("스핀들 {} RPM", profile.conditions.spindle_rpm)));
+            header.push(format!("G04 P{}", opts.ramp_ms), Some("가속 안정 대기".into()));
+            pre_s += opts.ramp_ms as f64 / 1000.0;
         }
         let coolant = profile.coolant_config.method.gcode_m_code();
         header.push(coolant.to_string(), Some(format!("냉각: {}", profile.coolant_config.method.label())));
@@ -1878,7 +2212,7 @@ pub fn finalize(
             };
             body.push(code, comment);
         }
-        footer.push("M09".into(), Some("냉각 정지".into()));
+        footer.push(profile.coolant_config.method.gcode_off_code().to_string(), Some("냉각 정지".into()));
         footer.push("M05".into(), Some("스핀들 정지".into()));
         footer.push("G91 G28 Z0.".into(), Some("Z 원점".into()));
         footer.push("G91 G28 X0. Y0.".into(), Some("XY 원점".into()));
@@ -1907,7 +2241,7 @@ pub fn finalize(
     let caps: usize = if action.cuts() { draft.zones.iter().map(|z| z.capped_pieces(action)).sum() } else { 0 };
     if caps > 0 {
         notes.push(format!(
-            "벽면 조각 {}개는 조각 최소 잔여량 기준 과삭 방지 상한(최소 잔여량 + 2차 휨 + 공차의 80%)으로 보정량을 줄여 일부 잔여량이 남습니다",
+            "벽면 조각 {}개는 고정 경로에서 조각 최소 잔여 지점이 공차의 80% 이상 과삭되지 않도록 보정량을 줄여 일부 잔여량이 남습니다",
             caps
         ));
     }
@@ -1926,8 +2260,9 @@ pub fn finalize(
     };
     let parts_left_p50 = parts(log.per_part_vb_p50_mm);
     let parts_left_p90 = parts(log.per_part_vb_p90_mm);
+    let causes = cause_shares(&draft.zones);
     let report_line = format!(
-        "[COMP] {} · 잔여 P50 {:.1}/P90 {:.1} µm (공차 {:.0}) · VB {:.3}→{:.3} mm · 결정 {} ({}){}",
+        "[COMP] {} · 잔여 P50 {:.1}/P90 {:.1} µm (공차 {:.0}) · VB {:.3}→{:.3} mm · 결정 {} ({}){}{}",
         profile.name,
         draft.residual.p50_um,
         draft.residual.p90_um,
@@ -1936,13 +2271,38 @@ pub fn finalize(
         vb_after,
         action.label(),
         decision.decided_by,
+        match causes {
+            Some(c) => format!(
+                " · {} (보정 대상 잔여 원인 휨 {:.0}% · 마모 {:.0}% · 열 {:.0}%)",
+                if c[0] >= c[1] && c[0] >= c[2] {
+                    "휨 잔여 제거형"
+                } else if c[1] >= c[2] {
+                    "마모 보정형"
+                } else {
+                    "열변위 보정형"
+                },
+                c[0] * 100.0,
+                c[1] * 100.0,
+                c[2] * 100.0
+            ),
+            None => String::new(),
+        },
         match (parts_left_p50, parts_left_p90) {
             (Some(a), Some(b)) => format!(" · 교체까지 약 {:.0}개 (보수 {:.0}개)", a, b),
             _ => String::new(),
         }
     );
     if action == CompAction::Hold {
-        notes.push("보류: 2차 프로그램을 만들지 않았습니다. 부품·공구를 측정해 실측 반경 마모를 입력하면 재계획합니다".into());
+        let pass1 = draft.gates.iter().any(|g| g.id == "pass1_validity" && g.severity >= 3);
+        let tol = draft.residual.tolerance_um;
+        let unfixable = !draft.need && draft.zones.iter().any(|z| z.excluded || (z.thin && z.residual_p90_um > tol));
+        notes.push(if pass1 {
+            "보류: 1차 결과가 보정 모델의 전제(탄성 복원·안정 절삭) 밖이라 2차 프로그램을 만들지 않았습니다. 공구 반경·치핑과 벽 두께·변형을 실측하고 1차 조건을 고쳐 다시 계산하세요".into()
+        } else if unfixable {
+            "보류: 2차로 고칠 수 없는 공차 밖 벽(1차 과삭, 또는 최소 절삭 절입보다 얇은 잔여)이 있어 2차 프로그램을 만들지 않았습니다. 해당 벽을 측정해 합격 여부를 판정하고, 필요하면 날끝 반경이 작은 공구나 다른 공정으로 다시 계획하세요".into()
+        } else {
+            "보류: 2차 프로그램을 만들지 않았습니다. 부품·공구를 측정해 실측 반경 마모를 입력하면 재계획합니다".into()
+        });
     } else if action == CompAction::Skip {
         notes.push("2차 보정 안 함: 1차 프로그램만으로 마칩니다".into());
     }
