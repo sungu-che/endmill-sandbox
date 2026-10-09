@@ -23,18 +23,107 @@ pub fn device() -> Device {
             if forced_cpu {
                 return Device::Cpu;
             }
-            Device::cuda_if_available(0).unwrap_or(Device::Cpu)
+            new_gpu_device(0).unwrap_or(Device::Cpu)
         })
         .clone()
 }
 
+/// 빌드된 백엔드 feature 순서(cuda → rocm → vulkan)대로 GPU 장치를 시도합니다.
+/// `ENDMILL_DEVICE=cuda|rocm|vulkan` 으로 특정 백엔드를 강제할 수 있습니다.
+pub fn new_gpu_device(id: usize) -> Option<Device> {
+    let want = std::env::var("ENDMILL_DEVICE")
+        .map(|v| v.trim().to_ascii_lowercase())
+        .unwrap_or_default();
+    let allow = |name: &str| want.is_empty() || want == "gpu" || want == name;
+    let _ = (&allow, id);
+    #[cfg(feature = "cuda")]
+    if allow("cuda") {
+        if let Ok(d) = Device::new_cuda(id) {
+            return Some(d);
+        }
+    }
+    #[cfg(feature = "rocm")]
+    if allow("rocm") {
+        if let Ok(d) = Device::new_rocm(id) {
+            return Some(d);
+        }
+    }
+    #[cfg(feature = "vulkan")]
+    if allow("vulkan") {
+        if let Ok(d) = Device::new_vulkan(id) {
+            return Some(d);
+        }
+    }
+    None
+}
+
 pub fn device_label(d: &Device) -> String {
+    let named = |kind: &str| match gpu_name(d) {
+        Some(n) if !n.is_empty() => format!("{kind}:0 ({n})"),
+        _ => format!("{kind}:0"),
+    };
     if d.is_cuda() {
         "CUDA:0".into()
+    } else if d.is_rocm() {
+        named("ROCm")
+    } else if d.is_vulkan() {
+        named("Vulkan")
     } else if d.is_metal() {
         "Metal".into()
     } else {
         "CPU".into()
+    }
+}
+
+/// CUDA·ROCm 처럼 장치 큐를 동기화해야 할당자가 버퍼를 실제로 돌려주는 백엔드인지.
+pub trait GpuDeviceExt {
+    fn is_cuda_or_rocm(&self) -> bool;
+}
+
+impl GpuDeviceExt for Device {
+    fn is_cuda_or_rocm(&self) -> bool {
+        self.is_cuda() || self.is_rocm()
+    }
+}
+
+/// ROCm / Vulkan 장치 이름 (CUDA·CPU 는 None).
+pub fn gpu_name(d: &Device) -> Option<String> {
+    if let Ok(v) = d.as_vulkan_device() {
+        return Some(format!("{}, {}", v.name(), v.device_type()));
+    }
+    if let Ok(r) = d.as_rocm_device() {
+        return r.name().ok();
+    }
+    None
+}
+
+/// 장치의 (free, total) VRAM 바이트. NVML 없이 ROCm(hipMemGetInfo) / Vulkan(heap budget) 에서 조회합니다.
+pub fn gpu_mem_info(d: &Device) -> Option<(u64, u64)> {
+    if let Ok(r) = d.as_rocm_device() {
+        return r.mem_info().ok().map(|(f, t)| (f as u64, t as u64));
+    }
+    if let Ok(v) = d.as_vulkan_device() {
+        return v.mem_info().ok().map(|(f, t)| (f as u64, t as u64));
+    }
+    None
+}
+
+/// 추론 한 번이 끝난 뒤 재사용 풀에 남은 버퍼를 돌려줍니다 (logis-center 의 trim_idle_gpu_pool 과 동일한 정책).
+/// Vulkan 은 풀이 64MB 이상일 때만, ROCm 은 항상 stream-ordered 풀을 trim 합니다.
+pub fn trim_idle_gpu_pool(d: &Device) {
+    if let Ok(v) = d.as_vulkan_device() {
+        if v.pooled_bytes() >= (64 << 20) {
+            let _ = v.trim_memory_pool();
+        }
+    } else if let Ok(r) = d.as_rocm_device() {
+        let _ = r.trim_memory_pool();
+    }
+}
+
+/// 이미 초기화된 공용 장치가 있을 때만 풀을 정리합니다 (장치를 새로 만들지 않음).
+pub fn trim_active_pool() {
+    if let Some(d) = DEVICE.get() {
+        trim_idle_gpu_pool(d);
     }
 }
 
@@ -137,9 +226,27 @@ pub fn l2_normalize(v: &mut [f32]) {
 }
 
 pub fn flush_device() {
+    // 아직 장치를 만든 적이 없으면 비울 것도 없습니다 (flush 가 GPU 초기화를 유발하지 않도록).
+    let Some(dev) = DEVICE.get().cloned() else {
+        return;
+    };
+    if dev.is_cpu() {
+        return;
+    }
+    // 큐를 먼저 비워야 방금 drop 한 가중치 버퍼가 할당자에 반환됩니다.
+    if dev.is_cuda_or_rocm() {
+        let _ = dev.synchronize();
+    }
+    if let Ok(r) = dev.as_rocm_device() {
+        if r.release_cached_resources().is_err() {
+            let _ = r.trim_memory_pool();
+        }
+    }
+    if let Ok(v) = dev.as_vulkan_device() {
+        let _ = v.trim_memory_pool();
+    }
     #[cfg(feature = "cuda")]
     {
-        let dev = device();
         if dev.is_cuda() {
             use candle_core::{DType, Tensor};
             if let Ok(t) = Tensor::zeros((1,), DType::F32, &dev) {

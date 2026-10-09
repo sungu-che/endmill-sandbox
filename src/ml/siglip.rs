@@ -499,7 +499,9 @@ impl SiglipModel {
     pub fn embed_image(&self, rgb: &[u8], with_dense: bool) -> std::result::Result<VisionOutput, String> {
         let size = self.image_size();
         let t = self.pixel_tensor(rgb, size)?;
-        self.vision.forward(&t, with_dense).map_err(|e| e.to_string())
+        let out = self.vision.forward(&t, with_dense).map_err(|e| e.to_string());
+        crate::ml::trim_idle_gpu_pool(&self.device);
+        out
     }
 
     pub fn tokenize(&self, text: &str) -> std::result::Result<Vec<u32>, String> {
@@ -528,10 +530,13 @@ impl SiglipModel {
         }
         let n = texts.len();
         let ids = Tensor::from_vec(rows, (n, self.text.max_len), &self.device).map_err(|e| e.to_string())?;
-        self.text
+        let out = self
+            .text
             .forward(&ids)
             .and_then(|t| t.to_vec2::<f32>())
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string());
+        crate::ml::trim_idle_gpu_pool(&self.device);
+        out
     }
 
     pub fn embed_text_ids(&self, ids: &[Vec<u32>]) -> std::result::Result<Vec<Vec<f32>>, String> {
@@ -542,10 +547,13 @@ impl SiglipModel {
         let len = ids[0].len();
         let flat: Vec<u32> = ids.iter().flat_map(|r| r.iter().cloned()).collect();
         let t = Tensor::from_vec(flat, (n, len), &self.device).map_err(|e| e.to_string())?;
-        self.text
+        let out = self
+            .text
             .forward(&t)
             .and_then(|t| t.to_vec2::<f32>())
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string());
+        crate::ml::trim_idle_gpu_pool(&self.device);
+        out
     }
 
     pub fn probability(&self, image: &[f32], text: &[f32]) -> f32 {

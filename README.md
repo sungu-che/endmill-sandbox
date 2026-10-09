@@ -193,7 +193,7 @@ End Mill Sandbox models the full lifecycle of an end mill in a machining operati
 
 | Crate | Role |
 | --- | --- |
-| `candle-core` / `candle-nn` | Tensor inference (CPU / CUDA via feature flag) |
+| `candle-core` / `candle-nn` | Tensor inference (CPU / CUDA / ROCm / Vulkan via feature flag) |
 | `tokenizers` | SigLIP2 / laya text encoding |
 | `image` | PNG / JPEG / TIFF / BMP decode for tool & mold images |
 | `rusqlite` (bundled) | Relational library (projects, presets, profiles, runs, metrics) |
@@ -215,6 +215,8 @@ End Mill Sandbox models the full lifecycle of an end mill in a machining operati
 * Node.js ≥ 18 + npm
 * Tauri CLI v1 (`@tauri-apps/cli ^1.5`)
 * *(Optional)* CUDA toolkit + cuDNN for GPU inference → `--features cuda`
+* *(Optional)* AMD ROCm/HIP SDK (Windows: `C:\Program Files\AMD\ROCm\<ver>`) → `--features rocm`
+* *(Optional)* Any Vulkan 1.1+ GPU driver (no SDK needed) → `--features vulkan`
 * *(Optional)* Model weights in safetensors format (SigLIP2, TTM-R3, laya)
 
 ### Build & Run
@@ -232,9 +234,32 @@ cargo tauri dev -- --features cuda
 # Release build
 cargo tauri build -- --features cuda
 
+# ROCm / Vulkan (candle-rocm-vulkan fork)
+cargo tauri dev   -- --no-default-features --features rocm
+cargo tauri dev   -- --no-default-features --features vulkan
+cargo tauri build -- --no-default-features --features rocm
+
 ```
 
 > On Windows, see `run.bat` / `build.bat` for pre-configured MSVC + NVCC environment.
+> ROCm / Vulkan: `run_rocm.bat`, `run_vulkan.bat`, `build_rocm.bat`, `build_vulkan.bat`, `check_*.bat`, `test_*.bat`
+> (env: `ROCM_VER` (default 7.2), `VCVARS_VER`, `HIP_ARCH`, `CANDLE_VULKAN_DEVICE`, ...).
+
+### Tests
+
+```bash
+cargo test                                   # CPU
+./test_linux.sh vulkan                       # Linux: full suite + Vulkan parity tests (lavapipe if no GPU)
+./test_linux.sh vulkan --test vulkan_backend # Vulkan parity tests only
+./test_linux.sh rocm                         # needs /opt/rocm
+```
+
+On Windows use `test_vulkan.bat` / `test_rocm.bat` (extra arguments are passed to `cargo test`).
+`tests/vulkan_backend.rs` (compiled only with `--features vulkan`) runs every op pattern the models use
+— masked attention with `-inf` sliding-window masks, LayerNorm (with/without bias), GeGLU/`gelu_erf`,
+RoPE, `index_select`, SigLIP `conv2d` patch embedding and `interpolate2d`, a tiny ModernBERT forward pass,
+and the memory-pool flush — on the Vulkan device and compares it with the CPU result, both with the
+fork's default path and with native GPU shaders forced on.
 
 ### Model Weights
 
@@ -342,11 +367,14 @@ endmill-sandbox/
 │       ├── main.rs             # Tauri entry
 │       └── commands.rs         # 50+ IPC commands
 ├── tests/
-│   ├── interaction_physics.rs
-│   ├── pipeline_flow.rs
-│   └── store_flow.rs
+│   ├── interaction_physics.rs / pipeline_flow.rs / store_flow.rs
+│   ├── environment_tools.rs / tool_state.rs / wear_compensation.rs
+│   └── vulkan_backend.rs       # Vulkan ↔ CPU parity (feature = "vulkan")
 ├── examples/physics_probe.rs
 ├── run.bat / build.bat         # Windows CUDA helpers
+├── _env_rocm.bat / _env_vulkan.bat  # shared MSVC / HIP SDK / protoc / Tauri CLI setup
+├── {run,build,check,test}_{rocm,vulkan}.bat  # Windows ROCm / Vulkan helpers
+├── test_linux.sh               # Linux test runner (cpu | vulkan | rocm | cuda)
 └── .gitignore
 
 ```
@@ -371,8 +399,51 @@ endmill-sandbox/
 | Flag | Effect |
 | --- | --- |
 | `cuda` | Enables `candle-core/cuda` + `candle-nn/cuda` for GPU tensor ops |
+| `rocm` | AMD ROCm/HIP backend via [`candle-rocm-vulkan`](https://github.com/Qntology/candle-rocm-vulkan) (`candle-rocm`, `candle-core/rocm`, `candle-nn/rocm`) |
+| `vulkan` | Vulkan backend via the same fork (`candle-core/vulkan`, `candle-nn/vulkan`) |
 
-Set `ENDMILL_DEVICE=cpu` to force CPU even when CUDA is available.
+`candle-core` / `candle-nn` are redirected to the fork with `[patch.crates-io]` (root and `src-tauri` `Cargo.toml`).
+Set `ENDMILL_DEVICE=cpu` to force CPU, or `cuda` / `rocm` / `vulkan` to pick a specific backend among those compiled in.
+
+---
+
+## GPU Backends (ROCm / Vulkan)
+
+The ROCm and Vulkan support follows the same layout as `logis-center/commerce` and uses the
+[`candle-rocm-vulkan`](https://github.com/Qntology/candle-rocm-vulkan) fork.
+
+**Device selection** (`src/ml/mod.rs`)
+* `ml::device()` tries the compiled backends in order CUDA → ROCm → Vulkan and falls back to CPU.
+  `ENDMILL_DEVICE` (`cpu` / `cuda` / `rocm` / `vulkan` / `gpu`) overrides the choice.
+* The model status shows the device with its name, e.g. `Vulkan:0 (AMD Radeon RX 7900 XTX, discrete)` or `ROCm:0 (...)`.
+* `ml::gpu_mem_info(&device)` returns `(free, total)` VRAM for ROCm (`hipMemGetInfo`) and Vulkan (heap budget) without NVML.
+
+**Memory management**
+* `ml::flush_device()` (called when a model is unloaded or a job finishes) no longer creates a device that was never used;
+  it synchronizes CUDA/ROCm queues, then releases the ROCm cached resources / memory pool and trims the Vulkan buffer pool.
+* After each inference call (SigLIP image/text embedding, laya `forward_ids`, TTM `forecast`) `ml::trim_idle_gpu_pool`
+  returns pooled buffers: always on ROCm, and on Vulkan once the pool holds 64 MB or more.
+
+**Precision**
+* All models load their weights as F32 (`ml::load_varbuilder`), which is also the dtype the Vulkan backend runs natively,
+  so no BF16/F16 switches are needed per backend.
+* On ROCm, convolutions and `interpolate2d` (SigLIP patch embedding / position resize) run on the CPU and are copied back
+  by the fork; everything else (matmul through rocBLAS, softmax, layer-norm, rope, gelu) runs on the GPU.
+* Known numerical limit: candle-nn's `layer_norm` computes the variance in one pass (`E[x²]−E[x]²`), so rows with a very
+  large mean lose precision on every backend (tracked as `BUG(LN-1)` in logis-center).
+
+**Environment variables** (from the fork)
+
+| Variable | Meaning |
+| --- | --- |
+| `ROCM_PATH` / `HIP_PATH`, `HIP_ARCH` / `CANDLE_ROCM_ARCHS` | ROCm SDK root and GPU targets (`gfx1100`, ...) |
+| `CANDLE_ROCM_SKIP_KERNEL_BUILD=1` | type-check only, no HIP kernels |
+| `CANDLE_VULKAN_DEVICE` | pick the Vulkan device whose name contains this substring |
+| `CANDLE_VULKAN_ALLOW_CPU=1` | allow software Vulkan (lavapipe / SwiftShader), used by `test_linux.sh` |
+| `CANDLE_VULKAN_QUEUE=graphics` | force the graphics queue instead of async compute |
+
+The io_uring / DirectStorage SSD offloading in logis-center is for the LLM KV cache; this project only runs
+encoder models without a KV cache, so that path is not used here.
 
 ---
 

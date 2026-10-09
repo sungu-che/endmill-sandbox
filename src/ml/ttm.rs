@@ -1210,6 +1210,12 @@ impl TtmForecaster {
     }
 
     pub fn forecast(&self, series: &[f64]) -> std::result::Result<TtmOutput, String> {
+        let out = self.forecast_inner(series);
+        crate::ml::trim_active_pool();
+        out
+    }
+
+    fn forecast_inner(&self, series: &[f64]) -> std::result::Result<TtmOutput, String> {
         if series.len() < self.min_history() {
             return Err(format!("TTM 입력이 너무 짧습니다 ({} < {})", series.len(), self.min_history()));
         }

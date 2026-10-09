@@ -214,6 +214,12 @@ impl LayaAdvisor {
     }
 
     pub fn forward_ids(&self, ids: &[u32], markers: &[usize], qtype: usize) -> Result<(Vec<f32>, Vec<f32>)> {
+        let out = self.forward_ids_inner(ids, markers, qtype);
+        crate::ml::trim_idle_gpu_pool(&self.device);
+        out
+    }
+
+    fn forward_ids_inner(&self, ids: &[u32], markers: &[usize], qtype: usize) -> Result<(Vec<f32>, Vec<f32>)> {
         let n = ids.len();
         let t = Tensor::from_vec(ids.to_vec(), (1, n), &self.device)?;
         let mut h = self.encoder.forward(&t, None)?;

@@ -17,6 +17,12 @@ tauri-build = { version = "1", features = [] }
 default = []
 custom-protocol = ["tauri/custom-protocol"]
 cuda = ["endmill_model/cuda"]
+rocm = ["endmill_model/rocm"]
+vulkan = ["endmill_model/vulkan"]
+
+[patch.crates-io]
+candle-core = { git = "https://github.com/Qntology/candle-rocm-vulkan.git" }
+candle-nn = { git = "https://github.com/Qntology/candle-rocm-vulkan.git" }
 
 [profile.dev.package."*"]
 opt-level = 3
