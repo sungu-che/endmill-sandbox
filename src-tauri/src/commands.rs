@@ -205,7 +205,7 @@ use endmill_model::wearcomp::{CompOptions, CompOutcome};
 use endmill_model::wearlog::WearLog;
 use endmill_model::store::jobs::{JobDetail, JobInput, JobRow, ToolInstanceRow, WearEventRow};
 use endmill_model::toolwear::{RefSummary, ToolStart, WearSummary};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 pub struct Shared {
     pub data_dir: PathBuf,
@@ -223,6 +223,8 @@ pub struct Shared {
     pub job: Mutex<JobSlot>,
     pub job_cache: Mutex<Option<JobCache>>,
     pub shutdown: Arc<AtomicBool>,
+    /// 진행 중인 백그라운드 작업 수 (blocking 명령 + 분석 작업 스레드). 종료할 때 0 이 될 때까지 기다립니다.
+    pub busy: AtomicUsize,
 }
 
 fn yes() -> bool {
@@ -423,6 +425,22 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     }
 }
 
+/// `busy` 카운터를 올리고, 작업이 끝나면 (패닉 포함) 내립니다.
+struct BusyGuard<'a>(&'a AtomicUsize);
+
+impl<'a> BusyGuard<'a> {
+    fn new(counter: &'a AtomicUsize) -> Self {
+        counter.fetch_add(1, Ordering::SeqCst);
+        BusyGuard(counter)
+    }
+}
+
+impl Drop for BusyGuard<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 impl AppState {
     pub fn new(data_dir: PathBuf) -> Self {
         let _ = fs::create_dir_all(&data_dir);
@@ -502,6 +520,7 @@ impl AppState {
                 job_cache: Mutex::new(None),
                 data_dir,
                 shutdown: Arc::new(AtomicBool::new(false)),
+                busy: AtomicUsize::new(0),
             }),
         }
     }
@@ -515,14 +534,24 @@ impl AppState {
     pub fn shutdown(&self) {
         let sh = &self.shared;
         sh.shutdown.store(true, Ordering::SeqCst);
-        {
-            let mut slot = lock(&sh.job);
-            slot.cancel.store(true, Ordering::SeqCst);
-        }
+        lock(&sh.job).cancel.store(true, Ordering::SeqCst);
         {
             let hub = lock(&sh.hub);
             for spec in endmill_model::modelhub::catalog() {
                 hub.cancel(&spec.key);
+            }
+        }
+        // 분석 작업·모델 로드 같은 백그라운드 작업이 실제로 멈출 때까지 기다립니다 (최대 10초).
+        // 이 스레드들이 GPU 호출 도중인 채로 프로세스가 끝나면, 종료 단계(드라이버 정리)에서
+        // 프로세스가 창 없이 남아 exe 를 잠급니다.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while sh.busy.load(Ordering::SeqCst) > 0 && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        {
+            let hub = lock(&sh.hub);
+            for spec in endmill_model::modelhub::catalog() {
+                hub.wait(&spec.key, std::time::Duration::from_secs(3));
             }
         }
         self.flush();
@@ -564,7 +593,13 @@ where
     F: FnOnce(&Shared) -> Result<T, String> + Send + 'static,
 {
     let sh = state.shared.clone();
-    tauri::async_runtime::spawn_blocking(move || f(&sh))
+    tauri::async_runtime::spawn_blocking(move || {
+        let _busy = BusyGuard::new(&sh.busy);
+        if sh.shutdown.load(Ordering::SeqCst) {
+            return Err("앱을 종료하는 중입니다".to_string());
+        }
+        f(&sh)
+    })
         .await
         .map_err(|e| format!("작업 실행 실패: {}", e))?
 }
@@ -2999,6 +3034,7 @@ fn job_finish(sh: &Shared, id: u64, result: Result<Arc<JobResult>, String>) {
 }
 
 fn run_job(sh: Arc<Shared>, id: u64, mode: JobMode) {
+    let _busy = BusyGuard::new(&sh.busy);
     if sh.shutdown.load(Ordering::SeqCst) {
         return;
     }

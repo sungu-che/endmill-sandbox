@@ -125,10 +125,36 @@ fn main() {
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             if let tauri::RunEvent::ExitRequested { .. } = &event {
+                // 종료 정리가 어디선가 멈춰도 30초 뒤에는 프로세스를 끝냅니다.
+                std::thread::spawn(|| {
+                    std::thread::sleep(std::time::Duration::from_secs(30));
+                    eprintln!("[exit] 종료 정리가 30초 안에 끝나지 않아 프로세스를 끝냅니다");
+                    hard_exit(1);
+                });
                 if let Some(state) = app_handle.try_state::<commands::AppState>() {
                     state.shutdown();
                 }
+                // 백그라운드 작업을 멈추고 데이터 저장까지 끝났습니다. 이후의 런타임·GPU 드라이버 정리 단계에서
+                // 프로세스가 창 없이 남는 일이 있어 (남은 프로세스가 exe 를 잠가 다음 실행의 rename 이 실패),
+                // 여기서 바로 끝냅니다.
+                hard_exit(0);
             }
         });
+}
+
+/// 프로세스를 즉시 끝냅니다. Windows 에서는 ExitProcess 의 DLL 정리 단계를 거치지 않습니다.
+fn hard_exit(code: i32) -> ! {
+    #[cfg(windows)]
+    {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetCurrentProcess() -> *mut std::ffi::c_void;
+            fn TerminateProcess(process: *mut std::ffi::c_void, exit_code: u32) -> i32;
+        }
+        unsafe {
+            TerminateProcess(GetCurrentProcess(), code as u32);
+        }
+    }
+    std::process::exit(code)
 }
 
