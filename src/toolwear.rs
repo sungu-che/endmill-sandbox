@@ -285,7 +285,7 @@ pub fn flute_shares(tool: &ToolGeometry, h_mean_mm: f64, mc: f64) -> Vec<f64> {
     loads.iter().map(|l| l / mx).collect()
 }
 
-fn erf(x: f64) -> f64 {
+pub fn erf(x: f64) -> f64 {
     let s = x.signum();
     let a = x.abs();
     let t = 1.0 / (1.0 + 0.3275911 * a);

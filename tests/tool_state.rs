@@ -895,7 +895,12 @@ fn the_path_factor_ignores_break_in_so_an_early_tool_change_forecast_holds() {
     let mut parts = 0usize;
     loop {
         let (_v, r, segs) = endmill_model::viewport::build_report_prog(&p, "pocket_zigzag", &ctx, &mut |_| true).unwrap();
-        ks.push(wearcomp::path_wear(&nominal.trajectory, &r).0.expect("steady path factor"));
+        let k = wearcomp::path_wear(&nominal.trajectory, &r).0.expect("steady path factor");
+        // 한계 바로 밑(예: VB 0.2998 / 0.30)에서 시작한 마지막 부품은 진입 몇 초만 깎고 멈춘다 — 그 조각(경로 1 %, 성장 0.0002 mm)의
+        // 계수는 진입 이동 하나의 값이지 경로 전체의 계수가 아니라 비교에서 뺀다
+        if !r.tool_life.unfinished || r.tool_life.completed_fraction() >= 0.5 {
+            ks.push(k);
+        }
         if r.vb_end_mm >= limit || parts >= 40 {
             break;
         }
@@ -1112,7 +1117,10 @@ fn coating_breakthrough_moves_an_incompatible_coating_toward_the_substrate() {
     let dlc0 = rate_at(WorkpieceMaterial::Titanium, "DLC", 0.0);
     let dlc1 = rate_at(WorkpieceMaterial::Titanium, "DLC", 0.1);
     assert_eq!(dlc0.coating_blend, 1.0);
-    assert!(dlc1.coating_exposure > 0.8 && dlc1.coating_blend < 0.7, "exposure {} blend {}", dlc1.coating_exposure, dlc1.coating_blend);
+    // DLC 의 탄소는 Ti 와 TiC 로 반응해(확산 ×3) 드러난 모재 초경이 더 느리게 닳는다 — 마모율이 모재 쪽으로 내려간다.
+    // 예전 기준 0.7 은 무코팅 초경의 Ti 확산을 근거 없이 0.45 배로 깎던 때의 값이다. 그 예외를 없앤 뒤(Uddin 외 2017: 건식 Ti 밀링에서
+    // 무코팅의 정상 마모 속도가 TiAlN 의 약 2.6배) 모재와 DLC 의 차이가 줄어 노출 88 % 에서 약 0.73
+    assert!(dlc1.coating_exposure > 0.8 && dlc1.coating_blend < 0.8, "exposure {} blend {}", dlc1.coating_exposure, dlc1.coating_blend);
     let altin = rate_at(WorkpieceMaterial::CarbonSteel, "AlTiN", 0.1);
     // 노출률 = 1 − (코팅 두께 / sin 여유각) / 플랭크 폭 — 탄소강 기본 여유각 8° 에서 3 µm 코팅은 21.6 µm 이 지나야 벗겨진다
     let strip_um = 3.0 / (8f64).to_radians().sin();

@@ -6760,7 +6760,7 @@
 	      ['냉각 저감', `${fmt(th.coolant_reduction_pct, 1)} %`],
 	      ['공구 몸체 온도', `${fmt(th.tool_body_c, 1)} °C`],
 	      ['공구 열팽창 (반경/축)', `${fmt(th.tool_radial_growth_um, 2)} / ${fmt(th.tool_axial_growth_um, 2)} µm`],
-	      ['맞물림 시간 · 과도 계수', `${fmt(th.engagement_time_ms, 2)} ms · ${fmt(th.transient_factor, 2)}`],
+	      ['맞물림 시간 · 단속 열 배수', `${fmt(th.engagement_time_ms, 2)} ms · ×${fmt(th.transient_factor, 2)}`],
 	      ['소재 입열 · 정상 상승', `${fmt(th.workpiece_heat_w, 0)} W · ${fmt(th.workpiece_steady_rise_c, 1)} K`],
 	      ['열균열 위험 · 구성인선 위험', `${fmt(th.thermal_crack_risk, 2)} · ${fmt(th.bue_risk, 2)}`],
 	    ]),

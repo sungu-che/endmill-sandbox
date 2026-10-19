@@ -1947,6 +1947,8 @@ pub struct ThermalResult {
     pub tool_radial_growth_um: f64,
     pub tool_axial_growth_um: f64,
     pub engagement_time_ms: f64,
+    /// 계면 온도 상승에 곱한 단속 절삭 열 축적 배수 (`interrupted_factor`, 0.3~1.5) — 피삭재 기준 물림에서 1, 짧게 물리면 작고 슬롯처럼 오래 물리면 크다.
+    /// 이름은 예전 과도 계수(`tribology::transient_factor`, ≤ 1)에서 이어 왔다
     pub transient_factor: f64,
     pub workpiece_heat_w: f64,
     pub workpiece_steady_rise_c: f64,
@@ -1967,6 +1969,41 @@ pub struct ThermalResult {
     pub lubricant_access: f64,
 }
 
+/// 날 하나가 한 순간 칩과 닿는 날 길이 (mm). 헬릭스 날은 물림각 φ_e 동안 축 방향으로 R·φ_e/tan β 만큼만 동시에 물리므로
+/// 깊은 축 절입에서도 날 하나의 접촉 길이는 그보다 길어지지 않는다 (헬릭스 0° 인서트는 ap 전체)
+pub fn engaged_edge_length_mm(tool: &ToolGeometry, eng: &Engagement) -> f64 {
+    let ap = eng.ap_mm.max(0.0);
+    let beta = tool.helix_deg.clamp(0.0, 70.0).to_radians();
+    let axial = if beta.tan() > 1e-3 { ap.min(tool.radius() * eng.span() / beta.tan()) } else { ap };
+    axial / beta.cos().max(0.3)
+}
+
+/// 단속 절삭 열 축적 배수 (`tribology::interrupted_heating`) — 이 물림의 값을 피삭재 기준 물림(ae = ae_ratio·D, ap = ap_ratio·D,
+/// 같은 공구·회전수·접촉 길이·칩 쪽 전도)의 값으로 나눈 비. 피삭재 표의 열 계수(`thermal_factor`)와 마모 기준 상태는 기준 물림에서 맞춘 값이라
+/// 그 물림에서 1 이 되게 두고, 물림 시간·날 접촉 길이의 차이만 더한다: 반경 절입이 작아 짧게 물리면 공구가 덜 데워져 차갑고,
+/// 슬롯처럼 오래 물리면 뜨겁다. 예전 `transient_factor` 는 접촉 길이 규모(수십 µs)의 데워짐만 봐 밀링의 ms 물림을 모두 정상으로 보았다
+pub fn interrupted_factor(ctx: &CutContext, eng: &Engagement, rpm: f64, contact_length_mm: f64, chip_conductance: f64) -> f64 {
+    if !(rpm > 0.0) || eng.span() <= 0.0 {
+        return 1.0;
+    }
+    let tool = &ctx.tool;
+    let period = 60.0 / rpm;
+    let heating = |e: &Engagement| {
+        tribology::interrupted_heating(
+            contact_length_mm,
+            engaged_edge_length_mm(tool, e),
+            chip_conductance,
+            tool.tool_conductivity,
+            tool.tool_diffusivity(),
+            e.span() / (2.0 * PI) * period,
+            period,
+        )
+    };
+    let d = tool.diameter_mm;
+    let reference = Engagement::side((ctx.wp.ap_ratio * d).min(tool.loc_mm.max(1e-3)), ctx.wp.ae_ratio * d, d, true);
+    (heating(eng) / heating(&reference).max(1e-15)).clamp(0.3, 1.5)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn thermal(ctx: &CutContext, co: &CuttingCoeffs, f: &ForceResult, vc: f64, rpm: f64, eng: &Engagement, wp_mass_kg: f64, wp_area_m2: f64) -> ThermalResult {
     thermal_preheated(ctx, co, f, vc, rpm, eng, wp_mass_kg, wp_area_m2, 0.0)
@@ -1983,7 +2020,7 @@ pub fn thermal_preheated(ctx: &CutContext, co: &CuttingCoeffs, f: &ForceResult, 
     let cap = (0.9 * ctx.wp.melt_c - t0).max(50.0);
     let t_cut = if rpm > 0.0 { eng.span() / (2.0 * PI) * 60.0 / rpm } else { 0.0 };
     let steady = tribology::interface_cooling(ctx, co, f, vc, raw.min(cap));
-    let tf = tribology::transient_factor(ctx, steady.contact_length_mm, steady.conduction, t_cut);
+    let tf = interrupted_factor(ctx, eng, rpm, steady.contact_length_mm, steady.conduction);
     let cooling = tribology::interface_cooling(ctx, co, f, vc, raw.min(cap) * tf);
     let contact_s = if t_cut > 0.0 { t_cut } else { 1.0 };
     let barrier = tribology::coating_barrier(ctx, cooling.contact_length_mm, cooling.conduction, contact_s);

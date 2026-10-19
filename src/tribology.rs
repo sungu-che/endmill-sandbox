@@ -370,10 +370,13 @@ fn adhesion_modifier(c: &CoatingChem, chem: WpChem) -> f64 {
                 1.0
             }
         }
+        // Ti 와 친화성이 높은 것은 Al 이 없는 Ti 계 코팅(TiN·TiCN·TiSiN)이다 — TiAlN·AlTiN·nACo 는 Al 산화막이 계면을 덮는다
+        // (`compatibility` 의 경고도 Al 없는 Ti 계만 낸다). 예전에는 Ti 를 포함한 모든 코팅에 1.12 를 매겨, 건식 Ti 밀링에서 TiAlN 이 무코팅보다
+        // VB 가 약 30 % 작다는 실측(Uddin 외 2017 — 10 m 에서 0.144 대 0.21 mm)과 반대로 TiAlN 이 무코팅보다 빨리 닳았다
         WpChem::Titanium => {
             if c.carbon {
                 1.8
-            } else if c.ti {
+            } else if c.ti && !c.al {
                 1.12
             } else if c.cr {
                 0.95
@@ -472,16 +475,10 @@ pub fn pair_coat(coat: &CoatingTribology, wp: &WorkpieceProps, t_c: f64) -> Pair
         match wp.chem {
             WpChem::Iron => coat.diffusion,
             WpChem::Nickel => coat.diffusion,
-            WpChem::Titanium => {
-                coat.diffusion
-                    * if c.bare {
-                        0.45
-                    } else if c.ti {
-                        1.1
-                    } else {
-                        1.0
-                    }
-            }
+            // 무코팅 초경의 Ti 확산을 0.45 배로 깎던 예외를 없앴다 — 근거가 없었고 (docs/tool-life-and-pair-matrix.md 6번 '재검토 필요'),
+            // 건식 Ti 밀링의 정상 마모 속도는 무코팅이 TiAlN 의 약 2.6배다 (Uddin 외 2017: 0.0185 대 0.0072 mm/m). 코팅의 확산 장벽 배수는
+            // 다른 피삭재와 같고, Ti 와 화학 친화성이 큰 Al 없는 Ti 계 코팅만 1.1 배
+            WpChem::Titanium => coat.diffusion * if c.ti && !c.al { 1.1 } else { 1.0 },
             WpChem::Aluminum | WpChem::CarbonFiber => 1.0,
         }
     };
@@ -667,6 +664,77 @@ pub fn transient_factor(ctx: &CutContext, contact_length_mm: f64, chip_conductan
         (integral(1.0) + (contact_s - t_star)) / contact_s
     };
     avg.clamp(0.3, 1.0)
+}
+
+/// 길이 a 의 띠 위 균일 열원이 너비 s = √(4κτ) 의 가우스 핵으로 퍼질 때, 띠 위 평균에 남는 몫 (무차원, s → 0 에서 1).
+/// ∫₀ᵃ∫₀ᵃ G dx′dx / a 의 닫힌 꼴: erf(a/s) − (1 − exp(−a²/s²))·s/(a√π)
+fn strip_overlap(a: f64, s: f64) -> f64 {
+    if s <= 1e-15 * a.max(1e-15) {
+        return 1.0;
+    }
+    let r = a / s;
+    (crate::toolwear::erf(r) - (1.0 - (-r * r).exp()) / (r * std::f64::consts::PI.sqrt())).clamp(0.0, 1.0)
+}
+
+/// 반무한 공구 표면의 a × b 직사각형에 균일 열유속 q 를 t 초 동안 넣었을 때 직사각형 평균 온도 상승 × k/q (m).
+/// 순간 점열원의 해를 면적에 적분한 것이다 (Carslaw·Jaeger): R(t) = 2√(κ/π) ∫₀^√t S_a(2√κ u)·S_b(2√κ u) du.
+/// 짧은 시간에는 1차원 2√(κt/π) (예전 `transient_factor` 의 근거와 같다), 길이 a 를 넘으면 띠 열원처럼 로그로, 길이 b 를 넘으면 3차원 정상값으로 간다.
+/// `t = ∞` 이면 정상값 (연속 절삭)
+pub fn rect_response(t: f64, a: f64, b: f64, kappa: f64) -> f64 {
+    let a = a.max(1e-7);
+    let b = b.max(a);
+    let k2 = 2.0 * kappa.max(1e-9).sqrt();
+    let u_lo = 1e-3 * a / k2;
+    let u_tail = 40.0 * b / k2;
+    let u_hi = if t.is_finite() { t.max(0.0).sqrt().min(u_tail) } else { u_tail };
+    if u_hi <= u_lo {
+        return 2.0 * (kappa * t.max(0.0) / std::f64::consts::PI).sqrt();
+    }
+    // u_lo 아래는 S ≈ 1, 위는 로그 간격 적분
+    let n = 48;
+    let (l0, l1) = (u_lo.ln(), u_hi.ln());
+    let mut acc = u_lo;
+    for i in 0..n {
+        let x = l0 + (l1 - l0) * (i as f64 + 0.5) / n as f64;
+        let u = x.exp();
+        let s = k2 * u;
+        acc += strip_overlap(a, s) * strip_overlap(b, s) * u * (l1 - l0) / n as f64;
+    }
+    // 정상값의 꼬리: s ≫ b 에서 S_a·S_b ≈ ab/(π s²) → ∫ du = ab/(π k2² u)
+    if !t.is_finite() || t.sqrt() > u_tail {
+        acc += a * b / (std::f64::consts::PI * k2 * k2 * u_tail);
+    }
+    2.0 * (kappa / std::f64::consts::PI).sqrt() * acc
+}
+
+/// 단속 절삭(밀링)의 계면 열 저항 — 물림 시간 동안 평균한 1/(g_c + g_t(t)) (m²K/W). 같은 열유속이면 계면 온도 상승이 이 값에 비례한다.
+///
+/// 날은 회전마다 물림 시간 t_e 동안만 칩과 닿고 나머지 시간에 식는다. 계면 온도는 칩 쪽 전도 g_c (움직이는 열원)와 공구 쪽 전도
+/// g_t(t) = k / R(t) 가 열을 나눠 가지며 정해지고 (온도 ∝ 1/(g_c + g_t)), 공구 쪽은 접촉 길이 l_c × 날 접촉 길이 b 의 면에 열이
+/// 쌓이는 만큼 식는 힘이 줄어든다 (`rect_response`). 연속 절삭(t_e ≥ 주기)은 정상값 R(∞) 를 쓴다. 앞 회전들이 남긴 열은 평균 물림 비율
+/// D = t_e/T 만큼 정상값의 먼 몫(R(∞) − R(T))으로 더한다 (주기 펄스 열원의 중첩을 적분으로 근사). 같은 조건에서 물림만 다른 두 칸 —
+/// 반경 절입이 작아 짧게 물리는 정삭과 슬롯, 축 절입이 얕아 날 접촉이 짧은 칸과 깊은 칸 — 의 온도 차이가 이 식에서 나온다
+/// (Stephenson·Ali 1992 의 단속 절삭 공구 온도와 같은 구조; Hosokawa 외 2000 의 고속 엔드밀 플랭크 온도가 연속 절삭보다 낮은 이유)
+pub fn interrupted_heating(contact_length_mm: f64, edge_length_mm: f64, chip_conductance: f64, k_tool: f64, kappa_tool: f64, t_engage_s: f64, period_s: f64) -> f64 {
+    let a = (contact_length_mm.max(0.002)) / 1000.0;
+    let b = (edge_length_mm.max(contact_length_mm).max(0.002)) / 1000.0;
+    let k = k_tool.max(1.0);
+    let gc = chip_conductance.max(1.0);
+    let r_inf = rect_response(f64::INFINITY, a, b, kappa_tool);
+    if !(t_engage_s > 0.0) || !(period_s > 0.0) || t_engage_s >= 0.95 * period_s {
+        return 1.0 / (gc + k / r_inf.max(1e-12));
+    }
+    let duty = t_engage_s / period_s;
+    let memory = duty * (r_inf - rect_response(period_s, a, b, kappa_tool)).max(0.0);
+    // 물림 시간 평균: t = t_e·w² 로 바꿔 시작부(빠른 변화)에 점을 모은다
+    let n = 10;
+    let mut acc = 0.0;
+    for i in 0..n {
+        let w = (i as f64 + 0.5) / n as f64;
+        let r = rect_response(t_engage_s * w * w, a, b, kappa_tool) + memory;
+        acc += 1.0 / (gc + k / r.max(1e-12)) * 2.0 * w / n as f64;
+    }
+    acc
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

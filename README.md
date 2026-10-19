@@ -275,7 +275,7 @@ cross-check line in one file), `wear_logs\` (the job CSV/JSON of this run, also 
 | 14 | tool × material N:N matrix — 8 built-in tools × 8 use cases on `MATRIX_PATTERNS` (default rect_profile, pocket_zigzag, helical_pocket) with the physical check `pairmatrix::check` (`[MATRIX-CHECK]`: finite values, no mm/min wear after coating break-through, temperature and VB bounds, the fit cap, diamond/DLC on Fe/Ti/Ni and HSS on 58 HRC judged unsuitable, intended pairs not unsuitable). Any calculation defect fails the step |
 | 15 | ML ops on the GPU backend against the CPU (`tests/gpu_backend.rs`: attention, norms, RoPE, SigLIP patch conv, tiny ModernBERT, matmul time) — skipped on cpu |
 | 16 | Vulkan shader-path parity (`tests/vulkan_backend.rs`) — vulkan only |
-| 17 | literature benchmark — the tools, materials and cutting conditions of the cited papers in the sandbox data, 13 paper tools + 8 built-in tools × 16 paper conditions, 31 comparisons with what the papers measured (`tests/literature_benchmark.rs`, `[BENCH]` lines; see [docs/literature-benchmark.md](docs/literature-benchmark.md)) |
+| 17 | literature benchmark — the tools, materials and cutting conditions of the cited papers in the sandbox data, 21 paper tools + 8 built-in tools × 35 paper conditions, 57 comparisons with what the papers measured (`tests/literature_benchmark.rs`, `[BENCH]` · `[BENCH-ANCHOR]` lines; see [docs/literature-benchmark.md](docs/literature-benchmark.md)) |
 
 The cutting simulation runs on the CPU for every backend, so steps 02–14 and 17 must give the same results everywhere; the
 backend only changes the ML parts. Options: `QUICK=1` (skip steps 03, 13, 14), `ONLY=04,11`, `LEAN_LINK=1` (link this
@@ -403,6 +403,14 @@ also weaker in the model (≈ 0–6 %).
   Stegmann et al. 2024). The previous through-tool value (320) was air-jet level and let earlier passes pre-heat
   nickel and titanium alloys by 150–335 K.
 * Thermal shock index (interrupted cutting + quench severity)
+* Interrupted-cut heating (`tribology::interrupted_heating`, `physics::interrupted_factor`): a milling tooth is heated only while
+  it is engaged. The interface rise follows 1/(g_c + k/R(t)) — chip-side conductance g_c and the tool side k/R(t), with R(t) the
+  mean response of a contact-length × engaged-edge-length rectangle on the tool surface (Carslaw–Jaeger point-source solution
+  integrated over the area: √t at first, steady once the heat has spread over the contact), plus the heat left by earlier
+  revolutions (duty × (R(∞) − R(T))). The engagement-averaged resistance is taken relative to the material's reference engagement
+  (ae_ratio·D, ap_ratio·D), so a light finishing cut runs cooler and a slot hotter (Ti: 0.89 at ae 0.05·D, 1.25 in a slot;
+  Stephenson & Ali 1992). The old transient factor only saw the tens-of-µs heating of the contact and treated every millisecond
+  engagement as continuous cutting.
 
 ### Wear Model
 
@@ -412,6 +420,9 @@ also weaker in the model (≈ 0–6 %).
 * Reference-state normalisation (AlTiN, flood, 10 mm, S45C baseline)
 * 3-phase trajectory: break-in (exponential decay, pair-specific size and time constant) → steady → accelerated (force-temperature feedback loop, 1500-step ODE)
 * Coating compatibility factor, runout factor, chip-evacuation factor
+* Ti chemistry: only Al-free Ti-based coatings (TiN, TiCN, TiSiN) get the Ti-affinity adhesion (×1.12) and diffusion (×1.1)
+  multipliers; Al-bearing coatings are covered by their Al oxide. The old ×0.45 Ti diffusion discount for uncoated carbide had no
+  source and made TiAlN wear faster than uncoated (measured: TiAlN VB 0.684 × uncoated at 10 m, Uddin et al. 2017)
 * Calibration via SDS ledger (measured/predicted ratio, shrinkage estimator)
 
 ### Dynamics
@@ -568,23 +579,33 @@ pocket for 26 minutes past its limit. Every cutting step now runs a tool-life mo
 
 ### Literature Benchmark — paper tools × paper conditions (`src/benchmark.rs`)
 
-* The tools, workpiece materials and cutting conditions of the cited papers (Karandikar et al. 2013/2014/2021 AISI 1018,
-  Tatar et al. 2020 · Liu et al. 2019 · Matuszak et al. 2023 · Li et al. 2014 Ti-6Al-4V, Grigoriev et al. 2020 AlCuMg2 / 41Cr4,
-  Hovsepian et al. 2006 Al7010, Dewes et al. 1999 H13 52 HRC) are written as sandbox tool settings and workpiece materials.
-  13 paper tools + 8 built-in tools × 16 paper conditions = 336 cells, compared with the measured values in 31 comparisons:
-  18 absolute (life, removed volume, interface temperature, mean force, radial ratio, Ra), 6 ratios inside one paper (coating
-  gain, condition change — unknown anchors cancel) and 7 sensitivities (Taylor slope d ln T / d ln Vc, radial-depth slope,
-  temperature-speed slope). Bands: life ×/÷2 (×/÷3 where the tool is assumed), forces ±25 % (Budak et al. 1996).
-* Mismatches were traced to physics, never fitted per cell: the shear-zone temperature (Thermal Model), adhesion activation
-  (Wear Model), the flank-land geometry and a wedge-angle (90° − γ − α) fit rule instead of clearance alone (`appfit`), and the
-  rake rule (Force Model). In band 13 → 15 / 31, median absolute-life error ×8.6 → ×3.0, the three 1018 Taylor slopes
-  −1.80 / −2.46 / −1.92 → −2.04 / −2.39 / −2.18 (measured −2.15 / −2.80 / −2.69). Changes that matched one comparison and
-  broke others were reverted (a Ti activation constant of 12,000 K, a Loewen–Shaw flank-heat partition) and are documented.
-* Open gaps (kept, not forced): Ti speed sensitivity (−2.4 vs −3.3…−4), aluminium light-cut life and DLC gain, thin-chip
-  41Cr4 life, the speed exponent of kc (−0.01 vs −0.18), hardened-steel Taylor slope. Paper values were read from abstracts
-  and excerpts; tool details the papers do not give are marked as assumptions with lower confidence.
-* Run: `cargo run --example lit_benchmark -- <dir>` (CSV/JSON: comparisons, all cells), test `tests/literature_benchmark.rs`
-  (test step 17). Full tables and reasoning: [docs/literature-benchmark.md](docs/literature-benchmark.md).
+* The tools, workpiece materials and cutting conditions of the cited papers are written as sandbox tool settings and workpiece
+  materials: Karandikar et al. 2014 AISI 1018 (6 speeds, Tables 1–2), Tatar et al. 2020 · Liu et al. 2019 (L9) · Matuszak et al. 2023 ·
+  Uddin et al. 2017 · Li et al. 2014 · Shokrani et al. · Tyler & Schmitz 2014 Ti-6Al-4V, Grigoriev et al. 2020 AlCuMg2 / 41Cr4,
+  Hovsepian et al. 2006 with Luo et al. 2005 Al7010, Dewes et al. 1999 H13, Tymczyszyn et al. 2025 316L, Sánchez-Hechavarría et al. 2017
+  D6 62 HRC, Tan et al. 2021 Inconel 718, Wojciechowski 2011/2016 55 HRC, Tyler & Schmitz 2014 304. 21 paper tools + 8 built-in tools
+  × 35 paper conditions = 1,015 cells, compared with the measured values in 57 comparisons: 42 absolute (31 lives, interface
+  temperature, mean force, radial ratio, force growth with wear, Ra, Rz), 5 coating ratios inside one paper (unknown anchors cancel)
+  and 10 sensitivities (Taylor slope d ln T / d ln Vc, radial-depth slope, temperature-speed slope). Bands: life ×/÷2 (×/÷3 where
+  the tool or the criterion is assumed), forces ±25 % (Budak et al. 1996).
+* Round 2 re-read the papers' full texts: corrected tool/condition data (Liu Ø12 and Table 4 volumes, Matuszak Ø20 and the VB3
+  criterion, Tatar's single insert and notch criterion, Karandikar's Table 2 at ap 3, Grigoriev 30° helix / dry, Luo's lab feed)
+  and added nine papers.
+* Mismatches were traced to physics, never fitted per cell. Round 1: the shear-zone temperature (Thermal Model), adhesion
+  activation (Wear Model), the flank-land geometry and a wedge-angle fit rule (`appfit`), and the rake rule (Force Model).
+  Round 2: interrupted-cut heating (Thermal Model) and the Ti × coating chemistry (Wear Model). On today's definitions the round-2
+  physics takes the comparisons in band from 22 to 27 / 57 (medium confidence 13 → 18 / 34) and the median slope error from
+  0.48 to 0.33: Tatar's radial-depth slope −0.51 → −0.89 (measured −1.0), Matuszak's speed slope −2.44 → −3.06 (−3.3), Uddin's
+  TiAlN / uncoated VB ratio 1.22 → 0.688 (0.684). Changes that matched one comparison and broke others were reverted (a Ti
+  activation constant of 12,000 K, a Loewen–Shaw flank-heat partition, re-anchoring the Ti reference life) and are documented.
+* `[BENCH-ANCHOR]` prints, per material, the geometric mean and range of measured / predicted life — a diagnostic, not a fit:
+  Ti ×7.96 over 17 comparisons with a ×0.78–×36.5 spread, so no single reference life can match them.
+* Open gaps (kept, not forced): Ti absolute life at low and moderate speed and the spread of Ti speed slopes between papers
+  (−1.04 … −4), aluminium light-cut life and DLC gain, thin-chip 41Cr4 life, the speed exponent of kc (−0.01 vs −0.06 … −0.18),
+  hardened-steel life, force growth with wear on stainless / Inconel.
+* Run: `cargo run --example lit_benchmark -- <dir>` (CSV/JSON: comparisons, all cells), one cell's physics breakdown
+  `cargo run --example bench_probe -- <tool> <cut> [Vc multipliers]`, test `tests/literature_benchmark.rs` (test step 17).
+  Full tables and reasoning: [docs/literature-benchmark.md](docs/literature-benchmark.md).
 
 ### Physics Cross-Check (MPM) — optional, off by default, not experimentally validated
 

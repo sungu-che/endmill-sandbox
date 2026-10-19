@@ -2094,7 +2094,7 @@ pub fn lines(a: &SimAudit) -> Vec<String> {
     ));
     let th = &a.thermal;
     v.push(format!(
-        "[AUDIT] 열: 계면 건식 {:.0} → 습식 {:.0}°C (저감 {:.1}%, 효과 {:.2}, {}) 실행 ae {:.0}°C | h_film {:.0} h_eff {:.0} 칩전도 {:.1e} W/m²K 접촉 {:.3} mm {:.2} ms 과도 {:.2} | 공구몸체 {:.1}°C (+{:.1} K, 시간적분 {}) | 경로 평균 {:.0} 최대 {:.0} 첫 빈 {:.0} 끝 빈 {:.0}°C 소재 {:.1}°C",
+        "[AUDIT] 열: 계면 건식 {:.0} → 습식 {:.0}°C (저감 {:.1}%, 효과 {:.2}, {}) 실행 ae {:.0}°C | h_film {:.0} h_eff {:.0} 칩전도 {:.1e} W/m²K 접촉 {:.3} mm {:.2} ms 단속 열 ×{:.2} | 공구몸체 {:.1}°C (+{:.1} K, 시간적분 {}) | 경로 평균 {:.0} 최대 {:.0} 첫 빈 {:.0} 끝 빈 {:.0}°C 소재 {:.1}°C",
         th.interface_dry_c,
         th.interface_wet_c,
         th.coolant_reduction_pct,

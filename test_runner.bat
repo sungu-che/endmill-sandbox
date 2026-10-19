@@ -161,8 +161,9 @@ if /i "%BACKEND%"=="vulkan" (
 )
 
 rem ---- 17: literature benchmark - the tools, materials and cutting conditions of the cited papers moved into the sandbox ----
-rem      data (13 paper tools + 8 built-in tools x 16 paper conditions) and compared with what the papers measured
-rem      ([BENCH] comparison lines, [BENCH-SUM] per quantity, [BENCH-GRID] life grid; see docs\literature-benchmark.md)
+rem      data (21 paper tools + 8 built-in tools x 35 paper conditions) and compared with what the papers measured
+rem      ([BENCH] comparison lines, [BENCH-SUM] per quantity, [BENCH-ANCHOR] per-material life diagnostic, [BENCH-GRID] life grid;
+rem      see docs\literature-benchmark.md)
 call :run 17 literature_bench    "%CT% --test literature_benchmark --no-fail-fast -- --nocapture --test-threads=1"
 
 rem ---- mirror this run's wear logs into the app folder (the app lists them there) ----

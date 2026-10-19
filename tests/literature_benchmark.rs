@@ -18,8 +18,8 @@ fn literature_benchmark_runs_the_nn_grid_and_keeps_the_fixed_physics_in_band() {
     let cuts = benchmark::paper_cuts().len();
     assert_eq!(rep.cells.len(), tools * cuts, "N:N 칸 수");
     assert!(rep.issues.is_empty(), "물리 점검: {:?}", rep.issues);
-    // 1018 무코팅 초경의 Taylor 기울기 3건 (예전 −1.80 · −2.46 · −1.92 — 응착을 온도 활성화하기 전)
-    for id in ["kar_taylor_lo", "kar_taylor_hi", "kar21_taylor"] {
+    // 1018 무코팅 초경의 Taylor 기울기 4건 (예전 −1.80 · −2.46 · −1.92 — 응착을 온도 활성화하기 전). 89.8~448.8 m/min 의 6개 속도
+    for id in ["kar_taylor_lo", "kar_taylor_hi", "kar_taylor_pred", "kar_taylor_449"] {
         let c = find(&rep, id);
         assert!(c.in_band, "{}: 기울기 {:.2} 가 대역 {:.2}~{:.2} 밖", id, c.predicted, c.lo, c.hi);
     }
@@ -32,13 +32,30 @@ fn literature_benchmark_runs_the_nn_grid_and_keeps_the_fixed_physics_in_band() {
         assert!(c.in_band, "{}: {:.3} vs 실측 {:.3}", id, c.predicted, c.measured);
     }
     // 여유각 15° 인서트의 수명이 마모 랜드 기하·쐐기각 판정으로 실측 쪽으로 왔다 (예전 비 0.07~0.18) — 남은 차이는 1018 을 C45 소재로 본 몫이 크다
-    for id in ["kar1018_090", "kar1018_224", "kar1018_374"] {
+    for id in ["kar1018_090", "kar1018_224", "kar1018_374", "kar1018_150", "kar1018_299", "kar1018_449"] {
         let c = find(&rep, id);
         assert!(c.ratio > 0.18 && c.ratio < 2.0, "{}: 예측/실측 {:.2}", id, c.ratio);
     }
+    // 2라운드 물리: 단속 절삭 열 축적 — 물림이 길수록 공구가 덜 식는다 (Tatar ae 기울기, 예전 −0.51) · Ti 의 속도 기울기 (Matuszak, 예전 −2.44)
+    for id in ["tatar_ae", "mat_vc"] {
+        let c = find(&rep, id);
+        assert!(c.in_band, "{}: 기울기 {:.2} 가 대역 {:.2}~{:.2} 밖", id, c.predicted, c.lo, c.hi);
+    }
+    // 2라운드 물리: Ti × 코팅 화학 — Al 계 코팅이 무코팅보다 덜 닳는다 (Uddin 2017 VB 비 0.684, 예전 무코팅 Ti 확산 ×0.45 예외로 1.22)
+    let u = find(&rep, "uddin_vb_gain");
+    assert!(u.in_band && u.predicted < 1.0, "TiAlN / 무코팅 VB 비 {:.3}", u.predicted);
+    // 스테인리스: 단날 TiN 인서트의 304 수명과 Taylor 기울기 (Tyler·Schmitz 2014) — 소재 기준 상태의 다른 대조
+    for id in ["ts_304_life", "ts_304_taylor"] {
+        let c = find(&rep, id);
+        assert!(c.in_band, "{}: {:.3} vs 실측 {:.3}", id, c.predicted, c.measured);
+    }
     let inb = rep.comparisons.iter().filter(|c| c.in_band).count();
     println!("[BENCH] 대역 안 {} / {}", inb, rep.comparisons.len());
-    assert!(inb >= 14, "대역 안 비교가 줄었다: {} / {}", inb, rep.comparisons.len());
+    assert!(inb >= 24, "대역 안 비교가 줄었다: {} / {}", inb, rep.comparisons.len());
+    // 소재별 기준 수명 진단 — 맞춤에 쓰지 않고 흩어짐만 본다 (Ti 는 한 소재 안에서 수십 배 흩어져 기준 수명 하나로 맞출 수 없다)
+    for (label, n, gm, lo, hi) in benchmark::anchor_diagnosis(&rep) {
+        assert!(n > 0 && gm > 0.0 && lo <= gm && gm <= hi, "{}: {} 건 ×{:.2} (×{:.2}~×{:.2})", label, n, gm, lo, hi);
+    }
 }
 
 /// 공구·소재 판정 규칙이 논문 칸에서도 지켜지는가: 탄소 코팅 × 철계·Ti 와 HSS × 52 HRC 는 '쓰지 않음', 논문 공구는 자기 조건에서 쓸 수 있음

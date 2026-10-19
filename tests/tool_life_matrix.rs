@@ -254,11 +254,16 @@ fn rest_reach(segs: &[ToolPathSegment], start: (f64, f64, f64), stop: &toollife:
 }
 
 /// 1차가 멈추면 마지막에 깎인 벽 중 남은 경로가 다시 깎을 곳은 미절삭 소재의 경계다 — 부품 벽이 아니라 최종 벽에서 빠진다.
-/// 인코넬 포켓(옛 지그재그 고정 경로 `legacy_zigzag`, 정지 정책, 61 % 에서 멈춤)에서 마지막 줄 너머의 벽은 다음 줄이 깎아 내고, 스톡 가장자리
+/// 인코넬 포켓(옛 지그재그 고정 경로 `legacy_zigzag`, ap 0.5·D, 정지 정책, 약 28 % 에서 멈춤)에서 마지막 줄 너머의 벽은 다음 줄이 깎아 내고, 스톡 가장자리
 /// 스킨(줄 끝 피치 이동이 만든 ±X 벽)은 남는다. 최종 벽 통계·세그먼트별 벽·품질 저하 보고·감사 줄이 모두 같은 최종 벽을 쓰고, 끝까지 간 작업은 그대로다
 #[test]
 fn a_stopped_pocket_counts_only_part_walls_as_final() {
-    let p = with_policy("인코넬", ToolLifePolicy::Stop);
+    let mut p = with_policy("인코넬", ToolLifePolicy::Stop);
+    // 옛 경로의 첫 줄은 폭 전체 슬롯이다. 슬롯이 측면 절삭보다 뜨겁게 물리는 단속 절삭 열 축적(`physics::interrupted_factor`, 문헌 벤치마크 2라운드)을
+    // 넣은 뒤로는 프리셋 ap 1·D 슬롯에서 공구가 첫 줄 17 s 만에 수명에 닿고, 그 줄을 마저 깎다 정적 과부하로 부러진다 (예전 모델은 슬롯도
+    // 측면 절삭과 같은 온도로 봐 61 % 까지 갔다). 멈춘 포켓 장면은 Ni 계 슬롯 권장의 가운데값 0.5·D (Mitsubishi · Haas 0.5, Helical 0.25~0.5,
+    // Seco 0.6 — `WorkpieceProps::slot_ap_ratio` 주석) 로 본다
+    p.conditions.axial_doc_mm = 0.5 * p.endmill_setting.diameter_mm;
     let (ctx, r, segs) = legacy_report(&p);
     let tl = &r.tool_life;
     assert!(tl.unfinished && !tl.failed);
@@ -670,14 +675,24 @@ fn pocket_skin_carries_only_its_own_chip_force_and_springs_back_within_its_colla
     // 스톡 가장자리 0.92 mm 스킨, z −6) 1,012.7 = 공구 휨 501.2 + 얇은 벽 458.3 + 마모 45.7 + 소재 열 8.8 − 런아웃 1.3 − 공구 열 0.1.
     // 얇은 벽 458 µm 는 공구 앞 미절삭 띠를 폭 전체로 깎는 피치 이동의 법선 힘 6.9 kN 전체를 스킨에 걸어 나온 탄성 1.48 mm 를 ±500·t 로
     // 자른 값이었다 (뿌리 굽힘 12 GPa = 항복의 10배). 그 힘은 공구 앞 덩어리가 면내로 받고, 벽이 돌아오는 몫은 전소성 하중까지다.
-    // 앱 기본 경로는 그 뒤 개편돼 스킨을 남기지 않으므로 그때의 경로(`legacy_zigzag`)로 본다
+    // 앱 기본 경로는 그 뒤 개편돼 스킨을 남기지 않으므로 그때의 경로(`legacy_zigzag`)로 본다.
+    // 단속 절삭 열 축적(문헌 벤치마크 2라운드)을 넣은 뒤로는 그 ap 1·D 폭 전체 슬롯에서 공구가 첫 줄 17 s 만에 수명에 닿고 정적 과부하로 부러져
+    // 스킨이 생기지 않는다 — 인코넬은 제조사 슬롯 상한(이 공구 급 Kennametal HARVI II TE 0.75·D, `WorkpieceProps::slot_ap_ratio`)으로 깎고,
+    // 수명에 닿은 공구는 예비 공구로 바꿔(교체 정책) 포켓 끝까지 스킨을 만든다
     let run = |name: &str| legacy_report(&preset(name));
     let collapse_cap_ok = |ctx: &CutContext, w: &WallErrorSample, bulk_c: f64| {
         // 경로의 σy 는 그때 소재 온도에서 — 가장 찬(가장 단단한) 온도로 잰 상한을 넘지 않아야 한다
         let sy = ctx.wp.flow_stress(0.0, 1.0, ctx.env.ambient_c.min(bulk_c));
         w.workpiece_um.abs() <= 1.5 * sy / w.wall_sigma_per_n.max(1e-12) / w.wall_k_n_mm * 1000.0 + 1e-6
     };
-    let (ctx, r, segs) = run("인코넬");
+    let inconel = {
+        let mut p = with_policy("인코넬", ToolLifePolicy::ChangeTool);
+        let slot = physics::WorkpieceProps::of(&p.workpiece_setup.effective_material()).slot_ap_ratio.expect("Ni alloys have vendor slot data");
+        p.conditions.axial_doc_mm = slot * p.endmill_setting.diameter_mm;
+        p
+    };
+    let (ctx, r, segs) = legacy_report(&inconel);
+    assert!(!r.tool_life.unfinished && !r.tool_life.failed && r.tool_life.tools_used > 1, "spare tools finish the pocket: {}", r.tool_life.state);
     let finals: Vec<&WallErrorSample> = r.wall_errors.iter().filter(|w| w.final_wall).collect();
     let skin_steps: Vec<&&WallErrorSample> = finals.iter().filter(|w| w.wall_k_n_mm > 0.0 && y_move(&segs, w.seg)).collect();
     let worst = finals.iter().max_by(|a, b| a.total_um.abs().partial_cmp(&b.total_um.abs()).unwrap()).expect("final walls");
@@ -704,9 +719,13 @@ fn pocket_skin_carries_only_its_own_chip_force_and_springs_back_within_its_colla
     // 스킨 형상(두께·강성)은 남는다 — 그 스킨을 따라 깎는 2차 보정 예측이 쓴다
     assert!(skin_steps.iter().all(|w| w.wall_mm > 0.5 && w.wall_mm < 1.5 && w.wall_k_n_mm > 0.0));
     assert!(finals.iter().filter(|w| w.wall_k_n_mm > 0.0).all(|w| collapse_cap_ok(&ctx, w, r.bulk_c)));
-    // 남는 최악 오차는 슬롯형 이동(ap 1·D, 법선 힘 6~7 kN)의 공구 휨이다 — 공구 끝 강성 13.8 N/µm 는 실측 대역이라 경로 쪽 문제였고,
-    // 그래서 기본 경로를 슬롯 ap 단계 절입 · 정삭 윤곽으로 바꿨다 (`docs/pocket-zigzag-path.md`)
-    assert!(worst.workpiece_um.abs() < 1.0 && worst.deflection_um > 400.0, "{:?}", (worst.deflection_um, worst.workpiece_um));
+    // 남는 최악 오차는 슬롯형 이동(ap 1·D 에서 법선 힘 6~7 kN 으로 휨 약 500 µm, 슬롯 상한 0.75·D 에서도 약 370 µm)의 공구 휨이다 — 공구 끝 강성
+    // 13.8 N/µm 는 실측 대역이라 경로 쪽 문제였고, 그래서 기본 경로를 슬롯 ap 단계 절입 · 정삭 윤곽으로 바꿨다 (`docs/pocket-zigzag-path.md`)
+    assert!(
+        worst.workpiece_um.abs() < 1.0 && worst.deflection_um > 300.0 && worst.deflection_um > 0.8 * worst.total_um.abs(),
+        "{:?}",
+        (worst.deflection_um, worst.workpiece_um, worst.total_um)
+    );
     assert!(r.max_wall_error_um < 650.0, "was 968.6 µm (Stop) with the skin term: {:.1}", r.max_wall_error_um);
     // 탄소강 프리셋: 끝까지 깎아 마지막 패스가 위쪽 스킨을 측면 절삭(벽 쪽 띠만)으로 만든다 — 그 벽은 지금처럼 힘을 받아 휘고(띠와 벽이 한 몸),
     // 피치 이동이 만든 옆 스킨은 휘지 않는다. 예전 최대 533 µm 중 324 µm 가 피치 이동의 스킨 휨이었다
